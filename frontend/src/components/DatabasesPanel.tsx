@@ -49,7 +49,9 @@ export default function DatabasesPanel() {
     if (!name.trim() || busy) return;
     setBusy(true);
     setError(null);
-    setNote("Будим сервер и создаём базу — на Free это может занять до минуты…");
+    setNote(
+      "Будим API (Free Render может спать до ~1 мин) и создаём базу — не закрывайте вкладку…",
+    );
     try {
       await createHandDatabase(name.trim(), true);
       clearAnalysisCache();

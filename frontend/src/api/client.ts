@@ -1,4 +1,34 @@
-const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+const API_BASE = String(import.meta.env.VITE_API_BASE ?? "")
+  .trim()
+  .replace(/^["']|["']$/g, "")
+  .replace(/\/$/, "");
+
+const COLD_START_MS = 120_000;
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (typeof DOMException !== "undefined" &&
+      err instanceof DOMException &&
+      err.name === "AbortError") ||
+    (err instanceof Error && err.name === "AbortError")
+  );
+}
+
+function networkErrorMessage(err: unknown): string {
+  if (isAbortError(err)) {
+    return "Сервер долго просыпается (Free Render). Подождите ~1 мин и нажмите ещё раз.";
+  }
+  if (!API_BASE) {
+    return "Не задан VITE_API_BASE на Static Site — укажите URL API и Redeploy.";
+  }
+  return `Нет связи с API (${API_BASE}). На Free Render сервис засыпает — подождите ~1 мин и повторите. Если не помогает: CORS_ORIGINS = https://pokerstarton.onrender.com`;
+}
 
 export type TokenResponse = {
   access_token: string;
@@ -63,18 +93,52 @@ export function clearCachedMe() {
   cachedMeAt = 0;
 }
 
-/** Ping API so Free Render wakes before a real request (can take ~60s). */
-export async function wakeApi(timeoutMs = 90_000): Promise<boolean> {
+/**
+ * Ping API until awake. Free Render often resets the first connection —
+ * retry in a loop instead of a single long fetch.
+ */
+export async function wakeApi(timeoutMs = COLD_START_MS): Promise<boolean> {
   if (!API_BASE) return false;
-  const ctrl = new AbortController();
-  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${API_BASE}/health`, { signal: ctrl.signal });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    window.clearTimeout(timer);
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+  while (Date.now() < deadline) {
+    attempt += 1;
+    const slice = Math.min(40_000, Math.max(5_000, deadline - Date.now()));
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), slice);
+    try {
+      const res = await fetch(`${API_BASE}/health`, {
+        signal: ctrl.signal,
+        cache: "no-store",
+        mode: "cors",
+      });
+      if (res.ok) return true;
+    } catch {
+      /* cold start / connection reset — keep trying */
+    } finally {
+      window.clearTimeout(timer);
+    }
+    await sleep(Math.min(4_000, 800 * attempt));
+  }
+  return false;
+}
+
+let keepAliveTimer: number | undefined;
+
+/** While the tab is open, ping /health so Free Render stays warm. */
+export function startApiKeepAlive(intervalMs = 4 * 60_000) {
+  if (!API_BASE || keepAliveTimer !== undefined) return;
+  const tick = () => {
+    void fetch(`${API_BASE}/health`, { cache: "no-store", mode: "cors" }).catch(() => {});
+  };
+  tick();
+  keepAliveTimer = window.setInterval(tick, intervalMs);
+}
+
+export function stopApiKeepAlive() {
+  if (keepAliveTimer !== undefined) {
+    window.clearInterval(keepAliveTimer);
+    keepAliveTimer = undefined;
   }
 }
 
@@ -141,7 +205,12 @@ async function tryRefreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
-async function request<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  _retried = false,
+  _netAttempt = 0,
+): Promise<T> {
   if (!API_BASE && import.meta.env.PROD) {
     throw new Error(
       "Не задан адрес API (VITE_API_BASE). В Render → Static Site → Environment добавьте VITE_API_BASE = URL Web Service и сделайте Redeploy.",
@@ -154,27 +223,32 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
   const token = localStorage.getItem("access_token");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  // Free Render cold start — default 90s unless caller already set a signal.
+  // Free Render cold start — default unless caller already set a signal.
   let ownTimer: number | undefined;
   let signal = init?.signal;
   if (!signal) {
     const ctrl = new AbortController();
     signal = ctrl.signal;
-    ownTimer = window.setTimeout(() => ctrl.abort(), 90_000);
+    ownTimer = window.setTimeout(() => ctrl.abort(), COLD_START_MS);
   }
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...init, headers, signal });
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      signal,
+      cache: "no-store",
+      mode: "cors",
+    });
   } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      throw new Error(
-        "Сервер долго просыпается (Free Render). Подождите ~60 сек и попробуйте снова.",
-      );
+    if (ownTimer !== undefined) window.clearTimeout(ownTimer);
+    // First connection often dies while the free dyno boots — wake and retry.
+    if (!isAbortError(err) && _netAttempt < 2) {
+      await wakeApi(COLD_START_MS);
+      return request<T>(path, init, _retried, _netAttempt + 1);
     }
-    throw new Error(
-      "Сервер не отвечает. На Free Render API засыпает — подождите ~60 сек и обновите. Проверьте CORS_ORIGINS и VITE_API_BASE.",
-    );
+    throw new Error(networkErrorMessage(err));
   } finally {
     if (ownTimer !== undefined) window.clearTimeout(ownTimer);
   }
@@ -182,7 +256,7 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
     // Soft-fail network-ish proxy errors — never wipe the session.
     if (res.status === 401 && path !== "/api/auth/login" && path !== "/api/auth/refresh") {
       if (!_retried && (await tryRefreshAccessToken())) {
-        return request<T>(path, init, true);
+        return request<T>(path, init, true, _netAttempt);
       }
       // Only clear after refresh failed — real auth rejection.
       clearCachedMe();
@@ -193,10 +267,13 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
     try {
       const body = (await res.json()) as { detail?: string | { msg?: string }[] };
       if (typeof body.detail === "string") message = body.detail;
+      else if (Array.isArray(body.detail) && body.detail[0]?.msg) {
+        message = body.detail.map((d) => d.msg).filter(Boolean).join("; ");
+      }
     } catch {
       /* keep statusText */
     }
-    throw new Error(message || "Ошибка запроса");
+    throw new Error(message || `Ошибка запроса (${res.status})`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -1432,12 +1509,18 @@ export const MAX_HANDS_PER_DATABASE = 100_000;
 export const MAX_HANDS_PER_ANALYSIS = 100_000;
 
 export async function listHandDatabases() {
-  await wakeApi();
+  const awake = await wakeApi();
+  if (!awake) {
+    throw new Error(networkErrorMessage(new Error("wake failed")));
+  }
   return request<HandDatabase[]>("/api/databases");
 }
 
 export async function createHandDatabase(name: string, switchTo = true) {
-  await wakeApi();
+  const awake = await wakeApi();
+  if (!awake) {
+    throw new Error(networkErrorMessage(new Error("wake failed")));
+  }
   return request<HandDatabase>("/api/databases", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

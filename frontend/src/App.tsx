@@ -7,7 +7,7 @@ import RequireAuth from "./components/RequireAuth";
 import SiteFooter from "./components/SiteFooter";
 import SupportWidget from "./components/SupportWidget";
 import UserMenu from "./components/UserMenu";
-import { getMe, isLoggedIn, trackPageView } from "./api/client";
+import { getMe, isLoggedIn, startApiKeepAlive, stopApiKeepAlive, trackPageView } from "./api/client";
 import AcademyPage from "./pages/AcademyPage";
 import AdminPage from "./pages/AdminPage";
 import CareerPage from "./pages/CareerPage";
@@ -62,9 +62,15 @@ export default function App() {
   }, [loggedIn, location.pathname]);
 
   useEffect(() => {
-    if (!loggedIn) return;
+    if (!loggedIn) {
+      stopApiKeepAlive();
+      return;
+    }
     // Prefetch active hand DB + career report into localStorage for instant open.
     void warmHandDbAndResultsCache();
+    // Keep Free Render API awake while the tab is open.
+    startApiKeepAlive();
+    return () => stopApiKeepAlive();
   }, [loggedIn]);
 
   if (isSharePage) {
