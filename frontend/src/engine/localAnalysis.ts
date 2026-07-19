@@ -107,24 +107,6 @@ function pickExpected(raiseF: number, callF: number, foldF: number): string {
   return "fold";
 }
 
-function matchSpot(spots: StrategySpot[], hand: HandRow): StrategySpot | null {
-  if (!hand.detected_spot || !hand.hero_position) return null;
-  const exact = spots.find(
-    (s) =>
-      s.spot_key === hand.detected_spot &&
-      s.hero_position === hand.hero_position &&
-      (s.villain_position ?? null) === (hand.villain_position ?? null),
-  );
-  if (exact) return exact;
-  return (
-    spots.find(
-      (s) =>
-        s.spot_key === hand.detected_spot &&
-        s.hero_position === hand.hero_position,
-    ) ?? null
-  );
-}
-
 /** Fast spot lookup for large session scoring. */
 function buildSpotIndex(spots: StrategySpot[]) {
   const exact = new Map<string, StrategySpot>();

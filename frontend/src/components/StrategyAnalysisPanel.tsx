@@ -1363,7 +1363,7 @@ export default function StrategyAnalysisPanel({
                             row.villain_position,
                             row.matchup || row.spot_label,
                           );
-                          const potKind = row.pot_kind ?? spotPotKind(row.spot_key);
+                          const potKind = spotPotKind(row.spot_key);
                           return (
                           <tr
                             key={branchKey(row)}

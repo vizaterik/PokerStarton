@@ -70,7 +70,7 @@ export async function listSessionBranches(
         label: displayMatchup(
           spot.spot_key,
           spot.hero_position,
-          spot.villain_position,
+          spot.villain_position ?? null,
         ),
         hands_count: 0,
         profit_money: 0,
@@ -92,7 +92,7 @@ export async function listSessionBranches(
       row.label = displayMatchup(
         spot.spot_key,
         spot.hero_position,
-        spot.villain_position,
+        spot.villain_position ?? null,
       );
     }
   }

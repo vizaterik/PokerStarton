@@ -36,7 +36,7 @@ export function inferPotKind(
   return "srp";
 }
 
-export function potKindTag(kind: BranchPotKind): string {
+export function potKindTag(kind: BranchPotKind | string): string {
   if (kind === "limp") return "Limp";
   if (kind === "3bp") return "3-bet";
   if (kind === "4bp") return "4-bet";

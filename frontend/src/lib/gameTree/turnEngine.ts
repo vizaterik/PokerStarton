@@ -225,7 +225,7 @@ export function resolveNextTurn(
 export function actionBadgeLabel(
   player: Seat,
   action: TreeAction,
-  sizingBB: number | undefined,
+  _sizingBB: number | undefined,
   raiseIndex: number,
   wasSqueeze = false,
 ): string {

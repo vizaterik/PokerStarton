@@ -99,20 +99,6 @@ function cell(actions: MacroAction[], sizing?: MacroSizing): MacroCellRule {
   return sizing ? { actions, sizing } : { actions };
 }
 
-function emptyMatrix(): MacroMatrix {
-  const row = (): Record<MacroBoard, MacroCellRule> => ({
-    dry: cell([]),
-    wet: cell([]),
-    high: cell([]),
-  });
-  return {
-    strong_made: row(),
-    medium_sdv: row(),
-    strong_draws: row(),
-    air: row(),
-  };
-}
-
 function aggressorSrp(): MacroMatrix {
   return {
     strong_made: {

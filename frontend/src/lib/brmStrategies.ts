@@ -354,7 +354,7 @@ export function calculateLimitVerdict(
   }
 
   // Для shot_taking всегда напоминаем стоп-лосс в detail
-  if (stopLossBuyins != null && status !== "empty") {
+  if (stopLossBuyins != null) {
     detail += ` Стоп-лосс шота: −${stopLossBuyins} бай-ина — затем обязательный спуск.`;
   }
 

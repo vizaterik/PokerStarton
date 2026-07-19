@@ -260,7 +260,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
   const dualRanges = useMemo(() => {
     if (pushFold || rangeSpotViews.length < 2) return null;
 
-    const isDecision = (s: (typeof rangeSpotViews)[number]) =>
+    const isDecision = (s: { lineAction: string }) =>
       s.lineAction === "RAISE" || s.lineAction === "CALL";
 
     const nextFacing = (afterIdx: number) =>
