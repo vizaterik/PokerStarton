@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE ?? "";
+const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 export type TokenResponse = {
   access_token: string;
@@ -106,6 +106,11 @@ async function tryRefreshAccessToken(): Promise<boolean> {
 }
 
 async function request<T>(path: string, init?: RequestInit, _retried = false): Promise<T> {
+  if (!API_BASE && import.meta.env.PROD) {
+    throw new Error(
+      "Не задан адрес API (VITE_API_BASE). В Render → Static Site → Environment добавьте VITE_API_BASE = URL Web Service и сделайте Redeploy.",
+    );
+  }
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type") && init?.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
@@ -117,7 +122,9 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
   try {
     res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
-    throw new Error("Сервер не отвечает. Проверьте, что backend запущен.");
+    throw new Error(
+      "Сервер не отвечает. На Free Render API засыпает — подождите ~60 сек и обновите. Проверьте CORS_ORIGINS и VITE_API_BASE.",
+    );
   }
   if (!res.ok) {
     // Soft-fail network-ish proxy errors — never wipe the session.
@@ -143,8 +150,9 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
 }
 
 export function login(email: string, password: string) {
+  // Free Render cold start can take 50–90s.
   const ctrl = new AbortController();
-  const timer = window.setTimeout(() => ctrl.abort(), 15000);
+  const timer = window.setTimeout(() => ctrl.abort(), 90000);
   return request<TokenResponse>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
@@ -152,7 +160,9 @@ export function login(email: string, password: string) {
   })
     .catch((err: unknown) => {
       if (err instanceof DOMException && err.name === "AbortError") {
-        throw new Error("Сервер не отвечает. Подождите пару секунд и попробуйте снова.");
+        throw new Error(
+          "Сервер долго просыпается (Free Render). Подождите минуту и попробуйте снова.",
+        );
       }
       throw err;
     })
