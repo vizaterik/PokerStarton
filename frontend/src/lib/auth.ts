@@ -4,5 +4,5 @@ import { clearTokens } from "../api/client";
 export function logout() {
   clearTokens();
   // Full navigation avoids stale React auth state.
-  window.location.assign("/#/login");
+  window.location.assign("/login");
 }

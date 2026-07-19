@@ -24,12 +24,17 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = (
+        "http://localhost:5173,"
+        "https://pokerstarton.onrender.com,"
+        "https://pokerstarton-api.onrender.com"
+    )
     upload_dir: str = "uploads"
     algorithm: str = "HS256"
     google_client_id: str = ""
-    # Desktop Electron: serve built React UI from this directory (optional).
+    # Serve built React UI from this directory (Docker / Render same-origin).
     desktop_static_dir: str = ""
+    static_dir: str = ""
     desktop_mode: bool = False
 
     smtp_host: str = ""

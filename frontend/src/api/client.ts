@@ -24,10 +24,8 @@ function networkErrorMessage(err: unknown): string {
   if (isAbortError(err)) {
     return "Сервер долго просыпается (Free Render). Подождите ~1 мин и нажмите ещё раз.";
   }
-  if (!API_BASE) {
-    return "Не задан VITE_API_BASE на Static Site — укажите URL API и Redeploy.";
-  }
-  return `Нет связи с API (${API_BASE}). На Free Render сервис засыпает — подождите ~1 мин и повторите. Если не помогает: CORS_ORIGINS = https://pokerstarton.onrender.com`;
+  const target = API_BASE || "(этот же сайт)";
+  return `Нет связи с API ${target}. На Free Render сервис засыпает — подождите ~1 мин и повторите. Лучше открывать сайт с домена API (same-origin), без отдельного Static Site.`;
 }
 
 export type TokenResponse = {
@@ -98,7 +96,6 @@ export function clearCachedMe() {
  * retry in a loop instead of a single long fetch.
  */
 export async function wakeApi(timeoutMs = COLD_START_MS): Promise<boolean> {
-  if (!API_BASE) return false;
   const deadline = Date.now() + timeoutMs;
   let attempt = 0;
   while (Date.now() < deadline) {
@@ -107,11 +104,7 @@ export async function wakeApi(timeoutMs = COLD_START_MS): Promise<boolean> {
     const ctrl = new AbortController();
     const timer = window.setTimeout(() => ctrl.abort(), slice);
     try {
-      const res = await fetch(`${API_BASE}/health`, {
-        signal: ctrl.signal,
-        cache: "no-store",
-        mode: "cors",
-      });
+      const res = await fetch(`${API_BASE}/health`, { signal: ctrl.signal });
       if (res.ok) return true;
     } catch {
       /* cold start / connection reset — keep trying */
@@ -127,9 +120,9 @@ let keepAliveTimer: number | undefined;
 
 /** While the tab is open, ping /health so Free Render stays warm. */
 export function startApiKeepAlive(intervalMs = 4 * 60_000) {
-  if (!API_BASE || keepAliveTimer !== undefined) return;
+  if (keepAliveTimer !== undefined) return;
   const tick = () => {
-    void fetch(`${API_BASE}/health`, { cache: "no-store", mode: "cors" }).catch(() => {});
+    void fetch(`${API_BASE}/health`).catch(() => {});
   };
   tick();
   keepAliveTimer = window.setInterval(tick, intervalMs);
@@ -211,11 +204,7 @@ async function request<T>(
   _retried = false,
   _netAttempt = 0,
 ): Promise<T> {
-  if (!API_BASE && import.meta.env.PROD) {
-    throw new Error(
-      "Не задан адрес API (VITE_API_BASE). В Render → Static Site → Environment добавьте VITE_API_BASE = URL Web Service и сделайте Redeploy.",
-    );
-  }
+  // Empty API_BASE = same origin (UI served from the FastAPI host).
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type") && init?.body && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
@@ -238,8 +227,6 @@ async function request<T>(
       ...init,
       headers,
       signal,
-      cache: "no-store",
-      mode: "cors",
     });
   } catch (err) {
     if (ownTimer !== undefined) window.clearTimeout(ownTimer);

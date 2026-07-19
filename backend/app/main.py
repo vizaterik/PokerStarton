@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +12,22 @@ from app.db.ensure_schema import ensure_postgres_schema
 from app.db.migrate_sqlite import ensure_sqlite_schema
 from app.db.session import engine
 import app.models  # noqa: F401
+
+
+def _resolve_static_dir() -> Path | None:
+    candidates = [
+        settings.desktop_static_dir,
+        settings.static_dir,
+        "static",
+        "../frontend/dist",
+    ]
+    for raw in candidates:
+        if not raw:
+            continue
+        path = Path(raw).expanduser().resolve()
+        if path.is_dir() and (path / "index.html").is_file():
+            return path
+    return None
 
 
 @asynccontextmanager
@@ -45,15 +61,26 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-_static = Path(settings.desktop_static_dir).resolve() if settings.desktop_static_dir else None
-if _static and _static.is_dir() and (_static / "index.html").is_file():
+_static = _resolve_static_dir()
+if _static is not None:
     assets = _static / "assets"
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
 
+    @app.get("/")
+    async def spa_root() -> FileResponse:
+        return FileResponse(_static / "index.html")
+
     @app.get("/{full_path:path}")
     async def spa_fallback(full_path: str) -> FileResponse:
-        # Do not shadow API / health (already registered above).
+        # API/docs should already be registered; never rewrite them to the SPA.
+        if full_path.startswith("api/") or full_path in {
+            "health",
+            "docs",
+            "openapi.json",
+            "redoc",
+        }:
+            raise HTTPException(status_code=404, detail="Not Found")
         candidate = _static / full_path
         if full_path and candidate.is_file():
             return FileResponse(candidate)
