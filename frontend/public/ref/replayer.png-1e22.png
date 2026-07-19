@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    
+    
+
+
+
+
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css?family=Roboto:500,700i,900&display=swap" rel="stylesheet">
+
+
+
+    <link rel="stylesheet" href="/dist/main.min.css?v=TUTDrG8kL2hB9b45BVsb4N52vf7QXhwjxxF-fSHncDM" />
+    <link href="https://fonts.googleapis.com/css?family=Open+Sans:300,300i,400,400i,600,700&amp;subset=cyrillic" rel="stylesheet">
+
+    <!-- jquery 3.x minified-->
+    <script src="https://code.jquery.com/jquery-3.1.1.min.js" integrity="sha256-hVVnYaiADRTO2PzUGmuLJr8BLUSjGIZsDYGmIJLv2b8=" crossorigin="anonymous" asp-fallback-test-class="jQuery"></script>
+
+
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/js/toastr.min.js"></script>
+<script>(toastr||document.write("\u003Cscript src=\u0022\/dist\/toastr.min.js\u0022\u003E\u003C\/script\u003E"));</script>
+
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/css/toastr.min.css"
+          asp-fallback-src="/dist/toastr.min.css"
+          asp-fallback-test="toastr"
+          rel="stylesheet" />
+
+
+
+
+
+
+
+
+
+
+<title>Hand2Note - Error</title>
+
+
+<link rel="shortcut icon" href="favicon.ico" />
+
+
+    <!-- <partial Name="Layouts/HtmlHead"/>-->
+    <!-- Header Scripts-->
+    
+    <!-- End of Header Scripts-->
+    <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet">
+    <!-- Google Tag Manager -->
+    <script>
+    (function (w, d, s, l, i) {
+        w[l] = w[l] || []; w[l].push({
+            'gtm.start':
+                new Date().getTime(), event: 'gtm.js'
+        }); var f = d.getElementsByTagName(s)[0],
+            j = d.createElement(s), dl = l != 'dataLayer' ? '&l=' + l : ''; j.async = true; j.src =
+            'https://www.googletagmanager.com/gtm.js?id=' + i + dl; f.parentNode.insertBefore(j, f);
+    })(window, document, 'script', 'dataLayer', 'GTM-MWK79HP');</script>
+    <!-- End Google Tag Manager -->
+    <script src="https://js.stripe.com/v3" async></script>
+</head>
+<body>
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-MWK79HP"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+
+
+<div class="layout">
+    <div class="laoyut__header-container">
+        <div>
+
+
+<div class="header">
+    <div class="header__content-wrapper">
+        
+            <div><a class="home-logo" href="/">
+    <img src="/Images/Shared/header-logo.png"/>
+</a></div>
+
+        <div>
+
+<ul class="navigation-menu">
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Home/Features">Features</a></li>
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Purchase">Purchase</a></li>
+
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="https://hudstore.poker/">HUD Store</a></li>
+
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/PokerMaster">PokerMaster</a></li>
+
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Help">Manual</a></li>
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="https://forumserver.twoplustwo.com/301/hand2note/">Forum</a></li>
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Home/AboutUs">About Us</a></li>
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Home/WeHire">We Hire</a></li>
+</ul></div>
+
+        <div class="header__right-panel-container">
+
+
+            <a class="header__post-hand-button button_style_accent" href="/Hands">Post Hand</a>
+
+            <a class="header__download-button button" href="https://h2n-uptoyou.azureedge.net/main/Hand2NoteInstaller.exe" onClick="yaCounter41809449.reachGoal('downloadgoal');return true;">Download</a>
+
+                <a class="header__log?in-link link" href="/Account/Login">Login</a>
+            
+            <div>
+
+
+
+
+
+    <form action="/Home/SetLanguage" method="post">
+        <input hidden name="culture" value="ru" />
+        <input hidden name="returnUrl" value="/Home/Error?statusCode=404" />
+        <button type="submit" class="language-dialog__submit-button link" style="font-size: 18px">&#x420;&#x443;&#x441;</button>
+    <input name="__RequestVerificationToken" type="hidden" value="CfDJ8MYZR2HEMGpGlmPP7HOfHoDeJigID13TmIBgTkwOXQnlz7Pn3G04C7wYGp6k93BldSg1HyjWejWZiN-yVYp6ZpOQAayMAbNWTGI0nEjOrcrt6hlh0zotkBByTd9qYO1CviqTfsuF8ZEOLcO-_DJyNK0" /></form>
+
+    <form action="/Home/SetLanguage" method="post">
+        <input hidden name="culture" value="zh-Hans" />
+        <input hidden name="returnUrl" value="/Home/Error?statusCode=404" />
+        <button type="submit" class="language-dialog__submit-button link" style="font-size: 18px">&#x4E2D;&#x6587;</button>
+    <input name="__RequestVerificationToken" type="hidden" value="CfDJ8MYZR2HEMGpGlmPP7HOfHoDeJigID13TmIBgTkwOXQnlz7Pn3G04C7wYGp6k93BldSg1HyjWejWZiN-yVYp6ZpOQAayMAbNWTGI0nEjOrcrt6hlh0zotkBByTd9qYO1CviqTfsuF8ZEOLcO-_DJyNK0" /></form>
+</div>
+        </div>
+    </div>
+</div></div>
+    </div>
+    
+
+<div class="error-page">
+    <h1 class="text-danger">Error 404.</h1>
+    <p class="text-danger">An error occurred while processing your request.</p>    
+    <a class="link extra-block" href="/">To main page</a>
+</div>
+
+
+    <div class="layout__footer-container">
+        <div>
+<div class="footer">
+    <div class="focus-container">
+        <div class="layout-row-centered layout-row__space-between">
+            <div class="layout-row-centered">
+                <a class="link row-cell" href="/Home/Error">
+                    <img src="/Images/Shared/footer-logo.png" />
+                </a>
+                <div class="block">
+                    <div>
+
+<ul class="navigation-menu">
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Home/Features">Features</a></li>
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Purchase">Purchase</a></li>
+
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="https://hudstore.poker/">HUD Store</a></li>
+
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/PokerMaster">PokerMaster</a></li>
+
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Help">Manual</a></li>
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="https://forumserver.twoplustwo.com/301/hand2note/">Forum</a></li>
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Home/AboutUs">About Us</a></li>
+    <li class="navigation-menu__item"><a class="navigation-menu__link link" href="/Home/WeHire">We Hire</a></li>
+</ul></div>
+                    <p class="footer__copyright-text text " style="margin-top: 10px;">©2026 Hand2Note. All rights reserved</p>
+                    <div>
+                        <a class="policy_link link" href="/Policies/EULA.html">End User License Agreement</a>
+                        <a class="policy_link link" href="/Policies/TermOfUse.html">Terms of Use</a>
+                        <a class="policy_link link" href="/Policies/RefundPolicy.html">Refund Policy</a>
+                        <a class="policy_link link" href="/Policies/PrivacyPolicy.html">Privacy Policy</a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-sidepanel">
+                <div class="block">
+                    <div class="layout-row-centered">
+                        <div class="row-cell"><div>
+
+
+
+
+
+    <form action="/Home/SetLanguage" method="post">
+        <input hidden name="culture" value="ru" />
+        <input hidden name="returnUrl" value="/Home/Error?statusCode=404" />
+        <button type="submit" class="language-dialog__submit-button link" style="font-size: 18px">&#x420;&#x443;&#x441;</button>
+    <input name="__RequestVerificationToken" type="hidden" value="CfDJ8MYZR2HEMGpGlmPP7HOfHoDeJigID13TmIBgTkwOXQnlz7Pn3G04C7wYGp6k93BldSg1HyjWejWZiN-yVYp6ZpOQAayMAbNWTGI0nEjOrcrt6hlh0zotkBByTd9qYO1CviqTfsuF8ZEOLcO-_DJyNK0" /></form>
+
+    <form action="/Home/SetLanguage" method="post">
+        <input hidden name="culture" value="zh-Hans" />
+        <input hidden name="returnUrl" value="/Home/Error?statusCode=404" />
+        <button type="submit" class="language-dialog__submit-button link" style="font-size: 18px">&#x4E2D;&#x6587;</button>
+    <input name="__RequestVerificationToken" type="hidden" value="CfDJ8MYZR2HEMGpGlmPP7HOfHoDeJigID13TmIBgTkwOXQnlz7Pn3G04C7wYGp6k93BldSg1HyjWejWZiN-yVYp6ZpOQAayMAbNWTGI0nEjOrcrt6hlh0zotkBByTd9qYO1CviqTfsuF8ZEOLcO-_DJyNK0" /></form>
+</div></div>
+                        <div><div class="social-links " >
+    <a class="social-links__link link" href="http://vk.com/public54299351" rel="nofollow">
+        <i class="social-links__vk-icon"></i>
+    </a>
+    <a class="social-links__link link"  href="https://www.facebook.com/Hand2Note?ref=hl" rel="nofollow">
+        <i class="social-links__facebook-icon"></i>
+    </a>
+    <a class="social-links__link link"  href="https://twitter.com/hand2note" rel="nofollow">
+        <i class="social-links__twitter-icon1"></i>
+    </a>
+    
+</div></div>
+
+                    </div>
+                    <div class="extra-par layout-row-centered">
+                        <div class="layout-row">
+                            <div class="layout-column">
+                                <div class="footer__visa"></div>
+                                <div class="footer__mastercard"></div>
+                                <div class="footer__unionpay"></div>
+                            </div>
+                            <div class="layout-column">
+                                <div class="footer__skrill-paypal"></div>
+                                <div class="footer__skrill-skrill"></div>
+                            </div>
+                            <div class="layout-column">
+                                <a class="link" href="http://www.megastock.com" rel="nofollow">
+                                    <img src="/Images/Shared/we-accept-webmoney_en.png"/>
+                                </a>
+                                <a class="link" class="footer__skrill-webmoney " style="margin-top: 20px" href="https://passport.webmoney.ru/asp/certview.asp?wmid=175065776609" rel="nofollow">
+                                    <img src="/Images/Shared/verified-by-webmoney_en.png"/>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div></div>
+    </div>
+</div>
+    
+    
+
+
+
+</body>
+</html>

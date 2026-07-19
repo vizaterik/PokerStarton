@@ -1,0 +1,110 @@
+:root {
+  --bg: #0a0a0a;
+  --bg-elevated: #121212;
+  --bg-panel: #161616;
+  --ink: #f5f5f5;
+  --muted: #9a9a9a;
+  --accent: #88f991;
+  --accent-strong: #6ee87a;
+  --accent-ink: #0a0a0a;
+  --line: #262626;
+  --line-soft: #1c1c1c;
+  --danger: #ff6b6b;
+  --raise: #ff5a5a;
+  --call: #3dd68c;
+  --fold: #5b8def;
+  --glow: rgba(136, 249, 145, 0.22);
+  /* Плавный easing для hover/active кнопок */
+  --ease-out-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --btn-transition:
+    background-color 0.36s var(--ease-out-smooth),
+    background 0.36s var(--ease-out-smooth),
+    color 0.36s var(--ease-out-smooth),
+    border-color 0.36s var(--ease-out-smooth),
+    box-shadow 0.36s var(--ease-out-smooth),
+    transform 0.36s var(--ease-out-smooth),
+    filter 0.36s var(--ease-out-smooth),
+    opacity 0.36s var(--ease-out-smooth);
+  font-family: "Manrope", system-ui, sans-serif;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  width: 100%;
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse 70% 45% at 70% 15%, rgba(136, 249, 145, 0.1) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 40% at 10% 80%, rgba(91, 141, 239, 0.06) 0%, transparent 50%),
+    linear-gradient(180deg, #0b0d10 0%, var(--bg) 40%, #080808 100%);
+  background-attachment: fixed;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+/* Плавные hover/active для всех кнопок сайта */
+button,
+[role="button"],
+.cta,
+.cta-secondary,
+.chip {
+  transition: var(--btn-transition);
+}
+
+#root {
+  min-height: 100dvh;
+  width: 100%;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes grid-drift {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 48px 48px;
+  }
+}

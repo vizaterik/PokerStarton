@@ -1,0 +1,27 @@
+/* Geometric controls only — keep original theme, square buttons/tabs/inputs. */
+
+button,
+[role="button"],
+.cta,
+.cta-secondary,
+.chip,
+.period-chip,
+.unit-toggle button,
+.career-tabs button,
+.profile-tabs button,
+.street-tabs button,
+.analysis-tabs button,
+.preflop-subtabs button,
+.upload-submit,
+.nav-cta,
+.nav-ghost,
+.topbar-nav > a,
+.profile-chip,
+.panel button[type="submit"],
+input,
+select,
+textarea,
+.panel input,
+.results-controls select {
+  border-radius: 0 !important;
+}

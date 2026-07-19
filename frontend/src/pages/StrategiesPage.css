@@ -1,0 +1,538 @@
+.strat-page-head {
+  text-align: center;
+  margin: 0 auto 1.35rem;
+  max-width: 36rem;
+}
+
+.strat-page-head h1 {
+  margin-bottom: 0.35rem;
+}
+
+.strat-page-head .lead {
+  margin: 0 auto;
+  max-width: 28rem;
+}
+
+.strat-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  align-items: stretch;
+  width: 100%;
+  max-width: none;
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .strat-layout {
+    grid-template-columns: 1fr;
+    max-width: 560px;
+  }
+
+  .strat-library {
+    position: static;
+    max-height: none;
+  }
+}
+
+/* Equal twin panels */
+.strat-col.panel {
+  max-width: none;
+  width: 100%;
+  min-height: 28rem;
+  padding: 1.35rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+  box-sizing: border-box;
+}
+
+.strat-col-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 0.75rem 1rem;
+  min-height: 3.4rem;
+  padding-bottom: 0.95rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.strat-col-title {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.strat-col-title h2 {
+  margin: 0;
+  font-family: "Sora", sans-serif;
+  font-size: 1.12rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.strat-col-sub {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.strat-wizard-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.strat-wizard-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  transition: var(--btn-transition);
+}
+
+.strat-wizard-steps li span {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  background-color: rgba(255, 255, 255, 0.06);
+  transition: var(--btn-transition);
+}
+
+.strat-wizard-steps .is-active {
+  color: var(--accent);
+  font-weight: 700;
+  border-color: rgba(136, 249, 145, 0.3);
+  background-color: rgba(136, 249, 145, 0.08);
+}
+
+.strat-wizard-steps .is-active span {
+  background-color: var(--accent);
+  color: #0c1210;
+}
+
+.strat-wizard-steps .is-done {
+  color: rgba(212, 181, 106, 0.95);
+}
+
+.strat-wizard-steps .is-done span {
+  background-color: rgba(212, 181, 106, 0.22);
+  color: #e6d3a2;
+}
+
+.strat-wizard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  flex: 1;
+  animation: strat-step-in 0.38s var(--ease-out-smooth) both;
+}
+
+@keyframes strat-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.strat-wizard-body > .muted {
+  margin: 0;
+  min-height: 1.3em;
+}
+
+.strat-format-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.strat-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+@media (max-width: 520px) {
+  .strat-format-grid,
+  .strat-preset-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.strat-format-card,
+.strat-preset-card {
+  text-align: left;
+  padding: 0.95rem 0.9rem;
+  min-height: 5.4rem;
+  border-radius: 0.85rem;
+  border: 1px solid var(--line-soft);
+  background-color: rgba(255, 255, 255, 0.025);
+  background-image: none;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  align-content: start;
+  gap: 0.4rem;
+  outline: none;
+  transition: var(--btn-transition);
+}
+
+.strat-format-card:hover,
+.strat-preset-card:hover {
+  border-color: rgba(136, 249, 145, 0.35);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.strat-format-card:focus-visible,
+.strat-preset-card:focus-visible {
+  border-color: rgba(136, 249, 145, 0.55);
+  box-shadow: 0 0 0 3px rgba(136, 249, 145, 0.15);
+}
+
+.strat-format-card.is-active,
+.strat-preset-card.is-active {
+  border-color: rgba(136, 249, 145, 0.5);
+  background-color: rgba(136, 249, 145, 0.1);
+  box-shadow: 0 0 0 1px rgba(136, 249, 145, 0.12);
+}
+
+.strat-format-card.is-active:hover,
+.strat-preset-card.is-active:hover {
+  background-color: rgba(136, 249, 145, 0.14);
+}
+
+.strat-format-card strong,
+.strat-preset-card strong {
+  font-family: "Sora", sans-serif;
+  font-size: 0.92rem;
+  line-height: 1.25;
+}
+
+.strat-format-card span,
+.strat-preset-card em {
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.strat-wizard-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.88rem;
+  min-height: 1.75rem;
+}
+
+.strat-wizard .panel input,
+.strat-wizard input {
+  margin-bottom: 0;
+}
+
+.strat-wizard-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.strat-wizard-actions:has(> :only-child) {
+  grid-template-columns: 1fr;
+}
+
+.strat-wizard-actions .cta,
+.strat-wizard-actions .cta-secondary {
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
+}
+
+.strat-name-examples {
+  display: grid;
+  grid-template-columns: auto repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.45rem;
+}
+
+@media (max-width: 640px) {
+  .strat-name-examples {
+    grid-template-columns: 1fr;
+  }
+}
+
+.strat-name-examples-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.strat-name-chip {
+  border: 1px solid rgba(212, 181, 106, 0.28);
+  background-color: rgba(212, 181, 106, 0.07);
+  background-image: none;
+  color: #e6d3a2;
+  border-radius: 0.55rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.74rem;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  min-height: 2.35rem;
+  transition: var(--btn-transition);
+}
+
+.strat-name-chip:hover {
+  background-color: rgba(212, 181, 106, 0.16);
+  border-color: rgba(212, 181, 106, 0.45);
+}
+
+.strat-name-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #ffb078;
+  min-height: 1.2em;
+}
+
+/* Library */
+
+.strat-library {
+  position: sticky;
+  top: 5.1rem;
+  max-height: calc(100dvh - 6.25rem);
+  overflow: auto;
+}
+
+.strat-library-count {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-family: "Sora", sans-serif;
+  color: #0c1210;
+  background: linear-gradient(145deg, #b8ffc0, var(--accent));
+  flex-shrink: 0;
+}
+
+.strat-library-empty {
+  flex: 1;
+  min-height: 14rem;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 0.4rem;
+  padding: 1.5rem 1rem;
+  border-radius: 0.9rem;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.strat-library-empty p {
+  margin: 0;
+  font-family: "Sora", sans-serif;
+  font-weight: 650;
+}
+
+.strat-library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+  flex: 1;
+  align-content: start;
+}
+
+.strat-card {
+  border-radius: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  min-height: 8.25rem;
+  transition: var(--btn-transition);
+}
+
+.strat-card:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.strat-card-cash {
+  border-color: rgba(136, 249, 145, 0.24);
+  box-shadow: inset 3px 0 0 rgba(136, 249, 145, 0.7);
+}
+
+.strat-card-mtt {
+  border-color: rgba(212, 181, 106, 0.28);
+  box-shadow: inset 3px 0 0 rgba(212, 181, 106, 0.75);
+}
+
+.strat-card-spins {
+  border-color: rgba(120, 196, 255, 0.28);
+  box-shadow: inset 3px 0 0 rgba(120, 196, 255, 0.75);
+}
+
+.strat-card-main {
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+  padding: 0.95rem 1rem 0.7rem;
+  text-decoration: none;
+  color: inherit;
+}
+
+.strat-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.35rem;
+}
+
+.strat-fmt-pill {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.strat-fmt-cash {
+  color: #b8ffc0;
+  background: rgba(136, 249, 145, 0.1);
+  border-color: rgba(136, 249, 145, 0.28);
+}
+
+.strat-fmt-mtt {
+  color: #e6d3a2;
+  background: rgba(212, 181, 106, 0.1);
+  border-color: rgba(212, 181, 106, 0.32);
+}
+
+.strat-fmt-spins {
+  color: #b8e0ff;
+  background: rgba(120, 196, 255, 0.1);
+  border-color: rgba(120, 196, 255, 0.32);
+}
+
+.strat-card-default {
+  font-size: 0.65rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.strat-card-name {
+  font-family: "Sora", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.strat-card-meta {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.strat-card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+  padding: 0 0.95rem 0.95rem;
+}
+
+.strat-card-open,
+.strat-card-delete {
+  text-align: center;
+  text-decoration: none;
+  border-radius: 0.55rem;
+  padding: 0.5rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+  border: 1px solid transparent;
+  min-height: 2.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--btn-transition);
+}
+
+.strat-card-open {
+  color: #0c1210;
+  background-color: var(--accent);
+  background-image: none;
+  border-color: rgba(136, 249, 145, 0.35);
+}
+
+.strat-card-open:hover {
+  background-color: var(--accent-strong);
+  filter: none;
+}
+
+.strat-card-delete {
+  color: #ffb4a8;
+  background-color: rgba(255, 90, 70, 0.08);
+  background-image: none;
+  border-color: rgba(255, 110, 90, 0.28);
+}
+
+.strat-card-delete:hover:not(:disabled) {
+  background-color: rgba(255, 90, 70, 0.16);
+}
+
+.strat-card-delete:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.gto-meta-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.gto-meta-badges em {
+  font-style: normal;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 181, 106, 0.35);
+  color: #d4b56a;
+  background: rgba(212, 181, 106, 0.08);
+}
