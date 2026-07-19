@@ -1,4 +1,20 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_database_url(url: str) -> str:
+    """Render / Heroku style URLs → SQLAlchemy + psycopg v3."""
+    u = (url or "").strip()
+    if not u:
+        return u
+    if u.startswith("postgres://"):
+        u = "postgresql+psycopg://" + u[len("postgres://") :]
+    elif u.startswith("postgresql://") and not u.startswith("postgresql+"):
+        u = "postgresql+psycopg://" + u[len("postgresql://") :]
+    # Render Postgres expects TLS even on the private network.
+    if ("dpg-" in u or "render.com" in u) and "sslmode=" not in u:
+        u += ("&" if "?" in u else "?") + "sslmode=require"
+    return u
 
 
 class Settings(BaseSettings):
@@ -22,6 +38,13 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_from: str = ""
     smtp_tls: bool = True
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_db(cls, v: object) -> object:
+        if isinstance(v, str):
+            return normalize_database_url(v)
+        return v
 
     @property
     def cors_origin_list(self) -> list[str]:
