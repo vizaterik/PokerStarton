@@ -140,21 +140,33 @@ def register(payload: UserCreate, db: Session = Depends(get_db)) -> RegisterResp
         db.add(user)
 
     code = _issue_verification_code(user)
-    db.commit()
-
     try:
-        send_verification_email(email, code)
+        db.commit()
     except Exception as exc:  # noqa: BLE001
+        db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Не удалось отправить письмо. Попробуйте позже.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не удалось создать аккаунт: {exc.__class__.__name__}",
         ) from exc
+
+    # Without SMTP show code on verify page (local / free Render without mail).
+    mailed = False
+    if smtp_configured():
+        try:
+            send_verification_email(email, code)
+            mailed = True
+        except Exception:  # noqa: BLE001
+            mailed = False
 
     return RegisterResponse(
         email=email,
-        message="Мы отправили код подтверждения на почту",
+        message=(
+            "Мы отправили код подтверждения на почту"
+            if mailed
+            else "Аккаунт создан. Введите код подтверждения с следующего экрана."
+        ),
         needs_verification=True,
-        dev_code=None if smtp_configured() else code,
+        dev_code=None if mailed else code,
     )
 
 
