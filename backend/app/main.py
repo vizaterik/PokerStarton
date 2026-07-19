@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.db.base import Base
 from app.db.migrate_sqlite import ensure_sqlite_schema
 from app.db.session import engine
 import app.models  # noqa: F401
@@ -17,6 +18,9 @@ import app.models  # noqa: F401
 async def lifespan(_: FastAPI):
     if settings.database_url.startswith("sqlite"):
         ensure_sqlite_schema(engine)
+    else:
+        # Create any ORM tables missing from incomplete Alembic history (Postgres).
+        Base.metadata.create_all(bind=engine)
     yield
 
 

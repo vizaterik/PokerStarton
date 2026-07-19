@@ -18,10 +18,22 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    insp = sa.inspect(op.get_bind())
+    if "strategies" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("strategies")}
+    if "game_tree" in cols:
+        return
     with op.batch_alter_table("strategies") as batch:
         batch.add_column(sa.Column("game_tree", sa.JSON(), nullable=True))
 
 
 def downgrade() -> None:
+    insp = sa.inspect(op.get_bind())
+    if "strategies" not in insp.get_table_names():
+        return
+    cols = {c["name"] for c in insp.get_columns("strategies")}
+    if "game_tree" not in cols:
+        return
     with op.batch_alter_table("strategies") as batch:
         batch.drop_column("game_tree")
