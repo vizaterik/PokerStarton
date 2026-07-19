@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { clearTokens, getMe, isLoggedIn, type User } from "../api/client";
+import {
+  clearCachedMe,
+  clearTokens,
+  getCachedMe,
+  getMe,
+  isLoggedIn,
+  setCachedMe,
+  wakeApi,
+} from "../api/client";
 
 type Gate = "loading" | "login" | "nickname" | "ok" | "retry";
-
-const AUTH_CACHE_MS = 90_000;
-let cachedMe: User | null = null;
-let cachedAt = 0;
 
 function isAuthRejected(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? "");
@@ -22,19 +26,21 @@ export default function RequireAuth() {
 
   useEffect(() => {
     if (!isLoggedIn()) {
-      cachedMe = null;
-      cachedAt = 0;
+      clearCachedMe();
       setGate("login");
       return;
     }
 
-    const now = Date.now();
-    // Avoid /auth/me on every tab switch while a long upload holds the server.
-    if (cachedMe && now - cachedAt < AUTH_CACHE_MS) {
-      const needsNick = !cachedMe.display_name?.trim();
+    const cached = getCachedMe();
+    if (cached) {
+      const needsNick = !cached.display_name?.trim();
       const onNickPage = location.pathname === "/nickname";
       if (needsNick && !onNickPage) {
         setGate("nickname");
+        return;
+      }
+      if (!needsNick && onNickPage) {
+        setGate("ok");
         return;
       }
       setGate("ok");
@@ -43,16 +49,20 @@ export default function RequireAuth() {
 
     let cancelled = false;
     setGate("loading");
+    // Free Render cold start — don't flash "retry" after 8s.
     const timer = window.setTimeout(() => {
       if (cancelled) return;
       setGate("retry");
-    }, 8000);
-    void getMe()
-      .then((me) => {
+    }, 60_000);
+
+    void (async () => {
+      await wakeApi(90_000);
+      if (cancelled) return;
+      try {
+        const me = await getMe();
         if (cancelled) return;
         window.clearTimeout(timer);
-        cachedMe = me;
-        cachedAt = Date.now();
+        setCachedMe(me);
         const needsNick = !me.display_name?.trim();
         const onNickPage = location.pathname === "/nickname";
         if (needsNick && !onNickPage) {
@@ -60,24 +70,24 @@ export default function RequireAuth() {
           return;
         }
         setGate("ok");
-      })
-      .catch((err) => {
+      } catch (err) {
         window.clearTimeout(timer);
         if (cancelled) return;
         if (isAuthRejected(err)) {
-          cachedMe = null;
-          cachedAt = 0;
+          clearCachedMe();
           clearTokens();
           setGate("login");
           return;
         }
-        // Network / busy server — keep session; if we had a recent user, stay in.
-        if (cachedMe) {
+        const soft = getCachedMe();
+        if (soft) {
           setGate("ok");
           return;
         }
         setGate("retry");
-      });
+      }
+    })();
+
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -87,7 +97,9 @@ export default function RequireAuth() {
   if (gate === "loading") {
     return (
       <section className="page">
-        <p className="muted">Проверка входа…</p>
+        <p className="muted">
+          Проверка входа… На Free Render API может просыпаться до минуты — подождите.
+        </p>
       </section>
     );
   }
@@ -96,7 +108,7 @@ export default function RequireAuth() {
     return (
       <section className="page">
         <p className="muted">
-          Сервер занят разбором раздач или не отвечает. Сессия сохранена — подождите и нажмите
+          Сервер ещё просыпается или не отвечает. Сессия сохранена — подождите и нажмите
           «Повторить».
         </p>
         <p style={{ marginTop: "0.75rem" }}>

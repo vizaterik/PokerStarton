@@ -49,14 +49,17 @@ export default function DatabasesPanel() {
     if (!name.trim() || busy) return;
     setBusy(true);
     setError(null);
+    setNote("Будим сервер и создаём базу — на Free это может занять до минуты…");
     try {
       await createHandDatabase(name.trim(), true);
       clearAnalysisCache();
       clearResultsCache();
       clearHandDbMeta();
       setName("");
+      setNote(null);
       await reload();
     } catch (err) {
+      setNote(null);
       setError(err instanceof Error ? err.message : "Не удалось создать базу");
     } finally {
       setBusy(false);

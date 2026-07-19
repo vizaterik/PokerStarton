@@ -42,6 +42,42 @@ export type User = {
   is_admin?: boolean;
 };
 
+/** Shared /auth/me cache — keeps nickname gate from bouncing after setNickname. */
+let cachedMe: User | null = null;
+let cachedMeAt = 0;
+const ME_CACHE_MS = 90_000;
+
+export function getCachedMe(): User | null {
+  if (!cachedMe) return null;
+  if (Date.now() - cachedMeAt > ME_CACHE_MS) return null;
+  return cachedMe;
+}
+
+export function setCachedMe(user: User | null) {
+  cachedMe = user;
+  cachedMeAt = user ? Date.now() : 0;
+}
+
+export function clearCachedMe() {
+  cachedMe = null;
+  cachedMeAt = 0;
+}
+
+/** Ping API so Free Render wakes before a real request (can take ~60s). */
+export async function wakeApi(timeoutMs = 90_000): Promise<boolean> {
+  if (!API_BASE) return false;
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}/health`, { signal: ctrl.signal });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
 export type PlanInfo = {
   id: string;
   name: string;
@@ -118,13 +154,29 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
   const token = localStorage.getItem("access_token");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
+  // Free Render cold start — default 90s unless caller already set a signal.
+  let ownTimer: number | undefined;
+  let signal = init?.signal;
+  if (!signal) {
+    const ctrl = new AbortController();
+    signal = ctrl.signal;
+    ownTimer = window.setTimeout(() => ctrl.abort(), 90_000);
+  }
+
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...init, headers });
-  } catch {
+    res = await fetch(`${API_BASE}${path}`, { ...init, headers, signal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(
+        "Сервер долго просыпается (Free Render). Подождите ~60 сек и попробуйте снова.",
+      );
+    }
     throw new Error(
       "Сервер не отвечает. На Free Render API засыпает — подождите ~60 сек и обновите. Проверьте CORS_ORIGINS и VITE_API_BASE.",
     );
+  } finally {
+    if (ownTimer !== undefined) window.clearTimeout(ownTimer);
   }
   if (!res.ok) {
     // Soft-fail network-ish proxy errors — never wipe the session.
@@ -133,6 +185,7 @@ async function request<T>(path: string, init?: RequestInit, _retried = false): P
         return request<T>(path, init, true);
       }
       // Only clear after refresh failed — real auth rejection.
+      clearCachedMe();
       localStorage.removeItem("access_token");
       localStorage.removeItem("refresh_token");
     }
@@ -202,15 +255,20 @@ export function resendCode(email: string) {
   });
 }
 
-export function setNickname(display_name: string) {
-  return request<User>("/api/auth/nickname", {
+export async function setNickname(display_name: string) {
+  await wakeApi();
+  const user = await request<User>("/api/auth/nickname", {
     method: "PATCH",
     body: JSON.stringify({ display_name }),
   });
+  setCachedMe(user);
+  return user;
 }
 
-export function getMe() {
-  return request<User>("/api/auth/me");
+export async function getMe() {
+  const user = await request<User>("/api/auth/me");
+  setCachedMe(user);
+  return user;
 }
 
 export type SupportTicketPayload = {
@@ -1374,10 +1432,12 @@ export const MAX_HANDS_PER_DATABASE = 100_000;
 export const MAX_HANDS_PER_ANALYSIS = 100_000;
 
 export async function listHandDatabases() {
+  await wakeApi();
   return request<HandDatabase[]>("/api/databases");
 }
 
 export async function createHandDatabase(name: string, switchTo = true) {
+  await wakeApi();
   return request<HandDatabase>("/api/databases", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -1426,6 +1486,7 @@ export function saveTokens(tokens: TokenResponse) {
 }
 
 export function clearTokens() {
+  clearCachedMe();
   localStorage.removeItem("access_token");
   localStorage.removeItem("refresh_token");
 }

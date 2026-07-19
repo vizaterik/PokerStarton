@@ -14,7 +14,7 @@ export default function UserMenu() {
       .then(setUser)
       .catch(() => {
         clearTokens();
-        window.location.assign("/login");
+        window.location.assign("/#/login");
       });
   }, [location.pathname]);
 

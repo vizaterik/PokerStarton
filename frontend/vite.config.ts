@@ -5,7 +5,8 @@ const apiProxy = process.env.VITE_API_PROXY || "http://127.0.0.1:8000";
 
 export default defineConfig({
   plugins: [react()],
-  base: "./",
+  // Absolute base so /nickname and other SPA routes load /assets correctly on Render.
+  base: "/",
   worker: {
     format: "es",
   },

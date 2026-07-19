@@ -323,7 +323,8 @@ export default function HandReplayModal({
     setShareState("loading");
     try {
       const share = await createHandShare(id);
-      const url = `${window.location.origin}${share.path}`;
+      const path = share.path.startsWith("/") ? share.path : `/${share.path}`;
+      const url = `${window.location.origin}/#${path}`;
       await navigator.clipboard.writeText(url);
       setShareState("ok");
       window.setTimeout(() => setShareState("idle"), 2000);
