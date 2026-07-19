@@ -20,7 +20,12 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     with op.batch_alter_table("users") as batch:
         batch.add_column(
-            sa.Column("accepted_terms", sa.Boolean(), nullable=False, server_default=sa.text("0"))
+            sa.Column(
+                "accepted_terms",
+                sa.Boolean(),
+                nullable=False,
+                server_default=sa.text("false"),
+            )
         )
         batch.add_column(sa.Column("accepted_terms_at", sa.DateTime(timezone=True), nullable=True))
 
