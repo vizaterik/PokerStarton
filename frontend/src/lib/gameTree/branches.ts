@@ -258,6 +258,88 @@ export function collectOpenBranches(root: GameTreeNode): SavedBranch[] {
   return [...bySeat.values()].sort((a, b) => a.label.localeCompare(b.label, "ru"));
 }
 
+function raiseSizingsAlongPath(path: GameTreeNode[]): number[] {
+  const out: number[] = [];
+  for (let i = 1; i < path.length; i += 1) {
+    if (path[i].actionTaken === "RAISE") {
+      out.push(path[i].sizingBB ?? 0);
+    }
+  }
+  return out;
+}
+
+/**
+ * Painted facing decisions (vs open / 3bet / 4bet…) even if the line is not
+ * closed to flop. Without this, 3bp+ errors disappear whenever the tip decision
+ * shell is empty but the real chart lives on an earlier facing node.
+ */
+export function collectFacingBranches(root: GameTreeNode): SavedBranch[] {
+  const byKey = new Map<string, SavedBranch>();
+
+  function visit(node: GameTreeNode, path: GameTreeNode[]) {
+    if (node.street === "preflop" && !node.awaitingFlop && nodeHasPlayRange(node)) {
+      const ctx = deriveContext(path);
+      if (ctx.raiseCount >= 1 && ctx.lastAggressor) {
+        const potKind = inferPotKind(ctx.raiseCount, raiseSizingsAlongPath(path));
+        const label = `${seatLabel(ctx.lastAggressor)}vs${seatLabel(node.activePlayer)}`;
+        const paintedCount = countPaintedHands(node);
+        const key = `${potKind}|${label}`;
+        const prev = byKey.get(key);
+        if (!prev || paintedCount > prev.paintedCount) {
+          byKey.set(key, {
+            id: `facing:${node.id}`,
+            index: 0,
+            label,
+            tipNodeId: node.id,
+            paintNodeId: node.id,
+            depth: Math.max(1, path.length - 1),
+            paintedCount,
+            awaitingFlop: false,
+            siblingCount: 1,
+            potKind,
+          });
+        }
+      } else if (ctx.raiseCount === 0 && ctx.limpCount > 0) {
+        // ISO / limp facing decision
+        const potKind: BranchPotKind = "limp";
+        let limper: Seat | null = null;
+        for (let i = 1; i < path.length; i += 1) {
+          if (path[i].actionTaken === "CALL") {
+            limper = path[i - 1].activePlayer;
+            break;
+          }
+        }
+        const label = limper
+          ? `${seatLabel(limper)}vs${seatLabel(node.activePlayer)}`
+          : seatLabel(node.activePlayer);
+        const paintedCount = countPaintedHands(node);
+        const key = `${potKind}|${label}`;
+        const prev = byKey.get(key);
+        if (!prev || paintedCount > prev.paintedCount) {
+          byKey.set(key, {
+            id: `limp:${node.id}`,
+            index: 0,
+            label,
+            tipNodeId: node.id,
+            paintNodeId: node.id,
+            depth: Math.max(1, path.length - 1),
+            paintedCount,
+            awaitingFlop: false,
+            siblingCount: 1,
+            potKind,
+          });
+        }
+      }
+    }
+    for (const child of node.children) {
+      visit(child, [...path, child]);
+    }
+  }
+
+  visit(root, [root]);
+  return [...byKey.values()];
+}
+
 function mergeBranchesByMatchup(branches: SavedBranch[]): SavedBranch[] {
   const byKey = new Map<string, SavedBranch>();
   for (const b of branches) {
@@ -267,22 +349,18 @@ function mergeBranchesByMatchup(branches: SavedBranch[]): SavedBranch[] {
       byKey.set(key, b);
       continue;
     }
-    // Prefer closed-to-flop tips when labels collide; keep richer paint.
-    if (b.awaitingFlop && !prev.awaitingFlop) {
-      byKey.set(key, {
-        ...b,
-        paintedCount: Math.max(b.paintedCount, prev.paintedCount),
-      });
-    } else if (
-      !b.awaitingFlop &&
-      prev.awaitingFlop &&
+    const richerPaint =
       b.paintedCount > prev.paintedCount
-    ) {
-      byKey.set(key, {
-        ...prev,
-        paintedCount: b.paintedCount,
-        paintNodeId: b.paintNodeId,
-      });
+        ? { paintNodeId: b.paintNodeId, paintedCount: b.paintedCount }
+        : {
+            paintNodeId: prev.paintNodeId,
+            paintedCount: Math.max(b.paintedCount, prev.paintedCount),
+          };
+    // Prefer closed-to-flop tip for navigation, but never drop the real paint node.
+    if (b.awaitingFlop && !prev.awaitingFlop) {
+      byKey.set(key, { ...b, ...richerPaint });
+    } else if (!b.awaitingFlop && prev.awaitingFlop) {
+      byKey.set(key, { ...prev, ...richerPaint });
     } else if (b.paintedCount > prev.paintedCount) {
       byKey.set(key, b);
     }
@@ -301,17 +379,19 @@ function mergeBranchesByMatchup(branches: SavedBranch[]): SavedBranch[] {
 export function collectEditorBranches(root: GameTreeNode): SavedBranch[] {
   return mergeBranchesByMatchup([
     ...collectOpenBranches(root),
+    ...collectFacingBranches(root),
     ...collectBranches(root),
   ]);
 }
 
 /**
- * Analysis gate: painted opens + closed lines whose decision node has play paint.
- * Unpainted facing shells are excluded so Errors never show «empty strategy + errors».
+ * Analysis: painted opens + painted facing (3bp/4bp…) + closed lines with a
+ * real play chart on paintNodeId (may come from a facing node after merge).
  */
 export function collectAnalysisBranches(root: GameTreeNode): SavedBranch[] {
   const merged = mergeBranchesByMatchup([
     ...collectOpenBranches(root),
+    ...collectFacingBranches(root),
     ...collectBranches(root).filter((b) => b.paintedCount > 0),
   ]);
   return merged.filter((b) => {

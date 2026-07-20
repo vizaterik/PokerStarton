@@ -890,7 +890,13 @@ export default function StrategyAnalysisPanel({
       potKind?: string | null,
     ) =>
       paintedTreeBranches.some((b) => {
-        if (potKind && b.potKind !== potKind) return false;
+        if (
+          potKind &&
+          b.potKind !== potKind &&
+          !potLookupKinds(potKind).includes(b.potKind)
+        ) {
+          return false;
+        }
         return spotCoveredByBranches(spot, [b], coverOpts);
       });
     // Accuracy / errors only for strategy (painted constructor) branches.

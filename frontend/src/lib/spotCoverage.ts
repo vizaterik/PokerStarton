@@ -325,8 +325,9 @@ export function groupChartErrorsByTreeBranches(
     const related = charts.filter((c) => {
       const key = `${c.spot_key}|${c.hero_position}|${c.villain_position ?? ""}`;
       if (used.has(key)) return false;
-      // Exact pot on the chart row — never soft-map vs_open into 3bp branch.
-      if (spotPotKind(c.spot_key) !== b.potKind) return false;
+      // Pot aliases (4bp↔allin) but never map vs_open (srp) into 3bp.
+      const pots = potsForSpot(c.spot_key, true);
+      if (!pots.includes(b.potKind)) return false;
       return spotCoveredByBranches(
         {
           spot_key: c.spot_key,

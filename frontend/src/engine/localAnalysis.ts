@@ -44,6 +44,7 @@ import {
   constructorTagKey,
   groupChartErrorsByTreeBranches,
   normalizeChartPos,
+  potLookupKinds,
   spotCoveredByBranches,
 } from "../lib/spotCoverage";
 import type { HudFlags } from "./hudFlags";
@@ -829,11 +830,17 @@ async function buildDeviations(
         villain_position: row.villain_position,
       };
       const sessionPot = spotPotKind(row.spot_key);
-      const branch = treeBranches.find(
-        (b) =>
-          b.potKind === sessionPot &&
-          spotCoveredByBranches(spotLike, [b], coverOpts),
-      );
+      const branch =
+        treeBranches.find(
+          (b) =>
+            b.potKind === sessionPot &&
+            spotCoveredByBranches(spotLike, [b], coverOpts),
+        ) ||
+        treeBranches.find(
+          (b) =>
+            potLookupKinds(sessionPot).includes(b.potKind) &&
+            spotCoveredByBranches(spotLike, [b], coverOpts),
+        );
       if (!branch) continue;
       const mu = branch.label;
       const potKind: BranchPotKind = branch.potKind;
