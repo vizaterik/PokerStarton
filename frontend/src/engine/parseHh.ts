@@ -7,11 +7,19 @@ import { cardsToHandCode } from "./handCodes";
 import { mergeFlagsIntoHand } from "./hudFlags";
 import type { ParsedAction, ParsedHand } from "./types";
 
-const HAND_SPLIT_RE =
-  /(?=PokerStars Hand #)|(?=Poker Hand #)|(?=PokerStars Zoom Hand #)/gi;
+/** Non-zero-width starts — Zoom must be listed before plain PokerStars Hand. */
+const HAND_START_RE = /PokerStars Zoom Hand #|PokerStars Hand #|Poker Hand #/gi;
 
 const HEADER_RE =
   /^(?:PokerStars(?: Zoom)? Hand|Poker Hand) #([^\s:]+):\s*.*?\((\$?[\d.]+)\/(\$?[\d.]+).*?\)\s*-\s*(\d{4}\/\d{2}\/\d{2}\s+\d{2}:\d{2}:\d{2})/i;
+
+/** Strip commas/spaces so `#2,481,234` ≡ `#2481234` for dedupe keys. */
+export function normalizeExternalHandId(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .replace(/[,\s]/g, "")
+    .slice(0, 64);
+}
 
 const TABLE_RE =
   /^Table '([^']+)'\s+(\d+)-max\s+Seat #(\d+) is the button/i;
@@ -245,7 +253,8 @@ function parseOne(block: string): ParsedHand | null {
   const header = HEADER_RE.exec(lines[0]);
   if (!header) return null;
 
-  const hid = header[1].trim();
+  const hid = normalizeExternalHandId(header[1]);
+  if (!hid) return null;
   const sb = money(header[2]);
   const bb = money(header[3]);
   const playedAt = header[4].replace(/\//g, "-").replace(" ", "T") + "Z";
@@ -389,7 +398,7 @@ function parseOne(block: string): ParsedHand | null {
     .map(([seat, info]) => ({ seat, name: info.name, stack: info.stack }));
 
   return mergeFlagsIntoHand({
-    external_hand_id: hid.slice(0, 64),
+    external_hand_id: hid,
     raw_text: block.trim(),
     played_at: playedAt,
     table_name: tableName,
@@ -424,13 +433,30 @@ function parseOne(block: string): ParsedHand | null {
 export function splitHandBlocks(text: string): string[] {
   const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
   if (!normalized) return [];
-  const parts = normalized.split(HAND_SPLIT_RE).map((p) => p.trim()).filter(Boolean);
+  // Index-based split — avoids zero-width lookahead /g doubling empty chunks.
+  const re = new RegExp(HAND_START_RE.source, "gi");
+  const starts: number[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(normalized)) !== null) {
+    starts.push(m.index);
+    if (m[0].length === 0) re.lastIndex += 1;
+  }
+  if (!starts.length) {
+    return /Hand\s*#/i.test(normalized) ? [normalized] : [];
+  }
+  const parts: string[] = [];
+  for (let i = 0; i < starts.length; i += 1) {
+    const a = starts[i];
+    const b = i + 1 < starts.length ? starts[i + 1] : normalized.length;
+    const block = normalized.slice(a, b).trim();
+    if (block) parts.push(block);
+  }
   return parts;
 }
 
 export function estimateHandCount(text: string): number {
-  const m = text.match(HAND_SPLIT_RE);
-  return m ? m.length : text.includes("Hand #") ? 1 : 0;
+  const n = splitHandBlocks(text).length;
+  return n > 0 ? n : text.includes("Hand #") ? 1 : 0;
 }
 
 export function detectRoom(text: string): string {

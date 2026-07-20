@@ -2,6 +2,7 @@
 
 import { estimateHandCount, parseHandHistory, splitHandBlocks } from "./parseHh";
 import {
+  dedupeStrategyHands,
   flushLocalDb,
   insertHandBatch,
   loadDayHandCounts,
@@ -43,6 +44,7 @@ async function runImport(
   // Stack sessions: new hands append; duplicates skip by external_hand_id.
   const sessionId = `local-${Date.now().toString(36)}`;
   const dayCounts = await loadDayHandCounts(strategyId);
+  const seenInImport = new Set<string>();
 
   let totalEstimate = 0;
   for (const f of files) totalEstimate += Math.max(1, estimateHandCount(f.text));
@@ -84,6 +86,7 @@ async function runImport(
         sessionId,
         hands,
         dayCounts,
+        seenInImport,
       );
       insertedTotal += inserted;
       dupTotal += duplicates;
@@ -99,6 +102,11 @@ async function runImport(
     }
   }
 
+  const removed = await dedupeStrategyHands(strategyId);
+  if (removed > 0) {
+    dupTotal += removed;
+    insertedTotal = Math.max(0, insertedTotal - removed);
+  }
   await flushLocalDb();
   emit("hud", "Собираем HUD и график…", 88);
 

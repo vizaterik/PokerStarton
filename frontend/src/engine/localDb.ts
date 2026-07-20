@@ -1,9 +1,10 @@
 /**
  * Local hand/HUD store via IndexedDB (no sql.js).
- * Each Analysis import replaces hands for that strategy (no double-count).
+ * Stacked imports append; duplicates skipped by normalized external_hand_id + content fingerprint.
  */
 
 import type { HudFlags } from "./hudFlags";
+import { normalizeExternalHandId } from "./parseHh";
 import type { ParsedAction, ParsedHand, ParsedSeat } from "./types";
 
 const IDB_NAME = "pokerledger-local-v5";
@@ -86,6 +87,40 @@ function handKey(strategyId: string, externalId: string) {
   return `${strategyId}::${externalId}`;
 }
 
+/** Soft identity when hand ids diverge across exports of the same HH. */
+function contentFingerprint(
+  h: Pick<
+    HandRow | ParsedHand,
+    "played_at" | "hero_hand_code" | "hero_net" | "table_name" | "hero_position" | "hero_name"
+  >,
+): string {
+  const net =
+    h.hero_net == null || !Number.isFinite(h.hero_net)
+      ? ""
+      : String(Math.round(h.hero_net * 100) / 100);
+  return [
+    h.played_at || "",
+    h.hero_hand_code || "",
+    net,
+    h.table_name || "",
+    h.hero_position || "",
+    h.hero_name || "",
+  ].join("|");
+}
+
+function preferHandRow(a: HandRow, b: HandRow): HandRow {
+  const al = a.raw_text?.length || 0;
+  const bl = b.raw_text?.length || 0;
+  if (al !== bl) return al > bl ? a : b;
+  return a.key <= b.key ? a : b;
+}
+
+function hasStrongFingerprint(
+  h: Pick<HandRow | ParsedHand, "played_at" | "hero_hand_code" | "hero_net">,
+): boolean {
+  return Boolean(h.played_at) && (Boolean(h.hero_hand_code) || h.hero_net != null);
+}
+
 /**
  * Preflop through hero's last voluntary decision (open + face 3bet, etc.).
  * Needed so strategy compare can score vs_3bet / vs_4bet after hero opened.
@@ -105,9 +140,10 @@ function trimTrainerActions(actions: ParsedAction[]): ParsedAction[] {
 }
 
 function toRow(strategyId: string, sessionId: string, h: ParsedHand): HandRow {
+  const externalId = normalizeExternalHandId(h.external_hand_id);
   return {
-    key: handKey(strategyId, h.external_hand_id),
-    external_hand_id: h.external_hand_id,
+    key: handKey(strategyId, externalId),
+    external_hand_id: externalId,
     session_id: sessionId,
     strategy_id: strategyId,
     hero_name: h.hero_name,
@@ -208,6 +244,8 @@ export async function insertHandBatch(
   sessionId: string,
   hands: ParsedHand[],
   dayCounts?: Map<string, number>,
+  /** Cross-chunk seen keys / content fingerprints for one import run. */
+  seenInImport?: Set<string>,
 ): Promise<{ inserted: number; duplicates: number; limitSkipped: number }> {
   const db = await openLocalDb();
   let inserted = 0;
@@ -216,9 +254,21 @@ export async function insertHandBatch(
 
   // Reuse caller's map across chunks so we don't re-scan the whole DB each batch.
   const counts = dayCounts ?? (await loadDayHandCounts(strategyId));
+  const seen = seenInImport ?? new Set<string>();
 
   for (const h of hands) {
     const row = toRow(strategyId, sessionId, h);
+    if (!row.external_hand_id) {
+      duplicates += 1;
+      continue;
+    }
+    const strongFp = hasStrongFingerprint(row);
+    const fp = strongFp ? contentFingerprint(row) : "";
+    const fpKey = fp ? `fp:${fp}` : "";
+    if (seen.has(row.key) || (fpKey && seen.has(fpKey))) {
+      duplicates += 1;
+      continue;
+    }
     const day = handCalendarDay(h.played_at);
     // eslint-disable-next-line no-await-in-loop
     const outcome = await new Promise<"dup" | "ins" | "limit">((resolve, reject) => {
@@ -242,12 +292,127 @@ export async function insertHandBatch(
       getReq.onerror = () => reject(getReq.error ?? new Error("get failed"));
       tx.onerror = () => reject(tx.error ?? new Error("tx failed"));
     });
-    if (outcome === "dup") duplicates += 1;
-    else if (outcome === "limit") limitSkipped += 1;
-    else inserted += 1;
+    if (outcome === "dup") {
+      duplicates += 1;
+      seen.add(row.key);
+      if (fpKey) seen.add(fpKey);
+    } else if (outcome === "limit") {
+      limitSkipped += 1;
+    } else {
+      inserted += 1;
+      seen.add(row.key);
+      if (fpKey) seen.add(fpKey);
+    }
   }
 
   return { inserted, duplicates, limitSkipped };
+}
+
+/**
+ * Remove duplicate hands already stored (normalized id + content fingerprint).
+ * Also migrates keys when external ids still contain commas/spaces.
+ * Returns number of rows deleted.
+ */
+export async function dedupeStrategyHands(strategyId: string): Promise<number> {
+  const rows = await listHandsForStrategy(strategyId);
+  if (rows.length < 2) {
+    // Still migrate a single mis-keyed row if needed.
+    if (rows.length === 1) {
+      const r = rows[0];
+      const nid = normalizeExternalHandId(r.external_hand_id);
+      const want = handKey(strategyId, nid);
+      if (nid && (r.key !== want || r.external_hand_id !== nid)) {
+        const db = await openLocalDb();
+        await new Promise<void>((resolve, reject) => {
+          const tx = db.transaction([STORE_HANDS], "readwrite");
+          const store = tx.objectStore(STORE_HANDS);
+          store.delete(r.key);
+          store.put({ ...r, key: want, external_hand_id: nid });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error ?? new Error("migrate failed"));
+        });
+      }
+    }
+    return 0;
+  }
+
+  const byId = new Map<string, HandRow>();
+  const orphans: HandRow[] = [];
+  for (const r of rows) {
+    const nid = normalizeExternalHandId(r.external_hand_id);
+    if (!nid) {
+      orphans.push(r);
+      continue;
+    }
+    const prev = byId.get(nid);
+    if (!prev) byId.set(nid, { ...r, external_hand_id: nid });
+    else byId.set(nid, preferHandRow({ ...prev, external_hand_id: nid }, { ...r, external_hand_id: nid }));
+  }
+
+  const byFp = new Map<string, HandRow>();
+  for (const r of byId.values()) {
+    if (!hasStrongFingerprint(r)) {
+      byFp.set(`id:${r.external_hand_id}`, r);
+      continue;
+    }
+    const fp = contentFingerprint(r);
+    const prev = byFp.get(fp);
+    if (!prev) byFp.set(fp, r);
+    else byFp.set(fp, preferHandRow(prev, r));
+  }
+  for (const r of orphans) {
+    if (!hasStrongFingerprint(r)) continue;
+    const fp = contentFingerprint(r);
+    const prev = byFp.get(fp);
+    if (!prev) byFp.set(fp, r);
+    else byFp.set(fp, preferHandRow(prev, r));
+  }
+
+  const keep = new Map<string, HandRow>();
+  for (const r of byFp.values()) {
+    const nid = normalizeExternalHandId(r.external_hand_id);
+    const next: HandRow = {
+      ...r,
+      external_hand_id: nid || r.external_hand_id,
+      key: handKey(strategyId, nid || r.external_hand_id),
+    };
+    keep.set(next.key, next);
+  }
+
+  const toDelete: string[] = [];
+  for (const r of rows) {
+    if (!keep.has(r.key)) toDelete.push(r.key);
+  }
+  // Rewrites: same logical hand, wrong key/id formatting.
+  const toPut: HandRow[] = [];
+  for (const next of keep.values()) {
+    const old = rows.find((r) => r.key === next.key);
+    if (!old || old.external_hand_id !== next.external_hand_id) {
+      toPut.push(next);
+      // If we kept a row under a new key, ensure the old unnormalized key is deleted.
+      for (const r of rows) {
+        if (
+          r.key !== next.key &&
+          normalizeExternalHandId(r.external_hand_id) === next.external_hand_id
+        ) {
+          if (!toDelete.includes(r.key)) toDelete.push(r.key);
+        }
+      }
+    }
+  }
+
+  if (!toDelete.length && !toPut.length) return 0;
+
+  const db = await openLocalDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction([STORE_HANDS], "readwrite");
+    const store = tx.objectStore(STORE_HANDS);
+    for (const key of toDelete) store.delete(key);
+    for (const row of toPut) store.put(row);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("dedupe failed"));
+  });
+  return toDelete.length;
 }
 
 export async function countHandsForStrategy(strategyId: string): Promise<number> {
