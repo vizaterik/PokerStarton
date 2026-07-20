@@ -21,7 +21,11 @@ import {
   type StrategyDeviationsResponse,
   type StrategySpot,
 } from "../api/client";
-import { peekAnalysisCache, writeAnalysisCache } from "../lib/analysisCache";
+import {
+  CHART_COMPARE_VER,
+  peekAnalysisCache,
+  writeAnalysisCache,
+} from "../lib/analysisCache";
 import {
   branchTag,
   spotPotKind,
@@ -38,7 +42,6 @@ import { loadTree } from "../lib/gameTree/persist";
 import { ensureConstructorChartsSynced } from "../lib/gameTree/syncTreeCharts";
 import {
   constructorTagKey,
-  coveredByConstructorTags,
   groupChartErrorsByTreeBranches,
   normalizeChartPos,
   spotCoveredByBranches,
@@ -816,14 +819,12 @@ async function buildDeviations(
 
   // Group by constructor pot+matchup (Raise UTGvsBB ≠ 3-bet UTGvsBB).
   if (treeBranches.length) {
-    const coverOpts = { strictOpen: true } as const;
+    const coverOpts = { strictOpen: true, strictPot: true } as const;
     const rowCovered = (row: {
       spot_key: string;
       hero_position: string;
       villain_position?: string | null;
-    }) =>
-      spotCoveredByBranches(row, treeBranches, coverOpts) ||
-      coveredByConstructorTags(row, treeBranches);
+    }) => spotCoveredByBranches(row, treeBranches, coverOpts);
     by_branch = by_branch.filter((row) => rowCovered(row));
     const branchAcc = new Map<string, PreflopBranchAccuracy>();
     for (const row of by_branch) {
@@ -833,18 +834,12 @@ async function buildDeviations(
         villain_position: row.villain_position,
       };
       const sessionPot = spotPotKind(row.spot_key);
-      // Prefer exact pot (srp≠3bp). Never let coveredByConstructorTags steal pot tag.
-      const branch =
-        treeBranches.find(
-          (b) =>
-            b.potKind === sessionPot &&
-            spotCoveredByBranches(spotLike, [b], coverOpts),
-        ) ||
-        treeBranches.find((b) => spotCoveredByBranches(spotLike, [b], coverOpts)) ||
-        treeBranches.find(
-          (b) =>
-            b.potKind === sessionPot && coveredByConstructorTags(spotLike, [b]),
-        );
+      // Exact pot only — never remapping Raise decisions onto 3-bet (or reverse).
+      const branch = treeBranches.find(
+        (b) =>
+          b.potKind === sessionPot &&
+          spotCoveredByBranches(spotLike, [b], coverOpts),
+      );
       const mu = branch?.label || row.matchup || "—";
       const potKind: BranchPotKind = branch?.potKind ?? sessionPot;
       const accKey = constructorTagKey(potKind, mu);
@@ -972,18 +967,24 @@ export async function buildLocalChartDeviations(
   const chartsRev = readChartsRevision(strategyId);
   const cached = peekAnalysisCache(strategyId);
   const cachedBranches = cached?.deviations?.by_branch ?? [];
-  // Reject pre-fix caches that collapsed all pots into one Raise/3-bet row.
+  // Reject pre-fix caches (collapsed pots / soft cross-pot error attribution).
   const potAwareCache =
     cachedBranches.length === 0 ||
-    cachedBranches.some((b) => Boolean(b.pot_kind && b.pot_tag));
+    (cachedBranches.some((b) => Boolean(b.pot_kind && b.pot_tag)) &&
+      (cached?.deviations?.chart_errors ?? []).every(
+        (c) => !c.label || Boolean(c.pot_kind),
+      ));
   if (
-    cached?.deviations &&
+    cached &&
+    cached.deviations &&
     potAwareCache &&
     (cachedBranches.length > 0 || (cached.deviations.deviations?.length ?? 0) > 0) &&
     cached.handTotal === total &&
     cached.chartsRev === chartsRev &&
     chartsRev != null &&
-    total > 0
+    total > 0 &&
+    // Bust soft-pot compare caches from before strictPot grouping.
+    cached.chartCompareVer === CHART_COMPARE_VER
   ) {
     onProgress?.("Готово (кэш)");
     return {
@@ -1031,6 +1032,7 @@ export async function buildLocalChartDeviations(
         spots,
         chartsRev: nextChartsRev,
         strategyUpdatedAt,
+        chartCompareVer: CHART_COMPARE_VER,
       });
     }, 0);
   }
@@ -1169,6 +1171,7 @@ export async function finalizeLocalAnalysis(
     handTotal: hands.length,
     chartsRev: readChartsRevision(strategyId),
     strategyUpdatedAt,
+    chartCompareVer: CHART_COMPARE_VER,
   });
 
   onProgress?.({

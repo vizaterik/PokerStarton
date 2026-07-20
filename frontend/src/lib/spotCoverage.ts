@@ -133,21 +133,21 @@ export function coveredByConstructorTags(
 }
 
 /** Spot → which tree pot kinds count as the same situation. */
-function potsForSpot(spotKey: string): BranchPotKind[] {
-  const kind = spotPotKind(spotKey);
-  // Tree may tag shove lines as `allin` while HH spots stay srp/3bp/4bp.
+function potsForSpot(spotKey: string, strictPot?: boolean): BranchPotKind[] {
+  const kind = spotPotKind(spotKey) as BranchPotKind;
+  // Analysis / Errors: Raise ≠ 3-bet ≠ 4-bet (no soft cross-pot claim).
+  if (strictPot) return [kind];
+  // Softer set only for missing-spot discovery in the editor.
   if (kind === "3bp") return ["3bp", "allin"];
   if (kind === "4bp") return ["4bp", "allin"];
   if (kind === "srp") {
     const key = spotKey.trim().toLowerCase();
-    // RFI/ISO may live on any pot that started with that open.
     if (key === "rfi" || key === "iso") {
       return ["srp", "3bp", "4bp", "allin", "limp"];
     }
-    // vs_open / facing SRP — include open-shove branches.
     return ["srp", "allin", "limp"];
   }
-  return [kind as BranchPotKind];
+  return [kind];
 }
 
 /**
@@ -178,6 +178,11 @@ export type BranchCoverOpts = {
    * Missing-spots lists should pass `true` so every HH line not painted shows up.
    */
   strictOpen?: boolean;
+  /**
+   * Exact pot only (`srp` ≠ `3bp`). Use for analysis / Errors so one matchup
+   * tag cannot steal decisions from another pot.
+   */
+  strictPot?: boolean;
 };
 
 /**
@@ -190,7 +195,7 @@ export function spotCoveredByBranches(
   opts?: BranchCoverOpts,
 ): boolean {
   const key = spot.spot_key.trim().toLowerCase();
-  const pots = potsForSpot(key);
+  const pots = potsForSpot(key, opts?.strictPot === true);
   const hero = normalizeChartPos(spot.hero_position);
   const villain = spot.villain_position
     ? normalizeChartPos(spot.villain_position)
@@ -268,19 +273,35 @@ export function groupChartErrorsByTreeBranches(
   branches: SavedBranch[],
   opts?: BranchCoverOpts,
 ): BranchChartGroup[] {
-  const coverOpts: BranchCoverOpts = { strictOpen: true, ...opts };
+  // Analysis default: never let Raise claim 3-bet errors (or reverse).
+  const coverOpts: BranchCoverOpts = {
+    strictOpen: true,
+    strictPot: true,
+    ...opts,
+  };
   const painted = branches.filter((b) => b.paintedCount > 0);
   if (!painted.length) {
     // No painted constructor branches — nothing to group (strict mode).
     return [];
   }
 
+  // Prefer facing pots in natural order so soft leftovers cannot race.
+  const potOrder = ["limp", "srp", "3bp", "4bp", "allin"] as const;
+  const ordered = [...painted].sort((a, b) => {
+    const ia = potOrder.indexOf(a.potKind as (typeof potOrder)[number]);
+    const ib = potOrder.indexOf(b.potKind as (typeof potOrder)[number]);
+    if (ia !== ib) return ia - ib;
+    return a.label.localeCompare(b.label, "ru");
+  });
+
   const groups: BranchChartGroup[] = [];
   const used = new Set<string>();
-  for (const b of painted) {
+  for (const b of ordered) {
     const related = charts.filter((c) => {
       const key = `${c.spot_key}|${c.hero_position}|${c.villain_position ?? ""}`;
       if (used.has(key)) return false;
+      // Exact pot on the chart row — never soft-map vs_open into 3bp branch.
+      if (spotPotKind(c.spot_key) !== b.potKind) return false;
       return spotCoveredByBranches(
         {
           spot_key: c.spot_key,
@@ -295,7 +316,7 @@ export function groupChartErrorsByTreeBranches(
     for (const c of related) {
       used.add(`${c.spot_key}|${c.hero_position}|${c.villain_position ?? ""}`);
     }
-    // Prefer facing chart (has villain) for the strategy matrix.
+    // Prefer facing chart (has villain) for the strategy matrix; keep its spot_id.
     const primary =
       related.find((c) => c.villain_position) ||
       related.find((c) => c.spot_key !== "rfi") ||
@@ -306,6 +327,7 @@ export function groupChartErrorsByTreeBranches(
       primary: {
         ...primary,
         label: b.label,
+        pot_kind: b.potKind,
         cells: mergeErrorCells(related),
       },
       charts: related,

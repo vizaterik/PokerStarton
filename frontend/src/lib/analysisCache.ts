@@ -19,7 +19,12 @@ export type AnalysisCachePayload = {
   chartsRev?: string | null;
   /** Strategy.updated_at when the report was built. */
   strategyUpdatedAt?: string | null;
+  /** Bump when strategy-compare grouping rules change (forces rebuild). */
+  chartCompareVer?: number;
 };
+
+/** Current strategy-compare cache schema (strict pot+matchup attribution). */
+export const CHART_COMPARE_VER = 3;
 
 /** v7: sync tree by painted jobs; score synced spots (exact matchup). */
 const PREFIX = "pokerledger.analysis.v7:";

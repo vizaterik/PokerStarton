@@ -45,13 +45,16 @@ import {
   type SavedBranch,
 } from "../lib/gameTree/branches";
 import { loadTree } from "../lib/gameTree/persist";
-import { resolveConstructorTree } from "../lib/gameTree/syncTreeCharts";
+import {
+  loadBranchPaintMatrix,
+  resolveConstructorTree,
+} from "../lib/gameTree/syncTreeCharts";
 import {
   coveredByConstructorTags,
   normalizeMatchupTag,
   spotCoveredByBranches,
 } from "../lib/spotCoverage";
-import { isChartPainted, strategySpotCandidates } from "../lib/spotResolve";
+import { isChartPainted } from "../lib/spotResolve";
 import {
   getAnalysisJob,
   isAnalysisJobRunning,
@@ -221,6 +224,8 @@ function matchupTagsEqual(a: string, b: string) {
 }
 
 function matchesFilter(d: StrategyDeviation, f: ErrorFilter, branches: SavedBranch[] = []) {
+  const coverOpts = { strictOpen: true, strictPot: true } as const;
+  if (f.potKind && spotPotKind(d.spot_key || "") !== f.potKind) return false;
   if (f.matchup) {
     const branch = branches.find(
       (b) =>
@@ -236,6 +241,7 @@ function matchesFilter(d: StrategyDeviation, f: ErrorFilter, branches: SavedBran
             villain_position: d.villain_position,
           },
           [branch],
+          coverOpts,
         )
       ) {
         return false;
@@ -244,8 +250,7 @@ function matchesFilter(d: StrategyDeviation, f: ErrorFilter, branches: SavedBran
       !matchupTagsEqual(
         treeMatchupLabel(d.spot_key || "", d.hero_position, d.villain_position),
         f.matchup,
-      ) ||
-      (f.potKind && spotPotKind(d.spot_key || "") !== f.potKind)
+      )
     ) {
       return false;
     }
@@ -290,6 +295,8 @@ export default function StrategyAnalysisPanel({
   const [treeTick, setTreeTick] = useState(0);
   const [tab, setTab] = useState<AnalysisTab>("chart");
   const [preflopSub, setPreflopSub] = useState<PreflopSubTab>("overview");
+  /** Ветки: list of matchups → drill into one matchup's pot tags. */
+  const [focusMatchup, setFocusMatchup] = useState<string | null>(null);
   const cachedBoot = peekAnalysisCache(strategyId);
   const [data, setData] = useState<StrategyAnalysis | null>(
     () => cachedBoot?.analysis ?? null,
@@ -811,7 +818,7 @@ export default function StrategyAnalysisPanel({
         total: (devs.deviations ?? []).length,
       };
     }
-    const coverOpts = { strictOpen: true } as const;
+    const coverOpts = { strictOpen: true, strictPot: true } as const;
     const covers = (
       spot: {
         spot_key: string;
@@ -822,10 +829,7 @@ export default function StrategyAnalysisPanel({
     ) =>
       paintedTreeBranches.some((b) => {
         if (potKind && b.potKind !== potKind) return false;
-        return (
-          spotCoveredByBranches(spot, [b], coverOpts) ||
-          coveredByConstructorTags(spot, [b])
-        );
+        return spotCoveredByBranches(spot, [b], coverOpts);
       });
     const by_branch = (devs.by_branch ?? []).filter((row) =>
       covers(
@@ -848,11 +852,14 @@ export default function StrategyAnalysisPanel({
       ),
     );
     const deviations = (devs.deviations ?? []).filter((d) =>
-      covers({
-        spot_key: d.spot_key || "",
-        hero_position: d.hero_position || "",
-        villain_position: d.villain_position,
-      }),
+      covers(
+        {
+          spot_key: d.spot_key || "",
+          hero_position: d.hero_position || "",
+          villain_position: d.villain_position,
+        },
+        spotPotKind(d.spot_key || ""),
+      ),
     );
     return {
       ...devs,
@@ -925,7 +932,7 @@ export default function StrategyAnalysisPanel({
     };
   }, [strategyId, tab, preflopSub, refreshKey]);
 
-  // Load strategy cells for the selected error chart — prefer scored spot_id.
+  // Load strategy cells for the selected error chart — constructor paint is truth.
   useEffect(() => {
     if (!activeChart) {
       setStrategyChart({});
@@ -935,7 +942,27 @@ export default function StrategyAnalysisPanel({
     setStrategyChartLoading(true);
     void (async () => {
       try {
-        // 1) Exact painted spot used for scoring (survives strategy switch / empty shells)
+        const mu =
+          activeChart.label ||
+          analysisMatchup(
+            activeChart.spot_key,
+            activeChart.hero_position,
+            activeChart.villain_position,
+            activeChart.label,
+          );
+        const potKind =
+          activeChart.pot_kind ||
+          errorFilter.potKind ||
+          spotPotKind(activeChart.spot_key);
+
+        // 1) Constructor branch paint for this pot|matchup (never a parent fallback).
+        const fromTree = loadBranchPaintMatrix(strategyId, potKind, mu);
+        if (fromTree && !cancelled) {
+          setStrategyChart(fromTree);
+          return;
+        }
+
+        // 2) Exact scored spot_id only (same spot that produced the errors).
         if (activeChart.spot_id) {
           const cells = await listCells(activeChart.spot_id);
           if (cancelled) return;
@@ -946,16 +973,15 @@ export default function StrategyAnalysisPanel({
           }
         }
 
-        // 2) Fallback: resolve among current strategy spots (aliases / parents)
-        const candidates = strategySpotCandidates(
-          strategySpots,
-          activeChart.spot_key,
-          activeChart.hero_position,
-          activeChart.villain_position,
+        // 3) Exact DB spot — no vs_3bet→vs_open parent fallbacks.
+        const exact = strategySpots.find(
+          (s) =>
+            s.spot_key === activeChart.spot_key &&
+            s.hero_position === activeChart.hero_position &&
+            (s.villain_position ?? null) === (activeChart.villain_position ?? null),
         );
-        for (const spot of candidates) {
-          if (spot.id === activeChart.spot_id) continue;
-          const cells = await listCells(spot.id);
+        if (exact) {
+          const cells = await listCells(exact.id);
           if (cancelled) return;
           const map = cellsToFreqMap(cells);
           if (isChartPainted(map)) {
@@ -973,7 +999,7 @@ export default function StrategyAnalysisPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeChart, strategySpots]);
+  }, [activeChart, strategySpots, strategyId, errorFilter.potKind]);
 
   const uploadBlock = showUpload ? (
     <div className="analysis-upload">
@@ -1447,60 +1473,100 @@ export default function StrategyAnalysisPanel({
               {rows.length > 0 ? (
                 <>
                   <p className="muted analysis-chart-hint" style={{ marginTop: "1.25rem" }}>
-                    Матчапы стратегии — внутри теги пота. Клик по тегу открывает диапазон.
+                    {focusMatchup
+                      ? "Выбери тег пота — откроется сверка стратегии и ошибки."
+                      : "Матчапы стратегии. Открой матчап, затем тег Raise / 3-bet / 4-bet."}
                   </p>
-                  <ul className="branch-matchup-list">
-                    {groupBranchesByMatchup(rows).map((group) => (
-                      <li key={group.key} className="branch-matchup-group">
-                        <div className="branch-matchup-head">
-                          <strong className="err-chart-matchup">{group.matchup}</strong>
-                          <span className="branch-matchup-meta">
-                            <em>{group.decisions} реш.</em>
-                            <em className={group.correct_pct >= 80 ? "pos" : "neg"}>
-                              {group.correct_pct.toFixed(1)}%
-                            </em>
-                          </span>
+                  {(() => {
+                    const groups = groupBranchesByMatchup(rows);
+                    const focused =
+                      focusMatchup &&
+                      groups.find((g) => matchupTagsEqual(g.matchup, focusMatchup));
+                    if (focused) {
+                      return (
+                        <div className="branch-matchup-group branch-matchup-focus">
+                          <div className="branch-matchup-head">
+                            <button
+                              type="button"
+                              className="branch-matchup-back"
+                              onClick={() => setFocusMatchup(null)}
+                            >
+                              ← Все матчапы
+                            </button>
+                            <strong className="err-chart-matchup">{focused.matchup}</strong>
+                            <span className="branch-matchup-meta">
+                              <em>{focused.decisions} реш.</em>
+                              <em className={focused.correct_pct >= 80 ? "pos" : "neg"}>
+                                {focused.correct_pct.toFixed(1)}%
+                              </em>
+                            </span>
+                          </div>
+                          <ul className="branch-pot-tag-list">
+                            {focused.items.map((row) => {
+                              const mu = analysisMatchup(
+                                row.spot_key,
+                                row.hero_position,
+                                row.villain_position,
+                                row.matchup || row.spot_label,
+                              );
+                              const potKind = row.pot_kind || spotPotKind(row.spot_key);
+                              return (
+                                <li key={branchKey(row)}>
+                                  <button
+                                    type="button"
+                                    className="branch-pot-tag-btn"
+                                    onClick={() =>
+                                      goErrors({
+                                        matchup: mu,
+                                        potKind,
+                                      })
+                                    }
+                                  >
+                                    <em className={`pot-tag pot-${potKind}`}>
+                                      {row.pot_tag || potKindTag(potKind)}
+                                    </em>
+                                    <span className="branch-pot-tag-meta">
+                                      <em>{row.decisions} реш.</em>
+                                      <strong
+                                        className={row.correct_pct >= 80 ? "pos" : "neg"}
+                                      >
+                                        {row.correct_pct.toFixed(1)}%
+                                      </strong>
+                                    </span>
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
                         </div>
-                        <ul className="branch-pot-tag-list">
-                          {group.items.map((row) => {
-                            const mu = analysisMatchup(
-                              row.spot_key,
-                              row.hero_position,
-                              row.villain_position,
-                              row.matchup || row.spot_label,
-                            );
-                            const potKind = row.pot_kind || spotPotKind(row.spot_key);
-                            return (
-                              <li key={branchKey(row)}>
-                                <button
-                                  type="button"
-                                  className="branch-pot-tag-btn"
-                                  onClick={() =>
-                                    goErrors({
-                                      matchup: mu,
-                                      potKind,
-                                    })
-                                  }
-                                >
-                                  <em className={`pot-tag pot-${potKind}`}>
-                                    {row.pot_tag || potKindTag(potKind)}
-                                  </em>
-                                  <span className="branch-pot-tag-meta">
-                                    <em>{row.decisions} реш.</em>
-                                    <strong
-                                      className={row.correct_pct >= 80 ? "pos" : "neg"}
-                                    >
-                                      {row.correct_pct.toFixed(1)}%
-                                    </strong>
-                                  </span>
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </li>
-                    ))}
-                  </ul>
+                      );
+                    }
+                    return (
+                      <ul className="branch-matchup-list">
+                        {groups.map((group) => (
+                          <li key={group.key}>
+                            <button
+                              type="button"
+                              className="branch-matchup-open"
+                              onClick={() => setFocusMatchup(group.matchup)}
+                            >
+                              <strong className="err-chart-matchup">{group.matchup}</strong>
+                              <span className="branch-matchup-meta">
+                                <em>
+                                  {group.items.length}{" "}
+                                  {group.items.length === 1 ? "тег" : "тега"}
+                                </em>
+                                <em>{group.decisions} реш.</em>
+                                <em className={group.correct_pct >= 80 ? "pos" : "neg"}>
+                                  {group.correct_pct.toFixed(1)}%
+                                </em>
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })()}
                 </>
               ) : null}
             </>
@@ -1661,12 +1727,17 @@ export default function StrategyAnalysisPanel({
                               );
                             const potKind = c.pot_kind || spotPotKind(c.spot_key);
                             const key = `${potKind}|${mu}|${chartKey(c)}`;
+                            const coverOpts = {
+                              strictOpen: true,
+                              strictPot: true,
+                            } as const;
                             const branch = paintedTreeBranches.find(
                               (b) =>
                                 matchupTagsEqual(b.label, mu) &&
                                 b.potKind === potKind,
                             );
                             const errCount = (liveDevs.deviations ?? []).filter((d) => {
+                              if (spotPotKind(d.spot_key || "") !== potKind) return false;
                               if (branch) {
                                 return spotCoveredByBranches(
                                   {
@@ -1675,6 +1746,7 @@ export default function StrategyAnalysisPanel({
                                     villain_position: d.villain_position,
                                   },
                                   [branch],
+                                  coverOpts,
                                 );
                               }
                               return (
@@ -1734,16 +1806,14 @@ export default function StrategyAnalysisPanel({
                     </strong>
                     <em
                       className={`pot-tag pot-${
-                        paintedTreeBranches.find((b) =>
-                          matchupTagsEqual(b.label, activeChart.label),
-                        )?.potKind ??
+                        activeChart.pot_kind ||
+                        errorFilter.potKind ||
                         spotPotKind(activeChart.spot_key)
                       }`}
                     >
                       {potKindTag(
-                        paintedTreeBranches.find((b) =>
-                          matchupTagsEqual(b.label, activeChart.label),
-                        )?.potKind ??
+                        activeChart.pot_kind ||
+                          errorFilter.potKind ||
                           spotPotKind(activeChart.spot_key),
                       )}
                     </em>

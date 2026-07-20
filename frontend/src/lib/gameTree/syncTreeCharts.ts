@@ -19,11 +19,16 @@ import type { CellFreq, HandCode } from "../handMatrix";
 import { matrixToPayload } from "../rangeNotation";
 import type { Position, SpotKey } from "../../types/strategy";
 import { toChartPos } from "./branchPresets";
-import { collectEditorBranches } from "./branches";
-import { pathToNode } from "./engine";
+import {
+  collectAnalysisBranches,
+  collectEditorBranches,
+  type BranchPotKind,
+} from "./branches";
+import { findNode, pathToNode } from "./engine";
 import { loadTree, normalizeTree, saveTree } from "./persist";
 import { deriveContext } from "./turnEngine";
 import type { GameTreeDocument, GameTreeNode, HandMix } from "./types";
+import { normalizeMatchupTag } from "../spotCoverage";
 
 /** Prefer richer trees: branch count first, then painted chart jobs. */
 function treeRichness(doc: GameTreeDocument): number {
@@ -176,6 +181,32 @@ export async function resolveConstructorTree(
   }
   saveTree(doc);
   return doc;
+}
+
+/**
+ * Painted matrix for a constructor branch (source of truth for Errors «Стратегия»).
+ */
+export function loadBranchPaintMatrix(
+  strategyId: string,
+  potKind: BranchPotKind | string,
+  matchup: string,
+): Record<string, CellFreq> | null {
+  try {
+    const doc = loadTree(strategyId);
+    const wantMu = normalizeMatchupTag(matchup);
+    const branch = collectAnalysisBranches(doc.root).find(
+      (b) =>
+        b.potKind === potKind &&
+        normalizeMatchupTag(b.label) === wantMu,
+    );
+    if (!branch) return null;
+    const node = findNode(doc.root, branch.paintNodeId);
+    if (!node) return null;
+    const matrix = rangesToMatrix(node.ranges);
+    return isPainted(matrix) ? matrix : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
