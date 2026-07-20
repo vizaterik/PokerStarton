@@ -620,9 +620,13 @@ export default function GtoTreeEditor({ strategy }: Props) {
             const stamped = { ...next, updatedAt: new Date().toISOString() };
             setDoc(stamped);
             const tip = findNode(stamped.root, focus.tipNodeId);
-            const tipPath = tip
-              ? pathToNode(stamped.root, focus.tipNodeId) ?? []
-              : [];
+            if (!tip?.awaitingFlop) {
+              // Incomplete line — stay on branches with a clear failure path.
+              setSelectedHand(null);
+              setTab("branches");
+              return;
+            }
+            const tipPath = pathToNode(stamped.root, focus.tipNodeId) ?? [];
             const rangeSpots = branchRangeSpots(
               tipPath,
               stamped.stackDepth,
@@ -632,12 +636,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
             const paint =
               rangeSpots.find((s) => s.nodeId === focus.paintNodeId) ??
               rangeSpots[0];
-            // Prefer closed flop tip (paint-ready); else still land on seed focus.
-            setActiveId(
-              tip?.awaitingFlop
-                ? focus.tipNodeId
-                : paint?.nodeId ?? focus.paintNodeId,
-            );
+            setActiveId(focus.tipNodeId);
             setPaintNodeId(paint?.nodeId ?? focus.paintNodeId);
             setSelectedHand(null);
             setTab("editor");

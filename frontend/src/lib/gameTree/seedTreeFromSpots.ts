@@ -5,6 +5,9 @@
 import { putStrategyTree } from "../../api/client";
 import {
   fourBetLine,
+  isoLine,
+  limpLine,
+  multiwayLine,
   openLine,
   seedPresetLine,
   srpLine,
@@ -97,20 +100,65 @@ function spotToPresetLine(
     ? chartPosToSeat(spot.villain_position, tableSize)
     : null;
 
-  if (key === "rfi" || key === "iso") {
+  if (key === "rfi") {
+    return openLine(hero);
+  }
+
+  if (key === "limp") {
+    if (villain && villain !== hero) return limpLine(villain, hero);
+    return limpLine(hero, null);
+  }
+
+  if (key === "iso") {
+    if (villain && villain !== hero) return isoLine(villain, hero);
     return openLine(hero);
   }
 
   if (!villain || villain === hero) return null;
 
-  if (key === "vs_open" || key === "squeeze") {
-    // Villain open, hero call — opener must be earlier seat.
+  if (key === "vs_open") {
     const { earlier: opener, later: caller } = orderedPair(
       villain,
       hero,
       tableSize,
     );
     return srpLine(opener, caller);
+  }
+
+  if (key === "multiway") {
+    // Open → cold call → hero call. Pick a middle seat between opener and hero.
+    const { earlier: opener, later: caller } = orderedPair(
+      villain,
+      hero,
+      tableSize,
+    );
+    const order = seatsFor(tableSize);
+    const oi = order.indexOf(opener);
+    const ci = order.indexOf(caller);
+    let cold: Seat | null = null;
+    if (oi >= 0 && ci > oi) {
+      for (let i = oi + 1; i < ci; i += 1) {
+        if (order[i] !== opener && order[i] !== caller) {
+          cold = order[i];
+          break;
+        }
+      }
+    }
+    if (!cold) {
+      cold = order.find((s) => s !== opener && s !== caller) ?? null;
+    }
+    if (!cold) return srpLine(opener, caller);
+    return multiwayLine(opener, cold, caller);
+  }
+
+  if (key === "squeeze") {
+    // Open → (cold) → squeeze 3-bet → open call.
+    const { earlier: opener, later: threeBettor } = orderedPair(
+      villain,
+      hero,
+      tableSize,
+    );
+    return threeBetLine(opener, threeBettor);
   }
 
   if (key === "vs_3bet") {
@@ -156,6 +204,12 @@ function pickHeroPaintNodeId(
       heroSpots[0].nodeId
     );
   }
+  if (key === "limp") {
+    return (
+      heroSpots.find((s) => s.lineAction === "CALL")?.nodeId ??
+      heroSpots[0].nodeId
+    );
+  }
   if (key === "squeeze") {
     return (
       heroSpots.find((s) => s.lineAction === "RAISE")?.nodeId ??
@@ -163,7 +217,7 @@ function pickHeroPaintNodeId(
       heroSpots[0].nodeId
     );
   }
-  // vs_open / vs_3bet / vs_4bet — facing decision (call continuum) first.
+  // vs_open / multiway / vs_3bet / vs_4bet — facing decision first.
   return (
     heroSpots.find((s) => s.lineAction === "CALL")?.nodeId ??
     heroSpots.find((s) => s.lineAction === "RAISE")?.nodeId ??
@@ -204,9 +258,11 @@ function lineLooksReady(
   const spots = branchRangeSpots(tipPath, doc.stackDepth).filter(
     (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
   );
-  // 3-bet pot → open / 3-bet / call; SRP → open / call; open → raise only.
+  // 3-bet pot → open / 3-bet / call; SRP/multi → open / call; limp → call(+); open → raise.
   if (line.kind === "3bp") return spots.length >= 3;
   if (line.kind === "4bp") return spots.length >= 4;
+  if (line.kind === "multi") return spots.length >= 2;
+  if (line.kind === "limp") return spots.length >= 1;
   if (line.kind === "srp" && line.opener !== line.villain) return spots.length >= 2;
   return spots.length >= 1;
 }
@@ -274,8 +330,8 @@ function defaultSizing(action: PlayedLineAction, raiseCount: number, seat: Seat)
 }
 
 /**
- * Create missing tree edges for a played HH line (with range inheritance via commitAction).
- * Returns editor focus on the hero decision node.
+ * Create missing tree edges for a played HH line, then fold remaining seats
+ * to a closed flop tip — same paint-ready contract as style presets.
  */
 export function seedPlayedLineIntoDoc(
   doc: GameTreeDocument,
@@ -313,19 +369,39 @@ export function seedPlayedLineIntoDoc(
     if (result.awaitingFlop) break;
   }
 
-  const paintNodeId = heroPaintId ?? cursorId;
-  if (!findNode(current.root, paintNodeId)) return null;
-
-  let tipNodeId = paintNodeId;
-  const path = pathToNode(current.root, paintNodeId) ?? [];
-  const flopTip = path.find((n) => n.awaitingFlop);
-  if (flopTip) tipNodeId = flopTip.id;
-  else {
-    const last = findNode(current.root, cursorId);
-    if (last?.awaitingFlop) tipNodeId = last.id;
+  // Fold remaining live seats until preflop closes (flop prompt).
+  let guard = 0;
+  while (guard < 12) {
+    const node = findNode(current.root, cursorId);
+    if (!node || node.awaitingFlop) break;
+    const result = commitWithAutoFolds(
+      current,
+      cursorId,
+      node.activePlayer,
+      "FOLD",
+    );
+    if (!result.childId) break;
+    current = result.doc;
+    cursorId = result.childId;
+    guard += 1;
   }
 
-  return { doc: current, tipNodeId, paintNodeId };
+  const tip = findNode(current.root, cursorId);
+  if (!tip?.awaitingFlop) return null;
+
+  const tipPath = pathToNode(current.root, cursorId) ?? [];
+  const rangeSpots = branchRangeSpots(tipPath, current.stackDepth).filter(
+    (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
+  );
+  if (!rangeSpots.length) return null;
+
+  const paintNodeId =
+    (heroPaintId && findNode(current.root, heroPaintId)
+      ? heroPaintId
+      : null) ??
+    rangeSpots[0].nodeId;
+
+  return { doc: current, tipNodeId: cursorId, paintNodeId };
 }
 
 export function seedPlayedLineIntoTree(

@@ -97,10 +97,13 @@ function detectSpot(actionsBefore: string[], heroAction: string): string {
   }
   if (raises === 0) {
     if (limps > 0 && heroAction === "raise") return "iso";
+    if (heroAction === "call") return "limp";
     return "rfi";
   }
   if (raises === 1) {
     if (callsAfterRaise >= 1 && heroAction === "raise") return "squeeze";
+    // Open + ≥1 cold-call already in, hero calls → multiway pot.
+    if (callsAfterRaise >= 1 && heroAction === "call") return "multiway";
     return "vs_open";
   }
   if (raises === 2) return "vs_3bet";
@@ -350,6 +353,18 @@ function parseOne(block: string): ParsedHand | null {
         if (before[i] === "raise") {
           const seat = nameToSeat.get(beforePlayers[i]);
           villainPosition = seat != null ? posMap[seat] ?? null : null;
+        }
+      }
+      // Limp / ISO: last limper is the relevant villain when there was no raise yet.
+      if (
+        (detectedSpot === "limp" || detectedSpot === "iso") &&
+        !villainPosition
+      ) {
+        for (let i = before.length - 1; i >= 0; i--) {
+          if (before[i] !== "call") continue;
+          const seat = nameToSeat.get(beforePlayers[i]);
+          villainPosition = seat != null ? posMap[seat] ?? null : null;
+          break;
         }
       }
       // Keep scanning — later hero decisions (face 3bet/4bet) override for strategy.

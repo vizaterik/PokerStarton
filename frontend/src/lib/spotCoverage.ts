@@ -38,7 +38,8 @@ export function normalizeMatchupTag(label: string): string {
 /** Pot aliases (legacy `allin` → 4bp). */
 export function potLookupKinds(pot: string): string[] {
   const p = pot.trim().toLowerCase();
-  if (p === "limp") return ["limp", "srp"];
+  if (p === "limp") return ["limp"];
+  if (p === "multi" || p === "multiway" || p === "multipot") return ["multi"];
   if (p === "allin" || p === "all_in" || p === "4bp") return ["4bp"];
   if (p === "3bp") return ["3bp"];
   return [p];
@@ -130,30 +131,20 @@ export function coveredByConstructorTags(
 /** Spot → which tree pot kinds count as the same situation. */
 function potsForSpot(spotKey: string, strictPot?: boolean): BranchPotKind[] {
   const kind = spotPotKind(spotKey) as BranchPotKind;
-  // Analysis / Errors: keep pots distinct; limp↔iso/srp soft match only.
+  // Analysis / Errors: keep pots distinct (Limp ≠ Raise ≠ Multi ≠ 3-bet).
   if (strictPot) {
-    if (kind === "srp") {
-      const key = spotKey.trim().toLowerCase();
-      // HH limp pots are often tagged iso/vs_open — allow limp branches to cover.
-      if (key === "iso" || key === "vs_open") return ["srp", "limp"];
-      return ["srp"];
-    }
-    if (kind === "limp") return ["limp", "srp"];
+    if (kind === "srp") return ["srp"];
+    if (kind === "limp") return ["limp"];
+    if (kind === "multi") return ["multi"];
     if (kind === "3bp") return ["3bp"];
     if (kind === "4bp") return ["4bp"];
     return [kind];
   }
-  // Softer set only for missing-spot discovery in the editor.
   if (kind === "3bp") return ["3bp"];
   if (kind === "4bp") return ["4bp"];
-  if (kind === "srp") {
-    const key = spotKey.trim().toLowerCase();
-    if (key === "rfi" || key === "iso") {
-      return ["srp", "3bp", "4bp", "limp"];
-    }
-    return ["srp", "limp"];
-  }
-  if (kind === "limp") return ["limp", "srp"];
+  if (kind === "multi") return ["multi", "srp"];
+  if (kind === "srp") return ["srp", "multi"];
+  if (kind === "limp") return ["limp"];
   return [kind];
 }
 
@@ -295,7 +286,7 @@ export function groupChartErrorsByTreeBranches(
   }
 
   // Prefer facing pots in natural order so soft leftovers cannot race.
-  const potOrder = ["limp", "srp", "3bp", "4bp"] as const;
+  const potOrder = ["limp", "srp", "multi", "3bp", "4bp"] as const;
   const ordered = [...painted].sort((a, b) => {
     const ia = potOrder.indexOf(a.potKind as (typeof potOrder)[number]);
     const ib = potOrder.indexOf(b.potKind as (typeof potOrder)[number]);

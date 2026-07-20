@@ -16,7 +16,7 @@ export type PresetAction = {
   sizingBB?: number;
 };
 
-export type LineKind = "srp" | "3bp" | "4bp";
+export type LineKind = "limp" | "srp" | "3bp" | "4bp" | "multi";
 
 export type PresetLine = {
   id: string;
@@ -72,6 +72,55 @@ export function openLine(opener: Seat): PresetLine {
     opener,
     villain: opener,
     actions: [{ seat: opener, action: "RAISE", sizingBB: size }],
+  };
+}
+
+/** Limp pot: limper completes → fold rest (tag `UTG` / `UTGvsBB`). */
+export function limpLine(limper: Seat, completer?: Seat | null): PresetLine {
+  const actions: PresetAction[] = [{ seat: limper, action: "CALL" }];
+  if (completer && completer !== limper) {
+    actions.push({ seat: completer, action: "CALL" });
+  }
+  return {
+    id: `limp_${limper}_${completer ?? "solo"}`,
+    label: completer && completer !== limper ? `${limper}vs${completer}` : `${limper}`,
+    kind: "limp",
+    opener: limper,
+    villain: completer && completer !== limper ? completer : limper,
+    actions,
+  };
+}
+
+/** ISO: limp → iso-raise → fold to flop. */
+export function isoLine(limper: Seat, isoRaiser: Seat): PresetLine {
+  const size = openSize(isoRaiser);
+  return {
+    id: `iso_${limper}_${isoRaiser}`,
+    label: `${limper}vs${isoRaiser}`,
+    kind: "limp",
+    opener: limper,
+    villain: isoRaiser,
+    actions: [
+      { seat: limper, action: "CALL" },
+      { seat: isoRaiser, action: "RAISE", sizingBB: size },
+    ],
+  };
+}
+
+/** Multiway SRP: open → cold call → hero call → fold to flop. */
+export function multiwayLine(opener: Seat, cold: Seat, caller: Seat): PresetLine {
+  const size = openSize(opener);
+  return {
+    id: `multi_${opener}_${cold}_${caller}`,
+    label: `${opener}vs${caller}`,
+    kind: "multi",
+    opener,
+    villain: caller,
+    actions: [
+      { seat: opener, action: "RAISE", sizingBB: size },
+      { seat: cold, action: "CALL" },
+      { seat: caller, action: "CALL" },
+    ],
   };
 }
 

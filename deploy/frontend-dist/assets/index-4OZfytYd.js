@@ -23212,7 +23212,8 @@ function resetBranches(doc) {
 }
 function spotPotKind(spotKey) {
   const key2 = spotKey.trim().toLowerCase();
-  if (key2 === "limp") return "limp";
+  if (key2 === "limp" || key2 === "iso") return "limp";
+  if (key2 === "multiway" || key2 === "multi" || key2 === "multipot") return "multi";
   if (key2 === "allin" || key2 === "all_in" || key2 === "vs_4bet") return "4bp";
   if (key2 === "vs_3bet" || key2 === "squeeze") return "3bp";
   return "srp";
@@ -23222,14 +23223,15 @@ function spotPotTag(spotKey) {
   if (kind === "3bp") return "3-bet";
   if (kind === "4bp") return "4-bet";
   if (kind === "limp") return "Limp";
+  if (kind === "multi") return "Multi";
   return "Raise";
 }
 function treeMatchupLabel(spotKey, hero, villain) {
   const h = (hero ?? "").trim().toUpperCase();
   const v = (villain ?? "").trim().toUpperCase();
   const key2 = (spotKey || "").trim().toLowerCase();
-  if (key2 === "rfi" || key2 === "iso" || !v || v === h) return h || "—";
-  if (key2 === "vs_open" || key2 === "vs_3bet" || key2 === "vs_4bet" || key2 === "squeeze") {
+  if (key2 === "rfi" || !v || v === h) return h || "—";
+  if (key2 === "iso" || key2 === "limp" || key2 === "multiway" || key2 === "vs_open" || key2 === "vs_3bet" || key2 === "vs_4bet" || key2 === "squeeze") {
     return `${v}vs${h}`;
   }
   if (h && v) return `${h}vs${v}`;
@@ -23261,7 +23263,8 @@ function normalizeMatchupTag(label) {
 }
 function potLookupKinds(pot) {
   const p = pot.trim().toLowerCase();
-  if (p === "limp") return ["limp", "srp"];
+  if (p === "limp") return ["limp"];
+  if (p === "multi" || p === "multiway" || p === "multipot") return ["multi"];
   if (p === "allin" || p === "all_in" || p === "4bp") return ["4bp"];
   if (p === "3bp") return ["3bp"];
   return [p];
@@ -23310,26 +23313,18 @@ function coveredByConstructorTags(spot, branches) {
 function potsForSpot(spotKey, strictPot) {
   const kind = spotPotKind(spotKey);
   if (strictPot) {
-    if (kind === "srp") {
-      const key2 = spotKey.trim().toLowerCase();
-      if (key2 === "iso" || key2 === "vs_open") return ["srp", "limp"];
-      return ["srp"];
-    }
-    if (kind === "limp") return ["limp", "srp"];
+    if (kind === "srp") return ["srp"];
+    if (kind === "limp") return ["limp"];
+    if (kind === "multi") return ["multi"];
     if (kind === "3bp") return ["3bp"];
     if (kind === "4bp") return ["4bp"];
     return [kind];
   }
   if (kind === "3bp") return ["3bp"];
   if (kind === "4bp") return ["4bp"];
-  if (kind === "srp") {
-    const key2 = spotKey.trim().toLowerCase();
-    if (key2 === "rfi" || key2 === "iso") {
-      return ["srp", "3bp", "4bp", "limp"];
-    }
-    return ["srp", "limp"];
-  }
-  if (kind === "limp") return ["limp", "srp"];
+  if (kind === "multi") return ["multi", "srp"];
+  if (kind === "srp") return ["srp", "multi"];
+  if (kind === "limp") return ["limp"];
   return [kind];
 }
 function spotCoveredByCharts(spot, charts) {
@@ -23401,7 +23396,7 @@ function groupChartErrorsByTreeBranches(charts, branches, opts) {
   if (!painted.length) {
     return [];
   }
-  const potOrder = ["limp", "srp", "3bp", "4bp"];
+  const potOrder = ["limp", "srp", "multi", "3bp", "4bp"];
   const ordered = [...painted].sort((a, b) => {
     const ia = potOrder.indexOf(a.potKind);
     const ib = potOrder.indexOf(b.potKind);
@@ -24235,10 +24230,12 @@ function detectSpot(actionsBefore, heroAction) {
   }
   if (raises === 0) {
     if (limps > 0 && heroAction === "raise") return "iso";
+    if (heroAction === "call") return "limp";
     return "rfi";
   }
   if (raises === 1) {
     if (callsAfterRaise >= 1 && heroAction === "raise") return "squeeze";
+    if (callsAfterRaise >= 1 && heroAction === "call") return "multiway";
     return "vs_open";
   }
   if (raises === 2) return "vs_3bet";
@@ -24458,6 +24455,14 @@ function parseOne(block) {
         if (before[i] === "raise") {
           const seat = nameToSeat.get(beforePlayers[i]);
           villainPosition = seat != null ? posMap[seat] ?? null : null;
+        }
+      }
+      if ((detectedSpot === "limp" || detectedSpot === "iso") && !villainPosition) {
+        for (let i = before.length - 1; i >= 0; i--) {
+          if (before[i] !== "call") continue;
+          const seat = nameToSeat.get(beforePlayers[i]);
+          villainPosition = seat != null ? posMap[seat] ?? null : null;
+          break;
         }
       }
       before.push(act);
@@ -27534,19 +27539,22 @@ async function applyStrategyPreset(strategyId, preset) {
 function normalizeBranchPotKind(kind) {
   const k = String(kind || "").toLowerCase();
   if (k === "limp") return "limp";
+  if (k === "multi" || k === "multiway" || k === "multipot") return "multi";
   if (k === "3bp") return "3bp";
   if (k === "4bp" || k === "allin" || k === "all_in") return "4bp";
   return "srp";
 }
-function inferPotKind(raiseCount, _raiseSizings = [], _stackDepth = 100) {
+function inferPotKind(raiseCount, _raiseSizings = [], _stackDepth = 100, coldCallers = 0) {
   if (raiseCount === 0) return "limp";
   if (raiseCount >= 3) return "4bp";
   if (raiseCount === 2) return "3bp";
+  if (raiseCount === 1 && coldCallers >= 2) return "multi";
   return "srp";
 }
 function potKindTag(kind) {
   const k = normalizeBranchPotKind(kind);
   if (k === "limp") return "Limp";
+  if (k === "multi") return "Multi";
   if (k === "3bp") return "3-bet";
   if (k === "4bp") return "4-bet";
   return "Raise";
@@ -27631,7 +27639,13 @@ function collectBranches(root) {
       const paintNodeId = decision.id;
       const paintedCount = decision.awaitingFlop || decision.street !== "preflop" ? 0 : countPaintedHands(decision);
       const signature = keys.join("|");
-      const potKind = inferPotKind(raiseIndex, raiseSizings);
+      let coldCallers = 0;
+      let raisesSeen = 0;
+      for (let i = 1; i < path.length; i += 1) {
+        if (path[i].actionTaken === "RAISE") raisesSeen += 1;
+        else if (path[i].actionTaken === "CALL" && raisesSeen >= 1) coldCallers += 1;
+      }
+      const potKind = inferPotKind(raiseIndex, raiseSizings, 100, coldCallers);
       const candidate = {
         id: node.id,
         index: 0,
@@ -27727,7 +27741,18 @@ function collectFacingBranches(root) {
     if (node.street === "preflop" && !node.awaitingFlop && nodeHasPlayRange(node)) {
       const ctx = deriveContext(path);
       if (ctx.raiseCount >= 1 && ctx.lastAggressor) {
-        const potKind = inferPotKind(ctx.raiseCount, raiseSizingsAlongPath(path));
+        let coldCallers = 0;
+        let raisesSeen = 0;
+        for (let i = 1; i < path.length; i += 1) {
+          if (path[i].actionTaken === "RAISE") raisesSeen += 1;
+          else if (path[i].actionTaken === "CALL" && raisesSeen >= 1) coldCallers += 1;
+        }
+        const potKind = inferPotKind(
+          ctx.raiseCount,
+          raiseSizingsAlongPath(path),
+          100,
+          coldCallers
+        );
         const label = `${seatLabel(ctx.lastAggressor)}vs${seatLabel(node.activePlayer)}`;
         const paintedCount = countPaintedHands(node);
         const key2 = `${potKind}|${label}`;
@@ -27897,6 +27922,49 @@ function openLine(opener) {
     opener,
     villain: opener,
     actions: [{ seat: opener, action: "RAISE", sizingBB: size }]
+  };
+}
+function limpLine(limper, completer) {
+  const actions = [{ seat: limper, action: "CALL" }];
+  if (completer && completer !== limper) {
+    actions.push({ seat: completer, action: "CALL" });
+  }
+  return {
+    id: `limp_${limper}_${completer ?? "solo"}`,
+    label: completer && completer !== limper ? `${limper}vs${completer}` : `${limper}`,
+    kind: "limp",
+    opener: limper,
+    villain: completer && completer !== limper ? completer : limper,
+    actions
+  };
+}
+function isoLine(limper, isoRaiser) {
+  const size = openSize(isoRaiser);
+  return {
+    id: `iso_${limper}_${isoRaiser}`,
+    label: `${limper}vs${isoRaiser}`,
+    kind: "limp",
+    opener: limper,
+    villain: isoRaiser,
+    actions: [
+      { seat: limper, action: "CALL" },
+      { seat: isoRaiser, action: "RAISE", sizingBB: size }
+    ]
+  };
+}
+function multiwayLine(opener, cold, caller) {
+  const size = openSize(opener);
+  return {
+    id: `multi_${opener}_${cold}_${caller}`,
+    label: `${opener}vs${caller}`,
+    kind: "multi",
+    opener,
+    villain: caller,
+    actions: [
+      { seat: opener, action: "RAISE", sizingBB: size },
+      { seat: cold, action: "CALL" },
+      { seat: caller, action: "CALL" }
+    ]
   };
 }
 function srpLine(opener, caller) {
@@ -28573,7 +28641,7 @@ function loadBranchPaintMatrix(strategyId, potKind, matchup) {
     const doc = loadTree(strategyId);
     const wantMu = normalizeMatchupTag(matchup);
     const pot = String(potKind || "").toLowerCase();
-    const potAliases = pot === "limp" ? ["limp", "srp"] : pot === "allin" || pot === "all_in" || pot === "4bp" ? ["4bp"] : pot === "3bp" ? ["3bp"] : [pot];
+    const potAliases = pot === "limp" ? ["limp"] : pot === "multi" || pot === "multiway" || pot === "multipot" ? ["multi"] : pot === "allin" || pot === "all_in" || pot === "4bp" ? ["4bp"] : pot === "3bp" ? ["3bp"] : [pot];
     const branch = collectAnalysisBranches(doc.root).find((b) => {
       if (!potAliases.includes(b.potKind)) return false;
       return normalizeMatchupTag(b.label) === wantMu;
@@ -28636,7 +28704,16 @@ async function syncTreeChartsToDb(strategyId, doc, opts) {
     markAnalysisChartsStale(strategyId);
   }
 }
-const KNOWN = /* @__PURE__ */ new Set(["rfi", "vs_open", "vs_3bet", "vs_4bet", "squeeze", "iso"]);
+const KNOWN = /* @__PURE__ */ new Set([
+  "rfi",
+  "limp",
+  "iso",
+  "vs_open",
+  "multiway",
+  "vs_3bet",
+  "vs_4bet",
+  "squeeze"
+]);
 function displayMatchup(spotKey, hero, villain) {
   return treeMatchupLabel(spotKey, hero, villain).replace(/\bMP\b/g, "HJ");
 }
@@ -28712,11 +28789,6 @@ async function listSessionBranches(strategyId) {
   );
 }
 function isCovered(strategyId, spot, branches, charts) {
-  const coverOpts = { strictOpen: true, strictPot: true };
-  if (branches.length && spotCoveredByBranches(spot, branches, coverOpts)) {
-    return true;
-  }
-  if (charts.length && spotCoveredByCharts(spot, charts)) return true;
   const pot = spotPotKind(spot.spot_key);
   const mu = normalizeMatchupTag(
     treeMatchupLabel(
@@ -28726,11 +28798,26 @@ function isCovered(strategyId, spot, branches, charts) {
     )
   );
   if (!mu || mu === "—") return false;
+  if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
   for (const b of branches) {
+    if (b.paintedCount <= 0) continue;
     if (!potLookupKinds(pot).includes(b.potKind) && b.potKind !== pot) continue;
     if (normalizeMatchupTag(b.label) === mu) return true;
   }
-  if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
+  if (charts.length && spotCoveredByCharts(spot, charts)) {
+    const hit = charts.find((c) => {
+      if (c.spot_key.trim().toLowerCase() !== spot.spot_key.trim().toLowerCase()) {
+        return false;
+      }
+      if (normalizeChartPos(c.hero_position) !== normalizeChartPos(spot.hero_position)) {
+        return false;
+      }
+      const sv = c.villain_position ? normalizeChartPos(c.villain_position) : null;
+      const want = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
+      return sv === want || sv === null;
+    });
+    if (hit) return true;
+  }
   return false;
 }
 async function listMissingSpotsLocal(strategyId, branchesOverride) {
@@ -28792,17 +28879,57 @@ function spotToPresetLine(spot, tableSize) {
   if (!hero) return null;
   const key2 = spot.spot_key.trim().toLowerCase();
   const villain = spot.villain_position ? chartPosToSeat(spot.villain_position, tableSize) : null;
-  if (key2 === "rfi" || key2 === "iso") {
+  if (key2 === "rfi") {
+    return openLine(hero);
+  }
+  if (key2 === "limp") {
+    if (villain && villain !== hero) return limpLine(villain, hero);
+    return limpLine(hero, null);
+  }
+  if (key2 === "iso") {
+    if (villain && villain !== hero) return isoLine(villain, hero);
     return openLine(hero);
   }
   if (!villain || villain === hero) return null;
-  if (key2 === "vs_open" || key2 === "squeeze") {
+  if (key2 === "vs_open") {
     const { earlier: opener, later: caller } = orderedPair(
       villain,
       hero,
       tableSize
     );
     return srpLine(opener, caller);
+  }
+  if (key2 === "multiway") {
+    const { earlier: opener, later: caller } = orderedPair(
+      villain,
+      hero,
+      tableSize
+    );
+    const order = seatsFor(tableSize);
+    const oi = order.indexOf(opener);
+    const ci = order.indexOf(caller);
+    let cold = null;
+    if (oi >= 0 && ci > oi) {
+      for (let i = oi + 1; i < ci; i += 1) {
+        if (order[i] !== opener && order[i] !== caller) {
+          cold = order[i];
+          break;
+        }
+      }
+    }
+    if (!cold) {
+      cold = order.find((s) => s !== opener && s !== caller) ?? null;
+    }
+    if (!cold) return srpLine(opener, caller);
+    return multiwayLine(opener, cold, caller);
+  }
+  if (key2 === "squeeze") {
+    const { earlier: opener, later: threeBettor } = orderedPair(
+      villain,
+      hero,
+      tableSize
+    );
+    return threeBetLine(opener, threeBettor);
   }
   if (key2 === "vs_3bet") {
     const { earlier: opener, later: threeBettor } = orderedPair(
@@ -28823,7 +28950,7 @@ function spotToPresetLine(spot, tableSize) {
   return null;
 }
 function pickHeroPaintNodeId(spots, hero, spotKey) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d, _e, _f;
   if (!hero || !spots.length) return null;
   const heroSpots = spots.filter((s) => s.seat === hero);
   if (!heroSpots.length) return null;
@@ -28831,10 +28958,13 @@ function pickHeroPaintNodeId(spots, hero, spotKey) {
   if (key2 === "rfi" || key2 === "iso") {
     return ((_a = heroSpots.find((s) => s.lineAction === "RAISE")) == null ? void 0 : _a.nodeId) ?? heroSpots[0].nodeId;
   }
-  if (key2 === "squeeze") {
-    return ((_b = heroSpots.find((s) => s.lineAction === "RAISE")) == null ? void 0 : _b.nodeId) ?? ((_c = heroSpots.find((s) => s.lineAction === "CALL")) == null ? void 0 : _c.nodeId) ?? heroSpots[0].nodeId;
+  if (key2 === "limp") {
+    return ((_b = heroSpots.find((s) => s.lineAction === "CALL")) == null ? void 0 : _b.nodeId) ?? heroSpots[0].nodeId;
   }
-  return ((_d = heroSpots.find((s) => s.lineAction === "CALL")) == null ? void 0 : _d.nodeId) ?? ((_e = heroSpots.find((s) => s.lineAction === "RAISE")) == null ? void 0 : _e.nodeId) ?? heroSpots[0].nodeId;
+  if (key2 === "squeeze") {
+    return ((_c = heroSpots.find((s) => s.lineAction === "RAISE")) == null ? void 0 : _c.nodeId) ?? ((_d = heroSpots.find((s) => s.lineAction === "CALL")) == null ? void 0 : _d.nodeId) ?? heroSpots[0].nodeId;
+  }
+  return ((_e = heroSpots.find((s) => s.lineAction === "CALL")) == null ? void 0 : _e.nodeId) ?? ((_f = heroSpots.find((s) => s.lineAction === "RAISE")) == null ? void 0 : _f.nodeId) ?? heroSpots[0].nodeId;
 }
 function focusForSpot(doc, tipId, spot) {
   const tip = findNode(doc.root, tipId);
@@ -28860,6 +28990,8 @@ function lineLooksReady(doc, tipId, line) {
   );
   if (line.kind === "3bp") return spots.length >= 3;
   if (line.kind === "4bp") return spots.length >= 4;
+  if (line.kind === "multi") return spots.length >= 2;
+  if (line.kind === "limp") return spots.length >= 1;
   if (line.kind === "srp" && line.opener !== line.villain) return spots.length >= 2;
   return spots.length >= 1;
 }
@@ -28922,17 +29054,30 @@ function seedPlayedLineIntoDoc(doc, line) {
     if (act.action === "RAISE") raiseCount += 1;
     if (result.awaitingFlop) break;
   }
-  const paintNodeId = heroPaintId ?? cursorId;
-  if (!findNode(current2.root, paintNodeId)) return null;
-  let tipNodeId = paintNodeId;
-  const path = pathToNode(current2.root, paintNodeId) ?? [];
-  const flopTip = path.find((n) => n.awaitingFlop);
-  if (flopTip) tipNodeId = flopTip.id;
-  else {
-    const last = findNode(current2.root, cursorId);
-    if (last == null ? void 0 : last.awaitingFlop) tipNodeId = last.id;
+  let guard = 0;
+  while (guard < 12) {
+    const node = findNode(current2.root, cursorId);
+    if (!node || node.awaitingFlop) break;
+    const result = commitWithAutoFolds(
+      current2,
+      cursorId,
+      node.activePlayer,
+      "FOLD"
+    );
+    if (!result.childId) break;
+    current2 = result.doc;
+    cursorId = result.childId;
+    guard += 1;
   }
-  return { doc: current2, tipNodeId, paintNodeId };
+  const tip = findNode(current2.root, cursorId);
+  if (!(tip == null ? void 0 : tip.awaitingFlop)) return null;
+  const tipPath = pathToNode(current2.root, cursorId) ?? [];
+  const rangeSpots = branchRangeSpots(tipPath, current2.stackDepth).filter(
+    (s) => s.lineAction === "RAISE" || s.lineAction === "CALL"
+  );
+  if (!rangeSpots.length) return null;
+  const paintNodeId = (heroPaintId && findNode(current2.root, heroPaintId) ? heroPaintId : null) ?? rangeSpots[0].nodeId;
+  return { doc: current2, tipNodeId: cursorId, paintNodeId };
 }
 function seedPlayedLineIntoTree(strategyId, hand) {
   const line = buildPlayedLine(hand);
@@ -28948,6 +29093,7 @@ function seedPlayedLineIntoTree(strategyId, hand) {
 const POT_FILTERS = [
   { id: "all", label: "Все поты", short: "Все" },
   { id: "srp", label: "Raise pot", short: "Raise" },
+  { id: "multi", label: "Multiway pot", short: "Multi" },
   { id: "3bp", label: "3-bet pot", short: "3-bet" },
   { id: "4bp", label: "4-bet pot", short: "4-bet" },
   { id: "limp", label: "Limp pot", short: "Limp" }
@@ -29069,6 +29215,7 @@ function BranchPanel({
       all: base.length,
       limp: 0,
       srp: 0,
+      multi: 0,
       "3bp": 0,
       "4bp": 0
     };
@@ -30185,7 +30332,12 @@ function GtoTreeEditor({ strategy }) {
           const stamped = { ...next, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
           setDoc(stamped);
           const tip = findNode(stamped.root, focus.tipNodeId);
-          const tipPath = tip ? pathToNode(stamped.root, focus.tipNodeId) ?? [] : [];
+          if (!(tip == null ? void 0 : tip.awaitingFlop)) {
+            setSelectedHand(null);
+            setTab("branches");
+            return;
+          }
+          const tipPath = pathToNode(stamped.root, focus.tipNodeId) ?? [];
           const rangeSpots2 = branchRangeSpots(
             tipPath,
             stamped.stackDepth
@@ -30193,9 +30345,7 @@ function GtoTreeEditor({ strategy }) {
             (s) => s.lineAction === "RAISE" || s.lineAction === "CALL"
           );
           const paint = rangeSpots2.find((s) => s.nodeId === focus.paintNodeId) ?? rangeSpots2[0];
-          setActiveId(
-            (tip == null ? void 0 : tip.awaitingFlop) ? focus.tipNodeId : (paint == null ? void 0 : paint.nodeId) ?? focus.paintNodeId
-          );
+          setActiveId(focus.tipNodeId);
           setPaintNodeId((paint == null ? void 0 : paint.nodeId) ?? focus.paintNodeId);
           setSelectedHand(null);
           setTab("editor");
@@ -30676,7 +30826,7 @@ function getWorker() {
   if (!worker) {
     worker = new Worker(new URL(
       /* @vite-ignore */
-      "/assets/hhWorker-CrMVaaXK.js",
+      "/assets/hhWorker-4Qyl6anc.js",
       import.meta.url
     ), { type: "module" });
   }
@@ -34266,10 +34416,10 @@ function parseSelectedChartKey(key2) {
   const raw = (key2 || "").trim();
   if (!raw) return { pot: null, matchup: "" };
   const parts = raw.split("|");
-  if (parts.length >= 2 && /^(limp|srp|3bp|4bp|allin)$/i.test(parts[0])) {
+  if (parts.length >= 2 && /^(limp|srp|multi|3bp|4bp|allin)$/i.test(parts[0])) {
     const pot = parts[0].toLowerCase();
     return {
-      pot: pot === "allin" ? "4bp" : pot,
+      pot: pot === "allin" ? "4bp" : pot === "multiway" ? "multi" : pot,
       matchup: parts[1]
     };
   }

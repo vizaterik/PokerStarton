@@ -12,13 +12,21 @@ import {
   normalizeChartPos,
   normalizeMatchupTag,
   potLookupKinds,
-  spotCoveredByBranches,
   spotCoveredByCharts,
   type SpotLike,
 } from "../lib/spotCoverage";
 import { listHandsForStrategy, type HandRow } from "./localDb";
 
-const KNOWN = new Set(["rfi", "vs_open", "vs_3bet", "vs_4bet", "squeeze", "iso"]);
+const KNOWN = new Set([
+  "rfi",
+  "limp",
+  "iso",
+  "vs_open",
+  "multiway",
+  "vs_3bet",
+  "vs_4bet",
+  "squeeze",
+]);
 
 /** Constructor-style display: MP → HJ (same as seatLabel in the tree). */
 function displayMatchup(
@@ -119,8 +127,8 @@ export async function listSessionBranches(
 }
 
 /**
- * Covered by the same pot + matchup (Raise ≠ 3-bet), or a real paint matrix.
- * Soft "open covers facing" must not hide Missing Strategy rows.
+ * Covered only when a real paint exists for this pot|matchup
+ * (empty shells / tags without charts stay in «Из сессий»).
  */
 function isCovered(
   strategyId: string,
@@ -128,12 +136,6 @@ function isCovered(
   branches: SavedBranch[],
   charts: StrategySpot[],
 ): boolean {
-  const coverOpts = { strictOpen: true, strictPot: true } as const;
-  if (branches.length && spotCoveredByBranches(spot, branches, coverOpts)) {
-    return true;
-  }
-  if (charts.length && spotCoveredByCharts(spot, charts)) return true;
-
   const pot = spotPotKind(spot.spot_key);
   const mu = normalizeMatchupTag(
     treeMatchupLabel(
@@ -146,14 +148,34 @@ function isCovered(
   );
   if (!mu || mu === "—") return false;
 
-  // Same pot + normalized tag in the editor list (HJ ≡ MP).
+  // Real paint matrix on the constructor tree.
+  if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
+
+  // Painted editor branch with same pot + matchup.
   for (const b of branches) {
+    if (b.paintedCount <= 0) continue;
     if (!potLookupKinds(pot).includes(b.potKind) && b.potKind !== pot) continue;
     if (normalizeMatchupTag(b.label) === mu) return true;
   }
 
-  // Paint already exists under this pot|matchup (HJ ≡ MP inside loader).
-  if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
+  // Legacy DB chart with play frequencies.
+  if (charts.length && spotCoveredByCharts(spot, charts)) {
+    const hit = charts.find((c) => {
+      if (c.spot_key.trim().toLowerCase() !== spot.spot_key.trim().toLowerCase()) {
+        return false;
+      }
+      if (normalizeChartPos(c.hero_position) !== normalizeChartPos(spot.hero_position)) {
+        return false;
+      }
+      const sv = c.villain_position ? normalizeChartPos(c.villain_position) : null;
+      const want = spot.villain_position
+        ? normalizeChartPos(spot.villain_position)
+        : null;
+      return sv === want || sv === null;
+    });
+    if (hit) return true;
+  }
+
   return false;
 }
 

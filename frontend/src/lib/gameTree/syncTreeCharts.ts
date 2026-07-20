@@ -197,12 +197,14 @@ export function loadBranchPaintMatrix(
     const pot = String(potKind || "").toLowerCase();
     const potAliases =
       pot === "limp"
-        ? ["limp", "srp"]
-        : pot === "allin" || pot === "all_in" || pot === "4bp"
-          ? ["4bp"]
-          : pot === "3bp"
-            ? ["3bp"]
-            : [pot];
+        ? ["limp"]
+        : pot === "multi" || pot === "multiway" || pot === "multipot"
+          ? ["multi"]
+          : pot === "allin" || pot === "all_in" || pot === "4bp"
+            ? ["4bp"]
+            : pot === "3bp"
+              ? ["3bp"]
+              : [pot];
     // Exact matchup only — `SBvsBB` must not load paint from `BBvsSB`.
     const branch = collectAnalysisBranches(doc.root).find((b) => {
       if (!potAliases.includes(b.potKind)) return false;

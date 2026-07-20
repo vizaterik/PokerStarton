@@ -191,10 +191,10 @@ function parseSelectedChartKey(key: string): { pot: string | null; matchup: stri
   const raw = (key || "").trim();
   if (!raw) return { pot: null, matchup: "" };
   const parts = raw.split("|");
-  if (parts.length >= 2 && /^(limp|srp|3bp|4bp|allin)$/i.test(parts[0])) {
+  if (parts.length >= 2 && /^(limp|srp|multi|3bp|4bp|allin)$/i.test(parts[0])) {
     const pot = parts[0].toLowerCase();
     return {
-      pot: pot === "allin" ? "4bp" : pot,
+      pot: pot === "allin" ? "4bp" : pot === "multiway" ? "multi" : pot,
       matchup: parts[1],
     };
   }

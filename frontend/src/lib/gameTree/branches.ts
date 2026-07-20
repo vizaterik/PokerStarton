@@ -3,7 +3,7 @@ import { deriveContext } from "./turnEngine";
 import type { GameTreeNode, HandMix, Seat } from "./types";
 
 /** Pot type inferred from the preflop line (for branch filters). */
-export type BranchPotKind = "limp" | "srp" | "3bp" | "4bp";
+export type BranchPotKind = "limp" | "srp" | "3bp" | "4bp" | "multi";
 
 export type SavedBranch = {
   /** Tip node id (navigate here to open the line) */
@@ -27,6 +27,7 @@ export type SavedBranch = {
 export function normalizeBranchPotKind(kind: string | null | undefined): BranchPotKind {
   const k = String(kind || "").toLowerCase();
   if (k === "limp") return "limp";
+  if (k === "multi" || k === "multiway" || k === "multipot") return "multi";
   if (k === "3bp") return "3bp";
   if (k === "4bp" || k === "allin" || k === "all_in") return "4bp";
   return "srp";
@@ -36,17 +37,21 @@ export function inferPotKind(
   raiseCount: number,
   _raiseSizings: number[] = [],
   _stackDepth = 100,
+  coldCallers = 0,
 ): BranchPotKind {
   if (raiseCount === 0) return "limp";
   // Jam sizings stay in the tree as raises; pot tag stops at 4-bet.
   if (raiseCount >= 3) return "4bp";
   if (raiseCount === 2) return "3bp";
+  // Open + 2+ callers → multiway pot (3+ to flop).
+  if (raiseCount === 1 && coldCallers >= 2) return "multi";
   return "srp";
 }
 
 export function potKindTag(kind: BranchPotKind | string): string {
   const k = normalizeBranchPotKind(kind);
   if (k === "limp") return "Limp";
+  if (k === "multi") return "Multi";
   if (k === "3bp") return "3-bet";
   if (k === "4bp") return "4-bet";
   return "Raise";
@@ -171,7 +176,13 @@ export function collectBranches(root: GameTreeNode): SavedBranch[] {
           ? 0
           : countPaintedHands(decision);
       const signature = keys.join("|");
-      const potKind = inferPotKind(raiseIndex, raiseSizings);
+      let coldCallers = 0;
+      let raisesSeen = 0;
+      for (let i = 1; i < path.length; i += 1) {
+        if (path[i].actionTaken === "RAISE") raisesSeen += 1;
+        else if (path[i].actionTaken === "CALL" && raisesSeen >= 1) coldCallers += 1;
+      }
+      const potKind = inferPotKind(raiseIndex, raiseSizings, 100, coldCallers);
       const candidate: SavedBranch = {
         id: node.id,
         index: 0,
@@ -288,7 +299,18 @@ export function collectFacingBranches(root: GameTreeNode): SavedBranch[] {
     if (node.street === "preflop" && !node.awaitingFlop && nodeHasPlayRange(node)) {
       const ctx = deriveContext(path);
       if (ctx.raiseCount >= 1 && ctx.lastAggressor) {
-        const potKind = inferPotKind(ctx.raiseCount, raiseSizingsAlongPath(path));
+        let coldCallers = 0;
+        let raisesSeen = 0;
+        for (let i = 1; i < path.length; i += 1) {
+          if (path[i].actionTaken === "RAISE") raisesSeen += 1;
+          else if (path[i].actionTaken === "CALL" && raisesSeen >= 1) coldCallers += 1;
+        }
+        const potKind = inferPotKind(
+          ctx.raiseCount,
+          raiseSizingsAlongPath(path),
+          100,
+          coldCallers,
+        );
         const label = `${seatLabel(ctx.lastAggressor)}vs${seatLabel(node.activePlayer)}`;
         const paintedCount = countPaintedHands(node);
         const key = `${potKind}|${label}`;

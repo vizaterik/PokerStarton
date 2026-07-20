@@ -270,10 +270,12 @@ function detectSpot(actionsBefore, heroAction) {
   }
   if (raises === 0) {
     if (limps > 0 && heroAction === "raise") return "iso";
+    if (heroAction === "call") return "limp";
     return "rfi";
   }
   if (raises === 1) {
     if (callsAfterRaise >= 1 && heroAction === "raise") return "squeeze";
+    if (callsAfterRaise >= 1 && heroAction === "call") return "multiway";
     return "vs_open";
   }
   if (raises === 2) return "vs_3bet";
@@ -493,6 +495,14 @@ function parseOne(block) {
         if (before[i] === "raise") {
           const seat = nameToSeat.get(beforePlayers[i]);
           villainPosition = seat != null ? posMap[seat] ?? null : null;
+        }
+      }
+      if ((detectedSpot === "limp" || detectedSpot === "iso") && !villainPosition) {
+        for (let i = before.length - 1; i >= 0; i--) {
+          if (before[i] !== "call") continue;
+          const seat = nameToSeat.get(beforePlayers[i]);
+          villainPosition = seat != null ? posMap[seat] ?? null : null;
+          break;
         }
       }
       before.push(act);

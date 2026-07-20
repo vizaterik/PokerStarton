@@ -3,6 +3,8 @@
 const ACTION: Record<string, string> = {
   rfi: "RFI",
   iso: "ISO",
+  limp: "Limp",
+  multiway: "Multi",
   vs_open: "vs Open",
   vs_3bet: "vs 3-Bet",
   vs_4bet: "vs 4-Bet",
@@ -10,17 +12,18 @@ const ACTION: Record<string, string> = {
 };
 
 /** Pot-style tag aligned with constructor filters. */
-export type SpotPotKind = "limp" | "srp" | "3bp" | "4bp";
+export type SpotPotKind = "limp" | "srp" | "3bp" | "4bp" | "multi";
 
 export function spotActionLabel(spotKey: string): string {
   const key = spotKey.trim().toLowerCase();
   return ACTION[key] ?? (key.replace(/_/g, " ") || "spot");
 }
 
-/** Map HH / DB spot → pot tag: Limp / Raise / 3-bet / 4-bet. */
+/** Map HH / DB spot → pot tag: Limp / Raise / Multi / 3-bet / 4-bet. */
 export function spotPotKind(spotKey: string): SpotPotKind {
   const key = spotKey.trim().toLowerCase();
-  if (key === "limp") return "limp";
+  if (key === "limp" || key === "iso") return "limp";
+  if (key === "multiway" || key === "multi" || key === "multipot") return "multi";
   // Legacy all-in spots fold into 4-bet.
   if (key === "allin" || key === "all_in" || key === "vs_4bet") return "4bp";
   if (key === "vs_3bet" || key === "squeeze") return "3bp";
@@ -32,6 +35,7 @@ export function spotPotTag(spotKey: string): string {
   if (kind === "3bp") return "3-bet";
   if (kind === "4bp") return "4-bet";
   if (kind === "limp") return "Limp";
+  if (kind === "multi") return "Multi";
   return "Raise";
 }
 
@@ -47,8 +51,17 @@ export function treeMatchupLabel(
   const h = (hero ?? "").trim().toUpperCase();
   const v = (villain ?? "").trim().toUpperCase();
   const key = (spotKey || "").trim().toLowerCase();
-  if (key === "rfi" || key === "iso" || !v || v === h) return h || "—";
-  if (key === "vs_open" || key === "vs_3bet" || key === "vs_4bet" || key === "squeeze") {
+  if (key === "rfi" || !v || v === h) return h || "—";
+  // Limp / iso / multiway / facing: aggressor (or limper) vs actor.
+  if (
+    key === "iso" ||
+    key === "limp" ||
+    key === "multiway" ||
+    key === "vs_open" ||
+    key === "vs_3bet" ||
+    key === "vs_4bet" ||
+    key === "squeeze"
+  ) {
     return `${v}vs${h}`;
   }
   if (h && v) return `${h}vs${v}`;

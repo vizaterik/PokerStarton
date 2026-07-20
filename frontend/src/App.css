@@ -9975,6 +9975,12 @@ body.confirm-open #root {
   background: rgba(99, 102, 241, 0.12);
 }
 
+.pot-tag.pot-multi {
+  color: #5eead4;
+  border-color: rgba(94, 234, 212, 0.4);
+  background: rgba(20, 184, 166, 0.12);
+}
+
 .analysis-branch-pl {
   margin: 0 0 1rem;
   max-width: none;
@@ -14116,6 +14122,10 @@ body.confirm-open #root {
 
 .gto-branch-meta em.pot-srp {
   color: #93c5fd;
+}
+
+.gto-branch-meta em.pot-multi {
+  color: #5eead4;
 }
 
 .gto-branch-meta em.pot-3bp {
