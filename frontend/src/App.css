@@ -10623,6 +10623,161 @@ body.confirm-open #root {
   color: #fca5a5;
 }
 
+.share-social-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.1rem 2.5rem;
+}
+
+.share-social {
+  margin-top: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.85rem;
+  background: rgba(15, 18, 24, 0.92);
+  padding: 1rem 1.1rem 1.15rem;
+}
+
+.share-social-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.share-social-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.share-like-btn {
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(248, 113, 113, 0.08);
+  color: #fca5a5;
+  border-radius: 999px;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.share-like-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.share-like-btn.is-liked {
+  border-color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.22);
+  color: #fecaca;
+}
+
+.share-social-hint,
+.share-social-muted {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  color: rgba(232, 234, 239, 0.55);
+}
+
+.share-social-hint a {
+  color: #6ee7b7;
+}
+
+.share-social-error {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  color: #f87171;
+}
+
+.share-street-block {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.85rem 0 0.35rem;
+}
+
+.share-street-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(232, 234, 239, 0.5);
+  margin-bottom: 0.45rem;
+}
+
+.share-comment-list {
+  list-style: none;
+  margin: 0 0 0.55rem;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.share-comment-list li {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 0.84rem;
+}
+
+.share-comment-list li.is-mine {
+  border-color: rgba(52, 211, 153, 0.28);
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.share-comment-list strong {
+  font-size: 0.72rem;
+  color: #6ee7b7;
+}
+
+.share-comment-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.45rem;
+  align-items: start;
+}
+
+.share-comment-form textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 2.6rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+  color: #e8eaef;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.share-comment-form button {
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  background: rgba(16, 185, 129, 0.14);
+  color: #6ee7b7;
+  border-radius: 0.5rem;
+  padding: 0.45rem 0.75rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.share-comment-form button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+@media (max-width: 640px) {
+  .share-comment-form {
+    grid-template-columns: 1fr;
+  }
+}
+
 .pr-topbar {
   display: flex;
   align-items: center;

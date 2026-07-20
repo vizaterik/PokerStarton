@@ -633,23 +633,6 @@ export default function HandReplayModal({
                     </button>
                   </>
                 )}
-                {canShare ? (
-                  <button
-                    type="button"
-                    className="pr-hand-btn pr-share-btn"
-                    disabled={shareState === "loading"}
-                    onClick={() => void copyShareLink()}
-                    title="Скопировать публичную ссылку"
-                  >
-                    {shareState === "loading"
-                      ? "…"
-                      : shareState === "ok"
-                        ? "Ссылка скопирована"
-                        : shareState === "fail"
-                          ? "Ошибка шаринга"
-                          : "Поделиться раздачей"}
-                  </button>
-                ) : null}
                 <span className="pr-controls-step">
                   Шаг {Math.max(0, actionIdx + 1)}/{Math.max(0, maxAction + 1)}
                 </span>

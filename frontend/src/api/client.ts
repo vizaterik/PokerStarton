@@ -1030,6 +1030,47 @@ export async function fetchPublicHandReplay(token: string) {
   return (await res.json()) as ReplayHand;
 }
 
+export type ShareStreet = "preflop" | "flop" | "turn" | "river";
+
+export type HandShareComment = {
+  id: string;
+  street: ShareStreet;
+  body: string;
+  author_name: string;
+  is_mine: boolean;
+  created_at: string | null;
+};
+
+export type HandShareSocial = {
+  likes_count: number;
+  liked_by_me: boolean;
+  comments: HandShareComment[];
+  my_comments_by_street: Partial<Record<ShareStreet, string>>;
+};
+
+export function fetchHandShareSocial(token: string) {
+  return request<HandShareSocial>(
+    `/api/public/hands/${encodeURIComponent(token)}/social`,
+  );
+}
+
+export function postHandShareComment(token: string, street: ShareStreet, body: string) {
+  return request<HandShareSocial>(
+    `/api/public/hands/${encodeURIComponent(token)}/comments`,
+    {
+      method: "POST",
+      body: JSON.stringify({ street, body }),
+    },
+  );
+}
+
+export function toggleHandShareLike(token: string) {
+  return request<{ likes_count: number; liked_by_me: boolean }>(
+    `/api/public/hands/${encodeURIComponent(token)}/like`,
+    { method: "POST" },
+  );
+}
+
 export function deleteStrategy(strategyId: string) {
   return request<void>(`/api/strategies/${strategyId}`, { method: "DELETE" });
 }

@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import BrandMark from "../components/BrandMark";
 import HandReplayModal from "../components/HandReplayModal";
+import SharedHandSocial from "../components/SharedHandSocial";
 import { BRAND } from "../lib/brand";
 
 export default function SharedHandPage() {
@@ -33,6 +34,9 @@ export default function SharedHandPage() {
         label="Shared hand"
         onClose={() => undefined}
       />
+      <div className="share-social-wrap">
+        <SharedHandSocial token={token} />
+      </div>
     </div>
   );
 }

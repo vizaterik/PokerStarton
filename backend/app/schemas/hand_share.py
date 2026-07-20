@@ -1,11 +1,41 @@
 from datetime import datetime
+from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+ShareStreet = Literal["preflop", "flop", "turn", "river"]
 
 
 class HandShareRead(BaseModel):
     token: str = Field(..., min_length=8, max_length=64)
     path: str
+
+
+class HandShareCommentCreate(BaseModel):
+    street: ShareStreet
+    body: str = Field(..., min_length=1, max_length=1000)
+
+
+class HandShareCommentRead(BaseModel):
+    id: UUID
+    street: ShareStreet
+    body: str
+    author_name: str
+    is_mine: bool = False
+    created_at: datetime | None = None
+
+
+class HandShareSocialRead(BaseModel):
+    likes_count: int
+    liked_by_me: bool
+    comments: list[HandShareCommentRead]
+    my_comments_by_street: dict[str, str] = Field(default_factory=dict)
+
+
+class HandShareLikeRead(BaseModel):
+    likes_count: int
+    liked_by_me: bool
 
 
 class ShareReplayAction(BaseModel):
