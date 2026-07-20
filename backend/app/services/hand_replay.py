@@ -21,15 +21,19 @@ from app.services.results import resolve_hand_result
 from app.services.hand_dedupe import prefer_active_then_dedupe
 
 FLOP_RE = re.compile(
-    r"\*\*\*\s+FLOP\s+\*\*\*\s*\[([2-9TJQKA][shdc])\s+([2-9TJQKA][shdc])\s+([2-9TJQKA][shdc])\]",
+    r"\*\*\*\s+(?:FIRST\s+)?FLOP\s+\*\*\*\s*\[([2-9TJQKA][shdc])\s+([2-9TJQKA][shdc])\s+([2-9TJQKA][shdc])\]",
     re.IGNORECASE,
 )
 TURN_RE = re.compile(
-    r"\*\*\*\s+TURN\s+\*\*\*.*?\[([2-9TJQKA][shdc])\]",
+    r"\*\*\*\s+(?:FIRST\s+)?TURN\s+\*\*\*.*?\[([2-9TJQKA][shdc])\]",
     re.IGNORECASE,
 )
 RIVER_RE = re.compile(
-    r"\*\*\*\s+RIVER\s+\*\*\*.*?\[([2-9TJQKA][shdc])\]",
+    r"\*\*\*\s+(?:FIRST\s+)?RIVER\s+\*\*\*.*?\[([2-9TJQKA][shdc])\]",
+    re.IGNORECASE,
+)
+FIRST_BOARD_RE = re.compile(
+    r"FIRST Board\s*\[([2-9TJQKA][shdc](?:\s+[2-9TJQKA][shdc]){2,4})\]",
     re.IGNORECASE,
 )
 
@@ -91,7 +95,18 @@ def _parse_board(raw: str) -> list[str]:
     m = RIVER_RE.search(raw)
     if m:
         board.append(m.group(1))
-    return [c.upper() if len(c) == 2 else c for c in board]
+    if len(board) < 3:
+        bm = FIRST_BOARD_RE.search(raw) or re.search(
+            r"Board\s*\[([2-9TJQKA][shdc](?:\s+[2-9TJQKA][shdc]){2,4})\]",
+            raw,
+            re.IGNORECASE,
+        )
+        if bm:
+            board = bm.group(1).split()
+    return [
+        (c[0].upper() + c[1].lower()) if len(c) == 2 else c.upper()
+        for c in board
+    ]
 
 
 def _labels_for_table_size(n: int) -> tuple[str, ...]:
@@ -288,8 +303,44 @@ def _hero_cards(hand: Hand) -> list[str]:
 
 
 def build_replay_hand(hand: Hand) -> ReplayHand:
+    from app.parsers.pokerstars import parse_pokerstars
+
     net, net_bb = resolve_hand_result(hand)
+    raw = (hand.raw_text or "").replace("\r\n", "\n").strip()
     actions = sorted(hand.actions, key=lambda a: a.action_order)
+    replay_actions = [
+        ReplayAction(
+            street=a.street,
+            order=a.action_order,
+            player_name=a.player_name,
+            is_hero=a.is_hero,
+            action=a.action,
+            amount=float(a.amount) if a.amount is not None else None,
+        )
+        for a in actions
+    ]
+    # Legacy shares / stubs: re-parse GG FIRST FLOP runouts when DB actions are preflop-only.
+    has_runout = bool(
+        re.search(r"\*\*\*\s+(?:FIRST\s+)?(?:FLOP|TURN|RIVER)\s+\*\*\*", raw, re.I)
+    )
+    has_postflop_acts = any(
+        (a.street or "").lower() in {"flop", "turn", "river"} for a in replay_actions
+    )
+    if has_runout and not has_postflop_acts:
+        parsed = parse_pokerstars(raw)
+        if parsed and parsed[0].actions:
+            replay_actions = [
+                ReplayAction(
+                    street=a.street,
+                    order=a.action_order,
+                    player_name=a.player_name,
+                    is_hero=a.is_hero,
+                    action=a.action,
+                    amount=a.amount,
+                )
+                for a in parsed[0].actions
+            ]
+
     return ReplayHand(
         id=str(hand.id),
         external_hand_id=hand.external_hand_id,
@@ -300,22 +351,12 @@ def build_replay_hand(hand: Hand) -> ReplayHand:
         hero_name=hand.hero_name,
         hero_position=hand.hero_position,
         hero_cards=_hero_cards(hand),
-        board=_parse_board(hand.raw_text or ""),
+        board=_parse_board(raw),
         hero_net=round(net, 4),
         hero_net_bb=round(net_bb, 4),
         seats=_parse_seats(hand),
-        actions=[
-            ReplayAction(
-                street=a.street,
-                order=a.action_order,
-                player_name=a.player_name,
-                is_hero=a.is_hero,
-                action=a.action,
-                amount=float(a.amount) if a.amount is not None else None,
-            )
-            for a in actions
-        ],
-        raw_text=(hand.raw_text or "").replace("\r\n", "\n").strip(),
+        actions=replay_actions,
+        raw_text=raw,
     )
 
 

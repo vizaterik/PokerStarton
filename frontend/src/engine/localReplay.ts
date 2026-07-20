@@ -13,9 +13,11 @@ import { listHandsForStrategy, openLocalDb, type HandRow } from "./localDb";
 import { parseHandHistory } from "./parseHh";
 
 const FLOP_RE =
-  /\*\*\*\s+FLOP\s+\*\*\*\s*\[([2-9TJQKA][shdc])\s+([2-9TJQKA][shdc])\s+([2-9TJQKA][shdc])\]/i;
-const TURN_RE = /\*\*\*\s+TURN\s+\*\*\*.*?\[([2-9TJQKA][shdc])\]/i;
-const RIVER_RE = /\*\*\*\s+RIVER\s+\*\*\*.*?\[([2-9TJQKA][shdc])\]/i;
+  /\*\*\*\s+(?:FIRST\s+)?FLOP\s+\*\*\*\s*\[([2-9TJQKA][shdc])\s+([2-9TJQKA][shdc])\s+([2-9TJQKA][shdc])\]/i;
+const TURN_RE = /\*\*\*\s+(?:FIRST\s+)?TURN\s+\*\*\*.*?\[([2-9TJQKA][shdc])\]/i;
+const RIVER_RE = /\*\*\*\s+(?:FIRST\s+)?RIVER\s+\*\*\*.*?\[([2-9TJQKA][shdc])\]/i;
+const FIRST_BOARD_RE =
+  /FIRST Board\s*\[([2-9TJQKA][shdc](?:\s+[2-9TJQKA][shdc]){2,4})\]/i;
 const TABLE_RE =
   /^Table '([^']+)'\s+(\d+)-max\s+Seat #(\d+) is the button/i;
 const SEAT_RE =
@@ -63,6 +65,10 @@ function parseBoard(raw: string): string[] {
   if (t) board.push(t[1]);
   const r = RIVER_RE.exec(raw);
   if (r) board.push(r[1]);
+  if (board.length < 3) {
+    const bm = FIRST_BOARD_RE.exec(raw);
+    if (bm) board.push(...bm[1].trim().split(/\s+/));
+  }
   return board.map((c) => (c.length === 2 ? c[0].toUpperCase() + c[1].toLowerCase() : c));
 }
 

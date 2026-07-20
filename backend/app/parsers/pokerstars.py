@@ -37,10 +37,28 @@ ACTION_RE = re.compile(
     r"(?:\s+to\s+\$?(?P<a2>[\d.]+))?",
     re.IGNORECASE,
 )
+# GG Rush&Cash run-it-twice: *** FIRST FLOP *** / *** SECOND RIVER ***
 STREET_RE = re.compile(
-    r"^\*\*\*\s+(HOLE CARDS|FLOP|TURN|RIVER|SHOWDOWN|SUMMARY)\s+\*\*\*",
+    r"^\*\*\*\s+(?:(FIRST|SECOND)\s+)?(HOLE CARDS|FLOP|TURN|RIVER|SHOWDOWN|SUMMARY)\s+\*\*\*",
     re.IGNORECASE,
 )
+
+
+def street_from_marker(prefix: str | None, label: str) -> str:
+    """Map HH street markers to engine streets. SECOND run → summary (no more acts)."""
+    lab = (label or "").upper().strip()
+    pref = (prefix or "").upper().strip()
+    if pref == "SECOND":
+        return "summary"
+    if lab == "HOLE CARDS":
+        return "preflop"
+    if lab == "FLOP":
+        return "flop"
+    if lab == "TURN":
+        return "turn"
+    if lab == "RIVER":
+        return "river"
+    return "summary"
 
 SIX_MAX = ("BTN", "SB", "BB", "UTG", "MP", "CO")
 FIVE_MAX = ("BTN", "SB", "BB", "UTG", "CO")
@@ -155,16 +173,9 @@ def extract_hu_postflop_branch(raw_text: str | None) -> dict[str, str] | None:
     for line in lines:
         street_m = STREET_RE.match(line)
         if street_m:
-            label = street_m.group(1).upper()
-            if label == "HOLE CARDS":
-                street = "preflop"
-            elif label == "FLOP":
-                street = "flop"
+            street = street_from_marker(street_m.group(1), street_m.group(2))
+            if street == "flop":
                 saw_flop = True
-            elif label in {"TURN", "RIVER"}:
-                street = label.lower()
-            else:
-                street = "summary"
             continue
 
         if street == "summary":
@@ -294,10 +305,10 @@ def compute_hero_net(block: str, hero_name: str = "Hero", big_blind: float | Non
             continue
         sm = STREET_RE.match(line)
         if sm:
-            label = sm.group(1).upper()
             # Blinds are posted BEFORE "*** HOLE CARDS ***". Resetting street_in
             # there double-counts the blind on the next raise ("to $X").
-            if label in {"FLOP", "TURN", "RIVER", "SHOWDOWN", "SUMMARY"}:
+            mapped = street_from_marker(sm.group(1), sm.group(2))
+            if mapped in {"flop", "turn", "river", "summary"}:
                 street_in = 0.0
             continue
 
@@ -484,17 +495,7 @@ def _parse_one(block: str) -> ParsedHand | None:
     for line in lines[1:]:
         street_m = STREET_RE.match(line)
         if street_m:
-            label = street_m.group(1).upper()
-            if label == "HOLE CARDS":
-                street = "preflop"
-            elif label == "FLOP":
-                street = "flop"
-            elif label == "TURN":
-                street = "turn"
-            elif label == "RIVER":
-                street = "river"
-            else:
-                street = "summary"
+            street = street_from_marker(street_m.group(1), street_m.group(2))
             continue
 
         if street == "summary":

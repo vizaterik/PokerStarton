@@ -25,8 +25,20 @@ const DEALT_RE =
 const ACTION_RE =
   /^(.+?):\s+(folds|checks|calls|bets|raises|posts)\b(?:\s+(?:small blind|big blind|the ante))?(?:\s+\$?([\d.]+))?(?:\s+to\s+\$?([\d.]+))?/i;
 
+// GG Rush&Cash run-it-twice: *** FIRST FLOP *** / *** SECOND RIVER ***
 const STREET_RE =
-  /^\*\*\*\s+(HOLE CARDS|FLOP|TURN|RIVER|SHOWDOWN|SUMMARY)\s+\*\*\*/i;
+  /^\*\*\*\s+(?:(FIRST|SECOND)\s+)?(HOLE CARDS|FLOP|TURN|RIVER|SHOWDOWN|SUMMARY)\s+\*\*\*/i;
+
+function streetFromMarker(prefix: string | undefined, label: string): string {
+  const lab = (label || "").toUpperCase();
+  const pref = (prefix || "").toUpperCase();
+  if (pref === "SECOND") return "summary";
+  if (lab === "HOLE CARDS") return "preflop";
+  if (lab === "FLOP") return "flop";
+  if (lab === "TURN") return "turn";
+  if (lab === "RIVER") return "river";
+  return "summary";
+}
 
 const SIX_MAX = ["BTN", "SB", "BB", "UTG", "MP", "CO"] as const;
 
@@ -124,8 +136,10 @@ export function computeHeroNet(
     if (!line) continue;
     const sm = STREET_RE.exec(line);
     if (sm) {
-      const label = sm[1].toUpperCase();
-      if (["FLOP", "TURN", "RIVER", "SHOWDOWN", "SUMMARY"].includes(label)) streetIn = 0;
+      const mapped = streetFromMarker(sm[1], sm[2]);
+      if (mapped === "flop" || mapped === "turn" || mapped === "river" || mapped === "summary") {
+        streetIn = 0;
+      }
       continue;
     }
     let m = postRe.exec(line);
@@ -246,12 +260,7 @@ function parseOne(block: string): ParsedHand | null {
   for (const line of lines.slice(1)) {
     const streetM = STREET_RE.exec(line);
     if (streetM) {
-      const label = streetM[1].toUpperCase();
-      if (label === "HOLE CARDS") street = "preflop";
-      else if (label === "FLOP") street = "flop";
-      else if (label === "TURN") street = "turn";
-      else if (label === "RIVER") street = "river";
-      else street = "summary";
+      street = streetFromMarker(streetM[1], streetM[2]);
       continue;
     }
     if (street === "summary") continue;

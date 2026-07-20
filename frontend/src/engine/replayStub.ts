@@ -41,7 +41,11 @@ export function extractReplayStub(raw: string): string {
       out.push(t);
       break;
     }
-    if (/^\*\*\*\s+(FLOP|TURN|RIVER|SHOWDOWN|SUMMARY)\s+\*\*\*/i.test(t)) {
+    if (
+      /^\*\*\*\s+(?:(?:FIRST|SECOND)\s+)?(FLOP|TURN|RIVER|SHOWDOWN|SUMMARY)\s+\*\*\*/i.test(
+        t,
+      )
+    ) {
       break;
     }
   }
