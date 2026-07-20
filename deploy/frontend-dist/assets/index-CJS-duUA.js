@@ -16321,6 +16321,87 @@ function startBackgroundAnalysis(strategyId, handsHint) {
     }
   })();
 }
+const stroke = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.75,
+  strokeLinecap: "round",
+  strokeLinejoin: "round"
+};
+function NavSvg({
+  className,
+  children
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "svg",
+    {
+      className: className ?? "nav-icon",
+      viewBox: "0 0 24 24",
+      width: "16",
+      height: "16",
+      "aria-hidden": true,
+      focusable: "false",
+      children
+    }
+  );
+}
+function IconAcademy({ className }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(NavSvg, { className, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M3 9.5 12 5l9 4.5-9 4.5L3 9.5Z" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M7 12.2v4.3c0 .8 2.2 2 5 2s5-1.2 5-2v-4.3" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M21 10v5.5" })
+  ] });
+}
+function IconStrategies({ className }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(NavSvg, { className, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { ...stroke, x: "3.5", y: "3.5", width: "17", height: "17", rx: "2" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M3.5 9.5h17M3.5 15.5h17M9.5 3.5v17M15.5 3.5v17" })
+  ] });
+}
+function IconTrainer({ className }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(NavSvg, { className, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { ...stroke, cx: "12", cy: "12", r: "8" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { ...stroke, cx: "12", cy: "12", r: "4.75" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("circle", { ...stroke, cx: "12", cy: "12", r: "1.35", fill: "currentColor", stroke: "none" })
+  ] });
+}
+function IconAnalysis({ className }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(NavSvg, { className, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M4 19V5" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M4 19h16" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M8 16V11" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M12 16V7.5" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M16 16v-5.5" })
+  ] });
+}
+function IconCareer({ className }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(NavSvg, { className, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M4 17h16" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M5 14l4-4 3.5 3L19 7" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M15 7h4v4" })
+  ] });
+}
+function IconHits({ className }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(NavSvg, { className, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "path",
+    {
+      ...stroke,
+      d: "M13 3 6.5 12.5h4.2L9.2 21 18 9.8h-4.4L13 3Z"
+    }
+  ) });
+}
+function IconAdmin({ className }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(NavSvg, { className, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "path",
+      {
+        ...stroke,
+        d: "M12 3 5 6.2v5.3c0 4.2 2.9 7.2 7 8.5 4.1-1.3 7-4.3 7-8.5V6.2L12 3Z"
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("path", { ...stroke, d: "M9.5 12.2 11.2 14l3.5-3.8" })
+  ] });
+}
 function navClass$1({ isActive }) {
   return isActive ? "is-active" : void 0;
 }
@@ -16339,6 +16420,7 @@ function AnalysisNavLink() {
       },
       title: busy ? job.message || (job.status === "done" ? "Анализ готов" : job.status === "uploading" ? "Импорт истории" : "Идёт анализ") : void 0,
       children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(IconAnalysis, {}),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "nav-analysis-label", children: "Анализ" }),
         busy ? /* @__PURE__ */ jsxRuntimeExports.jsx(
           "span",
@@ -26378,8 +26460,8 @@ const STAGE_LABEL = {
   bubble: "баббл",
   final: "финал"
 };
-const LOCKED_FORMATS = /* @__PURE__ */ new Set(["mtt", "spins"]);
-function FormatLockIcon() {
+const LOCKED_FORMATS$1 = /* @__PURE__ */ new Set(["mtt", "spins"]);
+function FormatLockIcon$1() {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
     "svg",
     {
@@ -26430,7 +26512,7 @@ function StrategiesPage() {
   }, [presets]);
   async function onCreate(e) {
     e.preventDefault();
-    if (!preset || LOCKED_FORMATS.has(preset.format)) {
+    if (!preset || LOCKED_FORMATS$1.has(preset.format)) {
       setError("Пока можно создать только Cash-стратегию. МТТ и Spins скоро.");
       setFormat("cash");
       setStep(1);
@@ -26519,7 +26601,7 @@ function StrategiesPage() {
         step === 1 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "strat-wizard-body", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Пока доступен только кэш. МТТ и Spins — в разработке." }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "strat-format-grid", children: FORMAT_OPTIONS.map((f) => {
-            const locked = LOCKED_FORMATS.has(f.id);
+            const locked = LOCKED_FORMATS$1.has(f.id);
             return /* @__PURE__ */ jsxRuntimeExports.jsxs(
               "button",
               {
@@ -26534,7 +26616,7 @@ function StrategiesPage() {
                 children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "strat-format-card-top", children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: f.title }),
-                    locked ? /* @__PURE__ */ jsxRuntimeExports.jsx(FormatLockIcon, {}) : null
+                    locked ? /* @__PURE__ */ jsxRuntimeExports.jsx(FormatLockIcon$1, {}) : null
                   ] }),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: locked ? "Скоро" : f.lead })
                 ]
@@ -30136,6 +30218,26 @@ function RangeSpotsBar({
   ] });
 }
 const FREQ_WEIGHTS = [100, 75, 50, 25];
+function focusLineForPaint(root, tipNodeId, paintNodeId, stackDepth) {
+  const tipPath = pathToNode(root, tipNodeId) ?? [];
+  const spots = branchRangeSpots(tipPath, stackDepth).filter(
+    (s) => s.lineAction === "RAISE" || s.lineAction === "CALL"
+  );
+  const paint = findNode(root, paintNodeId) || (spots[0] ? findNode(root, spots[0].nodeId) : null);
+  const openOnly = spots.length === 1 && spots[0].lineAction === "RAISE" && paint != null;
+  if (openOnly && paint) {
+    const raiseChild = paint.children.find((c) => c.actionTaken === "RAISE");
+    return {
+      activeId: (raiseChild == null ? void 0 : raiseChild.id) ?? paint.id,
+      paintNodeId: paint.id,
+      paintAction: "RAISE"
+    };
+  }
+  return {
+    activeId: tipNodeId,
+    paintNodeId: (paint == null ? void 0 : paint.id) ?? paintNodeId
+  };
+}
 function GtoTreeEditor({ strategy }) {
   var _a, _b;
   const strategyId = strategy.id;
@@ -30192,20 +30294,25 @@ function GtoTreeEditor({ strategy }) {
       setActiveStyleId(next.stylePresetId ?? null);
       const focus = takeEditorFocus(strategyId);
       const tipOk = focus ? findNode(next.root, focus.tipNodeId) : null;
-      if (tipOk == null ? void 0 : tipOk.awaitingFlop) {
-        const tipPath = pathToNode(next.root, tipOk.id) ?? [];
-        const rangeSpots2 = branchRangeSpots(tipPath, next.stackDepth).filter(
-          (s) => s.lineAction === "RAISE" || s.lineAction === "CALL"
+      if ((tipOk == null ? void 0 : tipOk.awaitingFlop) && focus) {
+        const applied = focusLineForPaint(
+          next.root,
+          focus.tipNodeId,
+          focus.paintNodeId,
+          next.stackDepth
         );
-        const paintOk = focus && findNode(next.root, focus.paintNodeId) || (rangeSpots2[0] ? findNode(next.root, rangeSpots2[0].nodeId) : null) || tipOk;
-        setActiveId(tipOk.id);
-        setPaintNodeId(paintOk.id);
+        setActiveId(applied.activeId);
+        setPaintNodeId(applied.paintNodeId);
+        setPaintAction((prev) => {
+          if (applied.paintAction) return applied.paintAction;
+          return pushFold && prev === "CALL" ? "RAISE" : prev;
+        });
         setTab("editor");
       } else {
         setActiveId(next.root.id);
         setPaintNodeId(next.root.id);
+        setPaintAction((prev) => pushFold && prev === "CALL" ? "RAISE" : prev);
       }
-      setPaintAction((prev) => pushFold && prev === "CALL" ? "RAISE" : prev);
       setHydrated(true);
     }
     setHydrated(false);
@@ -30462,13 +30569,15 @@ function GtoTreeEditor({ strategy }) {
     setSelectedHand(null);
   }
   function onOpenBranch(branch) {
-    const tipPath = pathToNode(doc.root, branch.tipNodeId) ?? [];
-    const spots = branchRangeSpots(tipPath, doc.stackDepth).filter(
-      (s) => s.lineAction === "RAISE" || s.lineAction === "CALL"
+    const applied = focusLineForPaint(
+      doc.root,
+      branch.tipNodeId,
+      branch.paintNodeId,
+      doc.stackDepth
     );
-    const first = spots[0];
-    setActiveId(branch.tipNodeId);
-    setPaintNodeId((first == null ? void 0 : first.nodeId) ?? branch.paintNodeId);
+    setActiveId(applied.activeId);
+    setPaintNodeId(applied.paintNodeId);
+    if (applied.paintAction) setPaintAction(applied.paintAction);
     setSelectedHand(null);
     setTab("editor");
   }
@@ -30596,16 +30705,15 @@ function GtoTreeEditor({ strategy }) {
             setTab("branches");
             return;
           }
-          const tipPath = pathToNode(stamped.root, focus.tipNodeId) ?? [];
-          const rangeSpots2 = branchRangeSpots(
-            tipPath,
+          const applied = focusLineForPaint(
+            stamped.root,
+            focus.tipNodeId,
+            focus.paintNodeId,
             stamped.stackDepth
-          ).filter(
-            (s) => s.lineAction === "RAISE" || s.lineAction === "CALL"
           );
-          const paint = rangeSpots2.find((s) => s.nodeId === focus.paintNodeId) ?? rangeSpots2[0];
-          setActiveId(focus.tipNodeId);
-          setPaintNodeId((paint == null ? void 0 : paint.nodeId) ?? focus.paintNodeId);
+          setActiveId(applied.activeId);
+          setPaintNodeId(applied.paintNodeId);
+          if (applied.paintAction) setPaintAction(applied.paintAction);
           setSelectedHand(null);
           setTab("editor");
         }
@@ -37546,6 +37654,27 @@ function PotOddsDrillPanel({ score, onScore, onExit }) {
     ] })
   ] });
 }
+const LOCKED_FORMATS = /* @__PURE__ */ new Set(["mtt", "spins"]);
+function FormatLockIcon() {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "svg",
+    {
+      className: "trainer-format-lock-icon",
+      viewBox: "0 0 24 24",
+      width: "16",
+      height: "16",
+      "aria-hidden": true,
+      focusable: "false",
+      children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "path",
+        {
+          fill: "currentColor",
+          d: "M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2Zm-7-2a2 2 0 1 1 4 0v2h-4V6Zm7 14H7V10h10v10Zm-5-3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"
+        }
+      )
+    }
+  );
+}
 function pct(n) {
   return `${Math.round(n * 100)}%`;
 }
@@ -37792,19 +37921,31 @@ function TrainerPage() {
       ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "trainer-setup-block", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Формат" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "trainer-format-switch", role: "group", "aria-label": "Формат", children: FORMAT_OPTIONS.map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              type: "button",
-              className: `trainer-format-chip${format === opt.id ? " is-active" : ""}`,
-              onClick: () => setFormat(opt.id),
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: opt.title }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: opt.lead })
-              ]
-            },
-            opt.id
-          )) })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "trainer-setup-sub", children: "Пока доступен только кэш. МТТ и Spins — в разработке." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "trainer-format-switch", role: "group", "aria-label": "Формат", children: FORMAT_OPTIONS.map((opt) => {
+            const locked = LOCKED_FORMATS.has(opt.id);
+            return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "button",
+              {
+                type: "button",
+                className: `trainer-format-chip${format === opt.id ? " is-active" : ""}${locked ? " is-locked" : ""}`,
+                disabled: locked,
+                title: locked ? "Скоро: тренажёр под этот формат пока недоступен" : void 0,
+                onClick: () => {
+                  if (locked) return;
+                  setFormat(opt.id);
+                },
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "trainer-format-chip-top", children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: opt.title }),
+                    locked ? /* @__PURE__ */ jsxRuntimeExports.jsx(FormatLockIcon, {}) : null
+                  ] }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: locked ? "Скоро" : opt.lead })
+                ]
+              },
+              opt.id
+            );
+          }) })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "trainer-setup-block", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Стратегия" }),
@@ -38184,16 +38325,37 @@ function App() {
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "brand-beta", children: "beta" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "topbar-nav", children: loggedIn ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(NavLink, { to: "/academy", className: navClass, children: "Академия" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(NavLink, { to: "/strategies", className: navClass, children: "Стратегии" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(NavLink, { to: "/trainer", className: navClass, children: "Тренажёр" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(NavLink, { to: "/academy", className: navClass, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconAcademy, {}),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Академия" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(NavLink, { to: "/strategies", className: navClass, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconStrategies, {}),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Стратегии" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(NavLink, { to: "/trainer", className: navClass, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconTrainer, {}),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Тренажёр" })
+        ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(AnalysisNavLink, {}),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(NavLink, { to: "/career", className: navClass, children: "Карьера" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(NavLink, { to: "/feed", className: navClass, children: "Хиты" }),
-        isAdmin ? /* @__PURE__ */ jsxRuntimeExports.jsx(NavLink, { to: "/admin", className: navClass, children: "Админ" }) : null,
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(NavLink, { to: "/career", className: navClass, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconCareer, {}),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Карьера" })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(NavLink, { to: "/feed", className: navClass, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconHits, {}),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Хиты" })
+        ] }),
+        isAdmin ? /* @__PURE__ */ jsxRuntimeExports.jsxs(NavLink, { to: "/admin", className: navClass, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconAdmin, {}),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Админ" })
+        ] }) : null,
         /* @__PURE__ */ jsxRuntimeExports.jsx(UserMenu, {})
       ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(NavLink, { to: "/feed", className: navClass, children: "Хиты" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(NavLink, { to: "/feed", className: navClass, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(IconHits, {}),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Хиты" })
+        ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(Link, { className: "nav-ghost", to: "/login", state: { mode: "login" }, children: "Вход" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(Link, { className: "nav-cta", to: "/login", state: { mode: "register" }, children: "Зарегистрироваться" })
       ] }) })

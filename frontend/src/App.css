@@ -218,6 +218,9 @@
 }
 
 .topbar-nav > a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   padding: 0.48rem 0.85rem;
   border-radius: 999px;
   border: 1px solid transparent;
@@ -227,6 +230,17 @@
     color 0.15s ease,
     background 0.15s ease,
     border-color 0.15s ease;
+}
+
+.topbar-nav .nav-icon {
+  flex-shrink: 0;
+  opacity: 0.82;
+  transition: opacity 0.15s ease;
+}
+
+.topbar-nav > a:hover .nav-icon,
+.topbar-nav > a.is-active .nav-icon {
+  opacity: 1;
 }
 
 .topbar-nav > a:hover {
@@ -14923,6 +14937,31 @@ body.confirm-open #root {
 .trainer-program-chip strong {
   font-family: "Sora", sans-serif;
   font-size: 0.92rem;
+}
+
+.trainer-format-chip-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+
+.trainer-format-lock-icon {
+  flex-shrink: 0;
+  opacity: 0.75;
+  color: var(--muted);
+}
+
+.trainer-format-chip.is-locked,
+.trainer-format-chip.is-locked:hover {
+  cursor: not-allowed;
+  opacity: 0.55;
+  border-color: var(--line);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.trainer-format-chip.is-locked strong {
+  color: var(--muted);
 }
 
 .trainer-format-chip span,

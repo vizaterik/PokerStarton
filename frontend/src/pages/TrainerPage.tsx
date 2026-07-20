@@ -23,6 +23,27 @@ import {
 type Phase = "setup" | "session";
 type TrainerMode = "chart" | "pot_odds";
 
+/** MTT / Spins trainers — soon; Cash only for now. */
+const LOCKED_FORMATS = new Set<StrategyFormat>(["mtt", "spins"]);
+
+function FormatLockIcon() {
+  return (
+    <svg
+      className="trainer-format-lock-icon"
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      aria-hidden
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2Zm-7-2a2 2 0 1 1 4 0v2h-4V6Zm7 14H7V10h10v10Zm-5-3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"
+      />
+    </svg>
+  );
+}
+
 function pct(n: number) {
   return `${Math.round(n * 100)}%`;
 }
@@ -324,18 +345,36 @@ export default function TrainerPage() {
             <>
           <section className="trainer-setup-block">
             <h2>Формат</h2>
+            <p className="trainer-setup-sub">
+              Пока доступен только кэш. МТТ и Spins — в разработке.
+            </p>
             <div className="trainer-format-switch" role="group" aria-label="Формат">
-              {FORMAT_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  className={`trainer-format-chip${format === opt.id ? " is-active" : ""}`}
-                  onClick={() => setFormat(opt.id)}
-                >
-                  <strong>{opt.title}</strong>
-                  <span>{opt.lead}</span>
-                </button>
-              ))}
+              {FORMAT_OPTIONS.map((opt) => {
+                const locked = LOCKED_FORMATS.has(opt.id);
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    className={`trainer-format-chip${format === opt.id ? " is-active" : ""}${locked ? " is-locked" : ""}`}
+                    disabled={locked}
+                    title={
+                      locked
+                        ? "Скоро: тренажёр под этот формат пока недоступен"
+                        : undefined
+                    }
+                    onClick={() => {
+                      if (locked) return;
+                      setFormat(opt.id);
+                    }}
+                  >
+                    <span className="trainer-format-chip-top">
+                      <strong>{opt.title}</strong>
+                      {locked ? <FormatLockIcon /> : null}
+                    </span>
+                    <span>{locked ? "Скоро" : opt.lead}</span>
+                  </button>
+                );
+              })}
             </div>
           </section>
 

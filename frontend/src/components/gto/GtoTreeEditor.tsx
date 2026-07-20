@@ -36,6 +36,7 @@ import { standardRaiseSize } from "../../lib/gameTree/standardSizings";
 import { deriveContext } from "../../lib/gameTree/turnEngine";
 import type {
   GameTreeDocument,
+  GameTreeNode,
   PaintAction,
   Seat,
 } from "../../lib/gameTree/types";
@@ -56,6 +57,40 @@ type Props = {
 };
 
 const FREQ_WEIGHTS = [100, 75, 50, 25] as const;
+
+/**
+ * Solo open (one RAISE spot): sit on the raise edge so PreflopActionSelector
+ * shows UTG·OPEN + brush — not the flop-tip shell.
+ * Facing lines keep flop tip + paint node.
+ */
+function focusLineForPaint(
+  root: GameTreeNode,
+  tipNodeId: string,
+  paintNodeId: string,
+  stackDepth: number,
+): { activeId: string; paintNodeId: string; paintAction?: PaintAction } {
+  const tipPath = pathToNode(root, tipNodeId) ?? [];
+  const spots = branchRangeSpots(tipPath, stackDepth).filter(
+    (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
+  );
+  const paint =
+    findNode(root, paintNodeId) ||
+    (spots[0] ? findNode(root, spots[0].nodeId) : null);
+  const openOnly =
+    spots.length === 1 && spots[0].lineAction === "RAISE" && paint != null;
+  if (openOnly && paint) {
+    const raiseChild = paint.children.find((c) => c.actionTaken === "RAISE");
+    return {
+      activeId: raiseChild?.id ?? paint.id,
+      paintNodeId: paint.id,
+      paintAction: "RAISE",
+    };
+  }
+  return {
+    activeId: tipNodeId,
+    paintNodeId: paint?.id ?? paintNodeId,
+  };
+}
 
 export default function GtoTreeEditor({ strategy }: Props) {
   const strategyId = strategy.id;
@@ -124,24 +159,26 @@ export default function GtoTreeEditor({ strategy }: Props) {
       setActiveStyleId(next.stylePresetId ?? null);
       const focus = takeEditorFocus(strategyId);
       const tipOk = focus ? findNode(next.root, focus.tipNodeId) : null;
-      // Only jump into a closed branch (flop tip) — same as opening a saved line.
-      if (tipOk?.awaitingFlop) {
-        const tipPath = pathToNode(next.root, tipOk.id) ?? [];
-        const rangeSpots = branchRangeSpots(tipPath, next.stackDepth).filter(
-          (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
+      // Jump into the seeded/saved line ready to paint (opens → build UI with OPEN).
+      if (tipOk?.awaitingFlop && focus) {
+        const applied = focusLineForPaint(
+          next.root,
+          focus.tipNodeId,
+          focus.paintNodeId,
+          next.stackDepth,
         );
-        const paintOk =
-          (focus && findNode(next.root, focus.paintNodeId)) ||
-          (rangeSpots[0] ? findNode(next.root, rangeSpots[0].nodeId) : null) ||
-          tipOk;
-        setActiveId(tipOk.id);
-        setPaintNodeId(paintOk.id);
+        setActiveId(applied.activeId);
+        setPaintNodeId(applied.paintNodeId);
+        setPaintAction((prev) => {
+          if (applied.paintAction) return applied.paintAction;
+          return pushFold && prev === "CALL" ? "RAISE" : prev;
+        });
         setTab("editor");
       } else {
         setActiveId(next.root.id);
         setPaintNodeId(next.root.id);
+        setPaintAction((prev) => (pushFold && prev === "CALL" ? "RAISE" : prev));
       }
-      setPaintAction((prev) => (pushFold && prev === "CALL" ? "RAISE" : prev));
       setHydrated(true);
     }
 
@@ -478,13 +515,15 @@ export default function GtoTreeEditor({ strategy }: Props) {
   }
 
   function onOpenBranch(branch: SavedBranch) {
-    const tipPath = pathToNode(doc.root, branch.tipNodeId) ?? [];
-    const spots = branchRangeSpots(tipPath, doc.stackDepth).filter(
-      (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
+    const applied = focusLineForPaint(
+      doc.root,
+      branch.tipNodeId,
+      branch.paintNodeId,
+      doc.stackDepth,
     );
-    const first = spots[0];
-    setActiveId(branch.tipNodeId);
-    setPaintNodeId(first?.nodeId ?? branch.paintNodeId);
+    setActiveId(applied.activeId);
+    setPaintNodeId(applied.paintNodeId);
+    if (applied.paintAction) setPaintAction(applied.paintAction);
     setSelectedHand(null);
     setTab("editor");
   }
@@ -626,18 +665,15 @@ export default function GtoTreeEditor({ strategy }: Props) {
               setTab("branches");
               return;
             }
-            const tipPath = pathToNode(stamped.root, focus.tipNodeId) ?? [];
-            const rangeSpots = branchRangeSpots(
-              tipPath,
+            const applied = focusLineForPaint(
+              stamped.root,
+              focus.tipNodeId,
+              focus.paintNodeId,
               stamped.stackDepth,
-            ).filter(
-              (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
             );
-            const paint =
-              rangeSpots.find((s) => s.nodeId === focus.paintNodeId) ??
-              rangeSpots[0];
-            setActiveId(focus.tipNodeId);
-            setPaintNodeId(paint?.nodeId ?? focus.paintNodeId);
+            setActiveId(applied.activeId);
+            setPaintNodeId(applied.paintNodeId);
+            if (applied.paintAction) setPaintAction(applied.paintAction);
             setSelectedHand(null);
             setTab("editor");
           }}

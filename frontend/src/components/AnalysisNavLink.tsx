@@ -6,6 +6,7 @@ import {
   subscribeAnalysisJob,
   type AnalysisJobState,
 } from "../lib/analysisJob";
+import { IconAnalysis } from "./NavIcons";
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive ? "is-active" : undefined;
@@ -41,6 +42,7 @@ export default function AnalysisNavLink() {
           : undefined
       }
     >
+      <IconAnalysis />
       <span className="nav-analysis-label">Анализ</span>
       {busy ? (
         <span
