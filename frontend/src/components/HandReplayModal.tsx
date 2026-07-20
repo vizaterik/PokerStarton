@@ -502,27 +502,26 @@ export default function HandReplayModal({
           </div>
         </header>
 
-        {bannerExtra ? <div className="pr-banner-extra">{bannerExtra}</div> : null}
+        <div className={`pr-body${bannerExtra ? " has-banner" : ""}`}>
+          {bannerExtra ? <div className="pr-banner-extra">{bannerExtra}</div> : null}
 
-        {error && <p className="pr-error">{error}</p>}
-        {shareError && <p className="pr-error">{shareError}</p>}
-        {shareUrl && (
-          <div className="pr-share-toast-wrap">
-            <p className="pr-share-url" title={shareUrl}>
-              <a href={shareUrl} target="_blank" rel="noreferrer">
-                {shareUrl}
-              </a>
-            </p>
-          </div>
-        )}
-        {loading && <p className="pr-muted">Loading hands…</p>}
-        {!loading && data && data.hands.length === 0 && (
-          <p className="pr-muted">No hands for «{label}».</p>
-        )}
+          {error && <p className="pr-error">{error}</p>}
+          {shareError && <p className="pr-error">{shareError}</p>}
+          {shareUrl && (
+            <div className="pr-share-toast-wrap">
+              <p className="pr-share-url" title={shareUrl}>
+                <a href={shareUrl} target="_blank" rel="noreferrer">
+                  {shareUrl}
+                </a>
+              </p>
+            </div>
+          )}
+          {loading && <p className="pr-muted">Loading hands…</p>}
+          {!loading && data && data.hands.length === 0 && (
+            <p className="pr-muted">No hands for «{label}».</p>
+          )}
 
-
-        {hand && (
-          <>
+          {hand && (
             <div className="pr-main">
               <div className="pr-stage">
                 <PokerTable
@@ -572,7 +571,10 @@ export default function HandReplayModal({
                 </ol>
               </aside>
             </div>
+          )}
+        </div>
 
+        {hand && (
             <footer className="pr-controls">
               <div className="pr-controls-info">
                 <span title={hand.external_hand_id}>#{hand.external_hand_id}</span>
@@ -694,7 +696,6 @@ export default function HandReplayModal({
                 <i style={{ width: `${progress}%` }} />
               </div>
             </footer>
-          </>
         )}
       </div>
   );
