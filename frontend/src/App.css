@@ -11056,9 +11056,9 @@ body.confirm-open #root {
 
 /* PokerOK / GG-style felt table */
 .pr-canvas {
-  width: min(100%, 960px);
+  width: min(100%, 1200px); /* 960px × 125% */
   aspect-ratio: 16 / 9;
-  min-height: 20rem;
+  min-height: 25rem;
 }
 
 .pr-canvas.poker-ok,
