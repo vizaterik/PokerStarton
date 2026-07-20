@@ -1,33 +1,24 @@
 /**
- * Session branches (from local HH) missing from constructor tags.
+ * Session branches (from local HH) missing from constructor paint.
  * Compare by the same matchup labels as BranchPanel (`UTGvsBB`, `HJ`…).
  */
 import type { EnsuredSpotInfo, StrategySpot } from "../api/client";
 import { listSpots } from "../api/client";
 import { spotPotKind, treeMatchupLabel } from "../lib/branchLabel";
 import { collectEditorBranches, type SavedBranch } from "../lib/gameTree/branches";
-import { resolveConstructorTree } from "../lib/gameTree/syncTreeCharts";
-import { loadBranchPaintMatrix } from "../lib/gameTree/syncTreeCharts";
+import {
+  loadBranchPaintMatrix,
+  resolveConstructorTree,
+} from "../lib/gameTree/syncTreeCharts";
 import {
   normalizeChartPos,
   normalizeMatchupTag,
   potLookupKinds,
   reverseMatchupTag,
-  spotCoveredByCharts,
   type SpotLike,
 } from "../lib/spotCoverage";
-import { listHandsForStrategy, type HandRow } from "./localDb";
-
-const KNOWN = new Set([
-  "rfi",
-  "limp",
-  "iso",
-  "vs_open",
-  "multiway",
-  "vs_3bet",
-  "vs_4bet",
-  "squeeze",
-]);
+import { handToSessionSpot } from "./handSpot";
+import { listHandsForStrategy } from "./localDb";
 
 /** Constructor-style display: MP → HJ (same as seatLabel in the tree). */
 function displayMatchup(
@@ -36,18 +27,6 @@ function displayMatchup(
   villain: string | null,
 ): string {
   return treeMatchupLabel(spotKey, hero, villain).replace(/\bMP\b/g, "HJ");
-}
-
-function neededKey(hand: HandRow): SpotLike | null {
-  const spot_key = (hand.detected_spot || "").trim().toLowerCase();
-  if (!KNOWN.has(spot_key) || !hand.hero_position) return null;
-  const hero = normalizeChartPos(hand.hero_position);
-  let villain = hand.villain_position
-    ? normalizeChartPos(hand.villain_position)
-    : null;
-  if (spot_key === "rfi" || spot_key === "iso") villain = null;
-  if (villain && villain === hero) villain = null;
-  return { spot_key, hero_position: hero, villain_position: villain };
 }
 
 /** All distinct HH matchup tags in local session, with hand counts / P/L. */
@@ -62,7 +41,8 @@ export async function listSessionBranches(
   >();
 
   for (const h of hands) {
-    const spot = neededKey(h);
+    // Re-resolve from actions so limp/BB-check/multiway aren't lost on old imports.
+    const spot = handToSessionSpot(h);
     if (!spot) continue;
     const mu = normalizeMatchupTag(
       treeMatchupLabel(
@@ -128,16 +108,15 @@ export async function listSessionBranches(
 }
 
 /**
- * Covered when hero already has a real chart to compare against:
- * - paint on this pot|matchup, or the reverse label (`BTNvsBB` ≡ `BBvsBTN` line),
- * - or a synced DB chart for this hero + spot + villain.
- * Empty shells without paint stay in «Из сессий».
+ * Covered only when constructor has real paint for this pot|matchup
+ * (or reverse seat-pair label). Orphan DB spots without paint do NOT cover —
+ * empty constructor must list every session branch with «+».
  */
 function isCovered(
   strategyId: string,
   spot: SpotLike,
   branches: SavedBranch[],
-  charts: StrategySpot[],
+  _charts: StrategySpot[],
 ): boolean {
   const pot = spotPotKind(spot.spot_key);
   const hero = normalizeChartPos(spot.hero_position);
@@ -150,20 +129,6 @@ function isCovered(
   if (!mu || mu === "—") return false;
   const rev = reverseMatchupTag(mu);
 
-  // Hero decision chart already synced from constructor (what analysis compares).
-  if (spotCoveredByCharts(spot, charts)) return true;
-  if (charts.length) {
-    const sk = spot.spot_key.trim().toLowerCase();
-    const heroChart = charts.some((c) => {
-      if (c.spot_key.trim().toLowerCase() !== sk) return false;
-      if (normalizeChartPos(c.hero_position) !== hero) return false;
-      const cv = c.villain_position ? normalizeChartPos(c.villain_position) : null;
-      return !villain || !cv || cv === villain;
-    });
-    if (heroChart) return true;
-  }
-
-  // Paint on this matchup or reverse seat-pair label (same HU/3bp line).
   if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
   if (rev && loadBranchPaintMatrix(strategyId, pot, rev)) return true;
 
@@ -178,7 +143,7 @@ function isCovered(
 }
 
 /**
- * HH tags that do not appear among constructor branch matchup labels / DB charts.
+ * HH tags that do not have constructor paint yet.
  * Pass `branches` from the live editor when available so we never disagree with the UI.
  */
 export async function listMissingSpotsLocal(
@@ -189,7 +154,6 @@ export async function listMissingSpotsLocal(
 
   let branches = branchesOverride;
   if (!branches) {
-    // Hydrate from server first — empty localStorage must not list every HH tag as missing.
     branches = collectEditorBranches(
       (await resolveConstructorTree(strategyId)).root,
     );
@@ -202,8 +166,9 @@ export async function listMissingSpotsLocal(
     charts = [];
   }
 
-  // No constructor signal at all → every session matchup is missing.
-  if (!branches.length && !charts.length) return session;
+  const anyPaint = branches.some((b) => b.paintedCount > 0);
+  // Empty constructor (no paint) → every session matchup is addable.
+  if (!anyPaint) return session;
 
   return session.filter((s) => {
     const spot: SpotLike = {

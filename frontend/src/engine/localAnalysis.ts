@@ -47,6 +47,7 @@ import {
   potLookupKinds,
   spotCoveredByBranches,
 } from "../lib/spotCoverage";
+import { resolveHeroStrategyDecision } from "./handSpot";
 import type { HudFlags } from "./hudFlags";
 import { listHandsForStrategy, type HandRow } from "./localDb";
 import { clearLocalRecommendationsCache } from "./localRecommendations";
@@ -114,118 +115,6 @@ function pickExpected(raiseF: number, callF: number, foldF: number): string {
   if (raiseF >= callF && raiseF >= foldF) return "raise";
   if (callF >= foldF) return "call";
   return "fold";
-}
-
-/** Seat labels from HandRow for strategy villain lookup. */
-function nameToSeatLabel(hand: HandRow): Map<string, string> {
-  const out = new Map<string, string>();
-  const seats = hand.seats ?? [];
-  if (!seats.length) {
-    if (hand.hero_name && hand.hero_position) {
-      out.set(hand.hero_name, hand.hero_position);
-    }
-    return out;
-  }
-  const seatNums = seats.map((s) => s.seat);
-  const button = hand.button_seat ?? seatNums[0];
-  const sorted = [...seatNums].sort((a, b) => a - b);
-  let btn = button;
-  if (!sorted.includes(btn)) btn = sorted[0];
-  const idx = sorted.indexOf(btn);
-  const rotated = sorted.slice(idx).concat(sorted.slice(0, idx));
-  const n = rotated.length;
-  let labels: string[];
-  if (n === 2) labels = ["SB", "BB"];
-  else if (n === 3) labels = ["BTN", "SB", "BB"];
-  else if (n <= 6) {
-    labels = ["BTN", "SB", "BB", "UTG", "HJ", "CO"].slice(0, n);
-  } else {
-    const extra = ["UTG+1", "UTG+2", "MP", "HJ", "CO"];
-    labels = ["BTN", "SB", "BB", "UTG", ...extra.slice(0, n - 4)];
-  }
-  const seatToLabel = new Map<number, string>();
-  rotated.forEach((seat, i) => seatToLabel.set(seat, labels[i]));
-  for (const s of seats) {
-    const lab = seatToLabel.get(s.seat);
-    if (lab) out.set(s.name, lab);
-  }
-  return out;
-}
-
-/**
- * Prefer last hero preflop decision from stored actions (open → face 3bet).
- * Falls back to HandRow.detected_spot for older trimmed imports.
- */
-function resolveHeroStrategyDecision(hand: HandRow): {
-  spot: string;
-  action: string;
-  villain: string | null;
-} | null {
-  const acts = hand.preflop_actions?.length
-    ? hand.preflop_actions
-    : hand.actions ?? [];
-  const preflop = acts.filter((a) => (a.street || "").toLowerCase() === "preflop");
-  if (preflop.length) {
-    const pos = nameToSeatLabel(hand);
-    const before: string[] = [];
-    const beforePlayers: string[] = [];
-    let last: { action: string; spot: string; villain: string | null } | null = null;
-    for (const a of preflop) {
-      const act = (a.action || "").toLowerCase();
-      // "check" = BB option (stored as call in HH normalize, or check if present).
-      if (!["raise", "call", "fold", "bet", "check"].includes(act)) continue;
-      const norm =
-        act === "bet" ? "raise" : act === "check" ? "call" : act;
-      if (a.is_hero) {
-        let raises = 0;
-        let limps = 0;
-        let callsAfterRaise = 0;
-        for (const b of before) {
-          if (b === "raise") {
-            raises += 1;
-            callsAfterRaise = 0;
-          } else if (b === "call") {
-            if (raises === 0) limps += 1;
-            else callsAfterRaise += 1;
-          }
-        }
-        let spot = "rfi";
-        if (raises === 0) {
-          if (limps > 0 && norm === "raise") spot = "iso";
-          else if (norm === "call") spot = "limp";
-          else spot = "rfi";
-        } else if (raises === 1) {
-          if (callsAfterRaise >= 1 && norm === "raise") spot = "squeeze";
-          else if (callsAfterRaise >= 1 && norm === "call") spot = "multiway";
-          else spot = "vs_open";
-        } else if (raises === 2) spot = "vs_3bet";
-        else spot = "vs_4bet";
-        let villain: string | null = null;
-        for (let i = 0; i < before.length; i += 1) {
-          if (before[i] === "raise") {
-            villain = pos.get(beforePlayers[i]) ?? null;
-          }
-        }
-        if ((spot === "limp" || spot === "iso") && !villain) {
-          for (let i = before.length - 1; i >= 0; i -= 1) {
-            if (before[i] !== "call") continue;
-            villain = pos.get(beforePlayers[i]) ?? null;
-            break;
-          }
-        }
-        last = { action: norm, spot, villain };
-      }
-      before.push(norm);
-      beforePlayers.push(a.player_name);
-    }
-    if (last) return last;
-  }
-  if (!hand.detected_spot || !hand.hero_preflop_action) return null;
-  return {
-    spot: hand.detected_spot,
-    action: hand.hero_preflop_action,
-    villain: hand.villain_position,
-  };
 }
 
 /** Fast spot lookup for large session scoring. */

@@ -15713,7 +15713,7 @@ function writeLastStrategyId(id) {
   } catch {
   }
 }
-const CHART_COMPARE_VER = 10;
+const CHART_COMPARE_VER = 11;
 const PREFIX$2 = "pokerledger.analysis.v7:";
 const LEGACY$1 = [
   "pokerledger.analysis.v1:",
@@ -23333,17 +23333,6 @@ function potsForSpot(spotKey, strictPot) {
   if (kind === "limp") return ["limp"];
   return [kind];
 }
-function spotCoveredByCharts(spot, charts) {
-  const key2 = spot.spot_key.trim().toLowerCase();
-  const hero = normalizeChartPos(spot.hero_position);
-  const villain = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
-  return charts.some((s) => {
-    if (s.spot_key.trim().toLowerCase() !== key2) return false;
-    if (normalizeChartPos(s.hero_position) !== hero) return false;
-    const sv = s.villain_position ? normalizeChartPos(s.villain_position) : null;
-    return sv === villain || sv === null;
-  });
-}
 function spotCoveredByBranches(spot, branches, opts) {
   const key2 = spot.spot_key.trim().toLowerCase();
   const pots = potsForSpot(key2, (opts == null ? void 0 : opts.strictPot) === true);
@@ -28716,6 +28705,105 @@ async function syncTreeChartsToDb(strategyId, doc, opts) {
     markAnalysisChartsStale(strategyId);
   }
 }
+function nameToSeatLabel(hand) {
+  const out = /* @__PURE__ */ new Map();
+  const seats = hand.seats ?? [];
+  if (!seats.length) {
+    if (hand.hero_name && hand.hero_position) {
+      out.set(hand.hero_name, hand.hero_position);
+    }
+    return out;
+  }
+  const seatNums = seats.map((s) => s.seat);
+  const button = hand.button_seat ?? seatNums[0];
+  const sorted = [...seatNums].sort((a, b) => a - b);
+  let btn = button;
+  if (!sorted.includes(btn)) btn = sorted[0];
+  const idx = sorted.indexOf(btn);
+  const rotated = sorted.slice(idx).concat(sorted.slice(0, idx));
+  const n = rotated.length;
+  let labels;
+  if (n === 2) labels = ["SB", "BB"];
+  else if (n === 3) labels = ["BTN", "SB", "BB"];
+  else if (n <= 6) {
+    labels = ["BTN", "SB", "BB", "UTG", "HJ", "CO"].slice(0, n);
+  } else {
+    const extra = ["UTG+1", "UTG+2", "MP", "HJ", "CO"];
+    labels = ["BTN", "SB", "BB", "UTG", ...extra.slice(0, n - 4)];
+  }
+  const seatToLabel = /* @__PURE__ */ new Map();
+  rotated.forEach((seat, i) => seatToLabel.set(seat, labels[i]));
+  for (const s of seats) {
+    const lab = seatToLabel.get(s.seat);
+    if (lab) out.set(s.name, lab);
+  }
+  return out;
+}
+function resolveHeroStrategyDecision(hand) {
+  var _a;
+  const acts = ((_a = hand.preflop_actions) == null ? void 0 : _a.length) ? hand.preflop_actions : hand.actions ?? [];
+  const preflop = acts.filter((a) => (a.street || "").toLowerCase() === "preflop");
+  if (preflop.length) {
+    const pos = nameToSeatLabel(hand);
+    const before = [];
+    const beforePlayers = [];
+    let last = null;
+    for (const a of preflop) {
+      const act = (a.action || "").toLowerCase();
+      if (!["raise", "call", "fold", "bet", "check"].includes(act)) continue;
+      const norm = act === "bet" ? "raise" : act === "check" ? "call" : act;
+      if (a.is_hero) {
+        let raises = 0;
+        let limps = 0;
+        let callsAfterRaise = 0;
+        for (const b of before) {
+          if (b === "raise") {
+            raises += 1;
+            callsAfterRaise = 0;
+          } else if (b === "call") {
+            if (raises === 0) limps += 1;
+            else callsAfterRaise += 1;
+          }
+        }
+        let spot = "rfi";
+        if (raises === 0) {
+          if (limps > 0 && norm === "raise") spot = "iso";
+          else if (norm === "call") spot = "limp";
+          else spot = "rfi";
+        } else if (raises === 1) {
+          if (callsAfterRaise >= 1 && norm === "raise") spot = "squeeze";
+          else if (callsAfterRaise >= 1 && norm === "call") spot = "multiway";
+          else spot = "vs_open";
+        } else if (raises === 2) spot = "vs_3bet";
+        else spot = "vs_4bet";
+        let villain = null;
+        for (let i = 0; i < before.length; i += 1) {
+          if (before[i] === "raise") {
+            villain = pos.get(beforePlayers[i]) ?? null;
+          }
+        }
+        if ((spot === "limp" || spot === "iso") && !villain) {
+          for (let i = before.length - 1; i >= 0; i -= 1) {
+            if (before[i] !== "call") continue;
+            villain = pos.get(beforePlayers[i]) ?? null;
+            break;
+          }
+        }
+        last = { action: norm, spot, villain };
+      }
+      before.push(norm);
+      beforePlayers.push(a.player_name);
+    }
+    if (last) return last;
+  }
+  const stored = (hand.detected_spot || "").trim().toLowerCase();
+  if (!stored) return null;
+  return {
+    spot: stored,
+    action: (hand.hero_preflop_action || "fold").toLowerCase(),
+    villain: hand.villain_position
+  };
+}
 const KNOWN = /* @__PURE__ */ new Set([
   "rfi",
   "limp",
@@ -28726,23 +28814,29 @@ const KNOWN = /* @__PURE__ */ new Set([
   "vs_4bet",
   "squeeze"
 ]);
+function handToSessionSpot(hand) {
+  const decision = resolveHeroStrategyDecision(hand);
+  if (!decision || !KNOWN.has(decision.spot)) return null;
+  const heroRaw = hand.hero_position;
+  if (!heroRaw) return null;
+  const hero = normalizeChartPos(heroRaw);
+  let villain = decision.spot === "rfi" ? null : decision.villain ? normalizeChartPos(decision.villain) : hand.villain_position ? normalizeChartPos(hand.villain_position) : null;
+  if (decision.spot === "rfi") villain = null;
+  if (villain && villain === hero) villain = null;
+  return {
+    spot_key: decision.spot,
+    hero_position: hero,
+    villain_position: villain
+  };
+}
 function displayMatchup(spotKey, hero, villain) {
   return treeMatchupLabel(spotKey, hero, villain).replace(/\bMP\b/g, "HJ");
-}
-function neededKey(hand) {
-  const spot_key = (hand.detected_spot || "").trim().toLowerCase();
-  if (!KNOWN.has(spot_key) || !hand.hero_position) return null;
-  const hero = normalizeChartPos(hand.hero_position);
-  let villain = hand.villain_position ? normalizeChartPos(hand.villain_position) : null;
-  if (spot_key === "rfi" || spot_key === "iso") villain = null;
-  if (villain && villain === hero) villain = null;
-  return { spot_key, hero_position: hero, villain_position: villain };
 }
 async function listSessionBranches(strategyId) {
   const hands = await listHandsForStrategy(strategyId);
   const acc = /* @__PURE__ */ new Map();
   for (const h of hands) {
-    const spot = neededKey(h);
+    const spot = handToSessionSpot(h);
     if (!spot) continue;
     const mu = normalizeMatchupTag(
       treeMatchupLabel(
@@ -28800,7 +28894,7 @@ async function listSessionBranches(strategyId) {
     (a, b) => (a.profit_money ?? 0) - (b.profit_money ?? 0) || (b.hands_count ?? 0) - (a.hands_count ?? 0)
   );
 }
-function isCovered(strategyId, spot, branches, charts) {
+function isCovered(strategyId, spot, branches, _charts) {
   const pot = spotPotKind(spot.spot_key);
   const hero = normalizeChartPos(spot.hero_position);
   const villain = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
@@ -28809,17 +28903,6 @@ function isCovered(strategyId, spot, branches, charts) {
   );
   if (!mu || mu === "—") return false;
   const rev = reverseMatchupTag(mu);
-  if (spotCoveredByCharts(spot, charts)) return true;
-  if (charts.length) {
-    const sk = spot.spot_key.trim().toLowerCase();
-    const heroChart = charts.some((c) => {
-      if (c.spot_key.trim().toLowerCase() !== sk) return false;
-      if (normalizeChartPos(c.hero_position) !== hero) return false;
-      const cv = c.villain_position ? normalizeChartPos(c.villain_position) : null;
-      return !villain || !cv || cv === villain;
-    });
-    if (heroChart) return true;
-  }
   if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
   if (rev && loadBranchPaintMatrix(strategyId, pot, rev)) return true;
   for (const b of branches) {
@@ -28844,14 +28927,15 @@ async function listMissingSpotsLocal(strategyId, branchesOverride) {
   } catch {
     charts = [];
   }
-  if (!branches.length && !charts.length) return session;
+  const anyPaint = branches.some((b) => b.paintedCount > 0);
+  if (!anyPaint) return session;
   return session.filter((s) => {
     const spot = {
       spot_key: s.spot_key,
       hero_position: s.hero_position,
       villain_position: s.villain_position
     };
-    return !isCovered(strategyId, spot, branches, charts);
+    return !isCovered(strategyId, spot, branches);
   });
 }
 function chartPosToSeat(pos, tableSize) {
@@ -31549,104 +31633,6 @@ function pickExpected(raiseF, callF, foldF) {
   if (raiseF >= callF && raiseF >= foldF) return "raise";
   if (callF >= foldF) return "call";
   return "fold";
-}
-function nameToSeatLabel(hand) {
-  const out = /* @__PURE__ */ new Map();
-  const seats = hand.seats ?? [];
-  if (!seats.length) {
-    if (hand.hero_name && hand.hero_position) {
-      out.set(hand.hero_name, hand.hero_position);
-    }
-    return out;
-  }
-  const seatNums = seats.map((s) => s.seat);
-  const button = hand.button_seat ?? seatNums[0];
-  const sorted = [...seatNums].sort((a, b) => a - b);
-  let btn = button;
-  if (!sorted.includes(btn)) btn = sorted[0];
-  const idx = sorted.indexOf(btn);
-  const rotated = sorted.slice(idx).concat(sorted.slice(0, idx));
-  const n = rotated.length;
-  let labels;
-  if (n === 2) labels = ["SB", "BB"];
-  else if (n === 3) labels = ["BTN", "SB", "BB"];
-  else if (n <= 6) {
-    labels = ["BTN", "SB", "BB", "UTG", "HJ", "CO"].slice(0, n);
-  } else {
-    const extra = ["UTG+1", "UTG+2", "MP", "HJ", "CO"];
-    labels = ["BTN", "SB", "BB", "UTG", ...extra.slice(0, n - 4)];
-  }
-  const seatToLabel = /* @__PURE__ */ new Map();
-  rotated.forEach((seat, i) => seatToLabel.set(seat, labels[i]));
-  for (const s of seats) {
-    const lab = seatToLabel.get(s.seat);
-    if (lab) out.set(s.name, lab);
-  }
-  return out;
-}
-function resolveHeroStrategyDecision(hand) {
-  var _a;
-  const acts = ((_a = hand.preflop_actions) == null ? void 0 : _a.length) ? hand.preflop_actions : hand.actions ?? [];
-  const preflop = acts.filter((a) => (a.street || "").toLowerCase() === "preflop");
-  if (preflop.length) {
-    const pos = nameToSeatLabel(hand);
-    const before = [];
-    const beforePlayers = [];
-    let last = null;
-    for (const a of preflop) {
-      const act = (a.action || "").toLowerCase();
-      if (!["raise", "call", "fold", "bet", "check"].includes(act)) continue;
-      const norm = act === "bet" ? "raise" : act === "check" ? "call" : act;
-      if (a.is_hero) {
-        let raises = 0;
-        let limps = 0;
-        let callsAfterRaise = 0;
-        for (const b of before) {
-          if (b === "raise") {
-            raises += 1;
-            callsAfterRaise = 0;
-          } else if (b === "call") {
-            if (raises === 0) limps += 1;
-            else callsAfterRaise += 1;
-          }
-        }
-        let spot = "rfi";
-        if (raises === 0) {
-          if (limps > 0 && norm === "raise") spot = "iso";
-          else if (norm === "call") spot = "limp";
-          else spot = "rfi";
-        } else if (raises === 1) {
-          if (callsAfterRaise >= 1 && norm === "raise") spot = "squeeze";
-          else if (callsAfterRaise >= 1 && norm === "call") spot = "multiway";
-          else spot = "vs_open";
-        } else if (raises === 2) spot = "vs_3bet";
-        else spot = "vs_4bet";
-        let villain = null;
-        for (let i = 0; i < before.length; i += 1) {
-          if (before[i] === "raise") {
-            villain = pos.get(beforePlayers[i]) ?? null;
-          }
-        }
-        if ((spot === "limp" || spot === "iso") && !villain) {
-          for (let i = before.length - 1; i >= 0; i -= 1) {
-            if (before[i] !== "call") continue;
-            villain = pos.get(beforePlayers[i]) ?? null;
-            break;
-          }
-        }
-        last = { action: norm, spot, villain };
-      }
-      before.push(norm);
-      beforePlayers.push(a.player_name);
-    }
-    if (last) return last;
-  }
-  if (!hand.detected_spot || !hand.hero_preflop_action) return null;
-  return {
-    spot: hand.detected_spot,
-    action: hand.hero_preflop_action,
-    villain: hand.villain_position
-  };
 }
 function buildSpotIndex(spots) {
   const exact = /* @__PURE__ */ new Map();
@@ -34499,10 +34485,11 @@ function buildVpipCellsForSpot(hands, spot) {
   for (const h of hands) {
     const code = h.hero_hand_code;
     if (!code) continue;
-    const hs = (h.detected_spot || "").trim().toLowerCase();
-    if (!hs) continue;
-    if (normalizeChartPos(h.hero_position || "") !== heroN) continue;
-    const hv = h.villain_position ? normalizeChartPos(h.villain_position) : null;
+    const resolved = handToSessionSpot(h);
+    if (!resolved) continue;
+    const hs = resolved.spot_key;
+    if (normalizeChartPos(resolved.hero_position) !== heroN) continue;
+    const hv = resolved.villain_position ? normalizeChartPos(resolved.villain_position) : null;
     if (villN) {
       if (hv !== villN) continue;
     } else if (hv) {
@@ -34511,7 +34498,12 @@ function buildVpipCellsForSpot(hands, spot) {
     const pot = spotPotKind(hs);
     if (!potKindsCompatible(pot, wantPot)) continue;
     const mu = normalizeMatchupTag(
-      analysisMatchup(hs, h.hero_position, h.villain_position, null)
+      analysisMatchup(
+        hs,
+        resolved.hero_position,
+        resolved.villain_position,
+        null
+      )
     );
     if (!matchupsCompatible(mu, wantMu)) continue;
     const act = (h.hero_preflop_action || "").toLowerCase();
@@ -34802,7 +34794,6 @@ function StrategyAnalysisPanel({
   function missingKey2(s) {
     return `${s.spot_key}|${s.hero_position}|${s.villain_position ?? ""}`;
   }
-  const uncoveredMissing = missingSpots;
   const addOneMissingSpot = reactExports.useCallback(
     async (spot) => {
       if (addingSpots) return;
@@ -34815,11 +34806,12 @@ function StrategyAnalysisPanel({
         const villN = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
         const spotKey = spot.spot_key.trim().toLowerCase();
         const sample = hands.find((h) => {
-          const hs = (h.detected_spot || "").trim().toLowerCase();
-          if (hs !== spotKey) return false;
-          if (normalizeChartPos(h.hero_position || "") !== heroN) return false;
-          if (!villN) return true;
-          return normalizeChartPos(h.villain_position || "") === villN;
+          const resolved = handToSessionSpot(h);
+          if (!resolved) return false;
+          if (resolved.spot_key.trim().toLowerCase() !== spotKey) return false;
+          if (normalizeChartPos(resolved.hero_position) !== heroN) return false;
+          if (!villN) return !resolved.villain_position;
+          return normalizeChartPos(resolved.villain_position || "") === villN;
         }) ?? null;
         let focus = sample ? seedPlayedLineIntoTree(strategyId, sample) : null;
         if (!focus) focus = seedSpotIntoTree(strategyId, spot);
@@ -35238,17 +35230,16 @@ function StrategyAnalysisPanel({
     );
   }, [liveDevs, paintedTreeBranches, sessionBranches, strategyId]);
   const branchListRows = reactExports.useMemo(() => {
-    const covered = new Set(
-      branchScoreRows.map(
-        (r) => `${r.pot_kind}|${normalizeMatchupTag(r.matchup)}`
-      )
-    );
-    const inStrategy = branchScoreRows.map((r) => ({
-      ...r,
-      missing: false,
-      missingSpot: null
-    }));
-    const missingRows = uncoveredMissing.map((s) => {
+    const byKey2 = /* @__PURE__ */ new Map();
+    const hasPaint = (pot, mu) => {
+      if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
+      const m = normalizeMatchupTag(mu).match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
+      if (!m) return false;
+      return Boolean(
+        loadBranchPaintMatrix(strategyId, pot, `${m[2]}vs${m[1]}`)
+      );
+    };
+    for (const s of sessionBranches) {
       const potKind = spotPotKind(s.spot_key);
       const mu = analysisMatchup(
         s.spot_key,
@@ -35257,9 +35248,10 @@ function StrategyAnalysisPanel({
         s.label
       );
       const played = s.hands_count ?? 0;
+      if (played <= 0) continue;
       const key2 = `${potKind}|${normalizeMatchupTag(mu)}`;
-      if (played <= 0 || covered.has(key2)) return null;
-      return {
+      const painted = hasPaint(potKind, mu);
+      byKey2.set(key2, {
         spot_key: s.spot_key,
         hero_position: s.hero_position,
         villain_position: s.villain_position,
@@ -35270,15 +35262,36 @@ function StrategyAnalysisPanel({
         decisions: 0,
         played,
         correct_pct: null,
-        hasChart: false,
-        missing: true,
-        missingSpot: s
-      };
-    }).filter((r) => r != null);
-    return [...inStrategy, ...missingRows].sort(
+        hasChart: painted,
+        missing: !painted,
+        missingSpot: painted ? null : s
+      });
+    }
+    for (const r of branchScoreRows) {
+      const key2 = `${r.pot_kind}|${normalizeMatchupTag(r.matchup)}`;
+      const prev = byKey2.get(key2);
+      if (prev) {
+        byKey2.set(key2, {
+          ...prev,
+          ...r,
+          played: Math.max(prev.played, r.played),
+          hands_count: Math.max(prev.hands_count, r.hands_count),
+          hasChart: true,
+          missing: false,
+          missingSpot: null
+        });
+      } else if (r.played > 0) {
+        byKey2.set(key2, {
+          ...r,
+          missing: false,
+          missingSpot: null
+        });
+      }
+    }
+    return [...byKey2.values()].sort(
       (a, b) => Number(a.missing) - Number(b.missing) || b.played - a.played || a.matchup.localeCompare(b.matchup, "ru")
     );
-  }, [branchScoreRows, uncoveredMissing]);
+  }, [sessionBranches, branchScoreRows, strategyId]);
   const selectBranchFocus = reactExports.useCallback(
     (row) => {
       setErrorFilter({

@@ -41,6 +41,7 @@ import {
   strategyHasPlayCharts,
 } from "../lib/gameTree/strategyReady";
 import { treeMatchupLabel, spotPotKind } from "../lib/branchLabel";
+import { handToSessionSpot } from "../engine/handSpot";
 import {
   listMissingSpotsLocal,
   listSessionBranches,
@@ -284,11 +285,12 @@ function buildVpipCellsForSpot(
   for (const h of hands) {
     const code = h.hero_hand_code;
     if (!code) continue;
-    const hs = (h.detected_spot || "").trim().toLowerCase();
-    if (!hs) continue;
-    if (normalizeChartPos(h.hero_position || "") !== heroN) continue;
-    const hv = h.villain_position
-      ? normalizeChartPos(h.villain_position)
+    const resolved = handToSessionSpot(h);
+    if (!resolved) continue;
+    const hs = resolved.spot_key;
+    if (normalizeChartPos(resolved.hero_position) !== heroN) continue;
+    const hv = resolved.villain_position
+      ? normalizeChartPos(resolved.villain_position)
       : null;
     if (villN) {
       if (hv !== villN) continue;
@@ -298,7 +300,12 @@ function buildVpipCellsForSpot(
     const pot = spotPotKind(hs);
     if (!potKindsCompatible(pot, wantPot)) continue;
     const mu = normalizeMatchupTag(
-      analysisMatchup(hs, h.hero_position, h.villain_position, null),
+      analysisMatchup(
+        hs,
+        resolved.hero_position,
+        resolved.villain_position,
+        null,
+      ),
     );
     if (!matchupsCompatible(mu, wantMu)) continue;
 
@@ -646,9 +653,6 @@ export default function StrategyAnalysisPanel({
     return `${s.spot_key}|${s.hero_position}|${s.villain_position ?? ""}`;
   }
 
-  /** Already filtered vs constructor in reloadMissingSpots. */
-  const uncoveredMissing = missingSpots;
-
   const addOneMissingSpot = useCallback(
     async (spot: EnsuredSpotInfo) => {
       if (addingSpots) return;
@@ -666,11 +670,14 @@ export default function StrategyAnalysisPanel({
         const spotKey = spot.spot_key.trim().toLowerCase();
         const sample =
           hands.find((h) => {
-            const hs = (h.detected_spot || "").trim().toLowerCase();
-            if (hs !== spotKey) return false;
-            if (normalizeChartPos(h.hero_position || "") !== heroN) return false;
-            if (!villN) return true;
-            return normalizeChartPos(h.villain_position || "") === villN;
+            const resolved = handToSessionSpot(h);
+            if (!resolved) return false;
+            if (resolved.spot_key.trim().toLowerCase() !== spotKey) return false;
+            if (normalizeChartPos(resolved.hero_position) !== heroN) return false;
+            if (!villN) return !resolved.villain_position;
+            return (
+              normalizeChartPos(resolved.villain_position || "") === villN
+            );
           }) ?? null;
         let focus = sample ? seedPlayedLineIntoTree(strategyId, sample) : null;
         if (!focus) focus = seedSpotIntoTree(strategyId, spot);
@@ -1165,55 +1172,96 @@ export default function StrategyAnalysisPanel({
   }, [liveDevs, paintedTreeBranches, sessionBranches, strategyId]);
 
   /**
-   * VPIP branches in strategy + missing VPIP matchups (same list, missing highlighted).
+   * Always list every VPIP matchup from the HH session.
+   * Painted constructor branches overlay scores; unpainted stay with «+».
    */
   const branchListRows = useMemo(() => {
-    const covered = new Set(
-      branchScoreRows.map(
-        (r) => `${r.pot_kind}|${normalizeMatchupTag(r.matchup)}`,
-      ),
-    );
-    const inStrategy = branchScoreRows.map((r) => ({
-      ...r,
-      missing: false as const,
-      missingSpot: null as EnsuredSpotInfo | null,
-    }));
-    const missingRows = uncoveredMissing
-      .map((s) => {
-        const potKind = spotPotKind(s.spot_key) as BranchPotKind;
-        const mu = analysisMatchup(
-          s.spot_key,
-          s.hero_position,
-          s.villain_position,
-          s.label,
-        );
-        const played = s.hands_count ?? 0;
-        const key = `${potKind}|${normalizeMatchupTag(mu)}`;
-        if (played <= 0 || covered.has(key)) return null;
-        return {
-          spot_key: s.spot_key,
-          hero_position: s.hero_position,
-          villain_position: s.villain_position,
-          matchup: mu,
-          pot_kind: potKind,
-          pot_tag: potKindTag(potKind),
-          hands_count: played,
-          decisions: 0,
-          played,
-          correct_pct: null as number | null,
-          hasChart: false,
-          missing: true as const,
-          missingSpot: s,
-        };
-      })
-      .filter((r): r is NonNullable<typeof r> => r != null);
-    return [...inStrategy, ...missingRows].sort(
+    type Row = {
+      spot_key: string;
+      hero_position: string;
+      villain_position?: string | null;
+      matchup: string;
+      pot_kind: BranchPotKind;
+      pot_tag: string;
+      hands_count: number;
+      decisions: number;
+      played: number;
+      correct_pct: number | null;
+      hasChart: boolean;
+      missing: boolean;
+      missingSpot: EnsuredSpotInfo | null;
+    };
+    const byKey = new Map<string, Row>();
+
+    const hasPaint = (pot: string, mu: string) => {
+      if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
+      const m = normalizeMatchupTag(mu).match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
+      if (!m) return false;
+      return Boolean(
+        loadBranchPaintMatrix(strategyId, pot, `${m[2]}vs${m[1]}`),
+      );
+    };
+
+    // 1) Full session — every pot|matchup that appeared in the hands.
+    for (const s of sessionBranches) {
+      const potKind = spotPotKind(s.spot_key) as BranchPotKind;
+      const mu = analysisMatchup(
+        s.spot_key,
+        s.hero_position,
+        s.villain_position,
+        s.label,
+      );
+      const played = s.hands_count ?? 0;
+      if (played <= 0) continue;
+      const key = `${potKind}|${normalizeMatchupTag(mu)}`;
+      const painted = hasPaint(potKind, mu);
+      byKey.set(key, {
+        spot_key: s.spot_key,
+        hero_position: s.hero_position,
+        villain_position: s.villain_position,
+        matchup: mu,
+        pot_kind: potKind,
+        pot_tag: potKindTag(potKind),
+        hands_count: played,
+        decisions: 0,
+        played,
+        correct_pct: null,
+        hasChart: painted,
+        missing: !painted,
+        missingSpot: painted ? null : s,
+      });
+    }
+
+    // 2) Overlay scored strategy rows (errors / decisions) when paint exists.
+    for (const r of branchScoreRows) {
+      const key = `${r.pot_kind}|${normalizeMatchupTag(r.matchup)}`;
+      const prev = byKey.get(key);
+      if (prev) {
+        byKey.set(key, {
+          ...prev,
+          ...r,
+          played: Math.max(prev.played, r.played),
+          hands_count: Math.max(prev.hands_count, r.hands_count),
+          hasChart: true,
+          missing: false,
+          missingSpot: null,
+        });
+      } else if (r.played > 0) {
+        byKey.set(key, {
+          ...r,
+          missing: false,
+          missingSpot: null,
+        });
+      }
+    }
+
+    return [...byKey.values()].sort(
       (a, b) =>
         Number(a.missing) - Number(b.missing) ||
         b.played - a.played ||
         a.matchup.localeCompare(b.matchup, "ru"),
     );
-  }, [branchScoreRows, uncoveredMissing]);
+  }, [sessionBranches, branchScoreRows, strategyId]);
 
   /** Focus a strategy branch for Strategy|Error range compare (stay on current subtab). */
   const selectBranchFocus = useCallback(
