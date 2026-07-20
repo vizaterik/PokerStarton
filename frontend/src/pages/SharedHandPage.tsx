@@ -51,14 +51,17 @@ export default function SharedHandPage() {
         playedStreets={playedStreets}
         unlockedStreets={unlockedStreets}
       >
-        <HandReplayModal
-          open
-          pageMode
-          publicToken={token}
-          label="Shared hand"
-          onStreetProgress={onStreetProgress}
-          onClose={() => undefined}
-        />
+        {(likeControl) => (
+          <HandReplayModal
+            open
+            pageMode
+            publicToken={token}
+            label="Shared hand"
+            topbarExtra={likeControl}
+            onStreetProgress={onStreetProgress}
+            onClose={() => undefined}
+          />
+        )}
       </SharedHandSocial>
     </div>
   );

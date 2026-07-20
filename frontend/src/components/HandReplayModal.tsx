@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   createHandShareFromReplay,
@@ -100,6 +100,8 @@ type Props = {
   huPot?: HuPotReplayQuery | null;
   /** Embed as page (no close / no share create) */
   pageMode?: boolean;
+  /** Extra controls in the topbar (e.g. like on public share) */
+  topbarExtra?: ReactNode;
   /** Public share: report which streets are unlocked for comments */
   onStreetProgress?: (info: {
     currentStreet: ShareStreet;
@@ -132,6 +134,7 @@ export default function HandReplayModal({
   publicToken = null,
   huPot = null,
   pageMode = false,
+  topbarExtra = null,
   onStreetProgress,
   onClose,
 }: Props) {
@@ -443,6 +446,7 @@ export default function HandReplayModal({
             </h2>
           </div>
           <div className="pr-topbar-right">
+            {topbarExtra}
             {canShare && hand ? (
               <button
                 type="button"

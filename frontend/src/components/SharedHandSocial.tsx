@@ -18,8 +18,8 @@ type Props = {
   unlockedStreets: ShareStreet[];
   /** Active street in the replayer */
   currentStreet: ShareStreet;
-  /** Hand / replay rendered between likes and comments */
-  children?: ReactNode;
+  /** Replay UI; receives like control for the topbar */
+  children: (likeControl: ReactNode) => ReactNode;
 };
 
 export default function SharedHandSocial({
@@ -118,7 +118,7 @@ export default function SharedHandSocial({
 
   const lockedAhead = playedStreets.filter((s) => !visibleStreets.includes(s));
 
-  const likeBtn = (
+  const likeControl = (
     <button
       type="button"
       className={`share-like-btn${data?.liked_by_me ? " is-liked" : ""}`}
@@ -132,16 +132,7 @@ export default function SharedHandSocial({
 
   return (
     <>
-      <div className="share-likes-bar" aria-label="Лайки раздачи">
-        {likeBtn}
-        {!loggedIn && (
-          <p className="share-social-hint share-likes-hint">
-            <Link to="/login">Войдите</Link>, чтобы лайкнуть
-          </p>
-        )}
-      </div>
-
-      {children}
+      {children(likeControl)}
 
       <div className="share-social-wrap">
         <section className="share-social" aria-label="Комментарии">
@@ -157,7 +148,8 @@ export default function SharedHandSocial({
 
           {!loggedIn && (
             <p className="share-social-hint">
-              <Link to="/login">Войдите</Link>, чтобы оставить по одному комментарию на улицу.
+              <Link to="/login">Войдите</Link>, чтобы лайкнуть и оставить по одному
+              комментарию на улицу.
             </p>
           )}
           {error && <p className="share-social-error">{error}</p>}
@@ -174,10 +166,7 @@ export default function SharedHandSocial({
               const list = commentsByStreet(key);
               const mine = Boolean(data?.my_comments_by_street[key]);
               const isCurrent = key === currentStreet;
-              const countLabel =
-                list.length === 0
-                  ? "нет"
-                  : `${list.length}`;
+              const countLabel = list.length === 0 ? "нет" : `${list.length}`;
 
               if (!isCurrent) {
                 return (
