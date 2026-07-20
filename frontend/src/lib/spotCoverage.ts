@@ -45,6 +45,14 @@ export function potLookupKinds(pot: string): string[] {
   return [p];
 }
 
+/** `BTNvsBB` → `BBvsBTN` (same seat pair, opposite label orientation). */
+export function reverseMatchupTag(label: string): string | null {
+  const n = normalizeMatchupTag(label);
+  const m = n.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
+  if (!m) return null;
+  return `${m[2]}vs${m[1]}`;
+}
+
 /** Pot+matchup key as shown in the constructor (`srp|UTGvsBB`). */
 export function constructorTagKey(
   potKind: BranchPotKind | SpotPotKind,

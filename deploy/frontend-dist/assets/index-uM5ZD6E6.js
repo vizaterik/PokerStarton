@@ -23269,6 +23269,12 @@ function potLookupKinds(pot) {
   if (p === "3bp") return ["3bp"];
   return [p];
 }
+function reverseMatchupTag(label) {
+  const n = normalizeMatchupTag(label);
+  const m = n.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
+  if (!m) return null;
+  return `${m[2]}vs${m[1]}`;
+}
 function constructorTagKey(potKind, matchupLabel) {
   return `${potKind}|${normalizeMatchupTag(matchupLabel)}`;
 }
@@ -28642,10 +28648,16 @@ function loadBranchPaintMatrix(strategyId, potKind, matchup) {
     const wantMu = normalizeMatchupTag(matchup);
     const pot = String(potKind || "").toLowerCase();
     const potAliases = pot === "limp" ? ["limp"] : pot === "multi" || pot === "multiway" || pot === "multipot" ? ["multi"] : pot === "allin" || pot === "all_in" || pot === "4bp" ? ["4bp"] : pot === "3bp" ? ["3bp"] : [pot];
-    const branch = collectAnalysisBranches(doc.root).find((b) => {
-      if (!potAliases.includes(b.potKind)) return false;
-      return normalizeMatchupTag(b.label) === wantMu;
-    });
+    const rev = (() => {
+      const m = wantMu.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
+      return m ? `${m[2]}vs${m[1]}` : null;
+    })();
+    const painted = collectAnalysisBranches(doc.root);
+    const branch = painted.find(
+      (b) => potAliases.includes(b.potKind) && normalizeMatchupTag(b.label) === wantMu
+    ) || (rev ? painted.find(
+      (b) => potAliases.includes(b.potKind) && normalizeMatchupTag(b.label) === rev
+    ) : void 0);
     if (!branch) return null;
     const node = findNode(doc.root, branch.paintNodeId);
     if (!node) return null;
@@ -28790,33 +28802,31 @@ async function listSessionBranches(strategyId) {
 }
 function isCovered(strategyId, spot, branches, charts) {
   const pot = spotPotKind(spot.spot_key);
+  const hero = normalizeChartPos(spot.hero_position);
+  const villain = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
   const mu = normalizeMatchupTag(
-    treeMatchupLabel(
-      spot.spot_key,
-      normalizeChartPos(spot.hero_position),
-      spot.villain_position ? normalizeChartPos(spot.villain_position) : null
-    )
+    treeMatchupLabel(spot.spot_key, hero, villain)
   );
   if (!mu || mu === "—") return false;
+  const rev = reverseMatchupTag(mu);
+  if (spotCoveredByCharts(spot, charts)) return true;
+  if (charts.length) {
+    const sk = spot.spot_key.trim().toLowerCase();
+    const heroChart = charts.some((c) => {
+      if (c.spot_key.trim().toLowerCase() !== sk) return false;
+      if (normalizeChartPos(c.hero_position) !== hero) return false;
+      const cv = c.villain_position ? normalizeChartPos(c.villain_position) : null;
+      return !villain || !cv || cv === villain;
+    });
+    if (heroChart) return true;
+  }
   if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
+  if (rev && loadBranchPaintMatrix(strategyId, pot, rev)) return true;
   for (const b of branches) {
     if (b.paintedCount <= 0) continue;
     if (!potLookupKinds(pot).includes(b.potKind) && b.potKind !== pot) continue;
-    if (normalizeMatchupTag(b.label) === mu) return true;
-  }
-  if (charts.length && spotCoveredByCharts(spot, charts)) {
-    const hit = charts.find((c) => {
-      if (c.spot_key.trim().toLowerCase() !== spot.spot_key.trim().toLowerCase()) {
-        return false;
-      }
-      if (normalizeChartPos(c.hero_position) !== normalizeChartPos(spot.hero_position)) {
-        return false;
-      }
-      const sv = c.villain_position ? normalizeChartPos(c.villain_position) : null;
-      const want = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
-      return sv === want || sv === null;
-    });
-    if (hit) return true;
+    const bMu = normalizeMatchupTag(b.label);
+    if (bMu === mu || rev != null && bMu === rev) return true;
   }
   return false;
 }

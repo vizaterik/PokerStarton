@@ -205,11 +205,26 @@ export function loadBranchPaintMatrix(
             : pot === "3bp"
               ? ["3bp"]
               : [pot];
-    // Exact matchup only — `SBvsBB` must not load paint from `BBvsSB`.
-    const branch = collectAnalysisBranches(doc.root).find((b) => {
-      if (!potAliases.includes(b.potKind)) return false;
-      return normalizeMatchupTag(b.label) === wantMu;
-    });
+    // Prefer exact label; fall back to reverse seat-pair (`BTNvsBB` ↔ `BBvsBTN`)
+    // so Errors/compare can use the line that already has hero ranges.
+    const rev = (() => {
+      const m = wantMu.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
+      return m ? `${m[2]}vs${m[1]}` : null;
+    })();
+    const painted = collectAnalysisBranches(doc.root);
+    const branch =
+      painted.find(
+        (b) =>
+          potAliases.includes(b.potKind) &&
+          normalizeMatchupTag(b.label) === wantMu,
+      ) ||
+      (rev
+        ? painted.find(
+            (b) =>
+              potAliases.includes(b.potKind) &&
+              normalizeMatchupTag(b.label) === rev,
+          )
+        : undefined);
     if (!branch) return null;
     const node = findNode(doc.root, branch.paintNodeId);
     if (!node) return null;
