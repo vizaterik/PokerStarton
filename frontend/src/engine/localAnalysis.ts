@@ -172,8 +172,10 @@ function resolveHeroStrategyDecision(hand: HandRow): {
     let last: { action: string; spot: string; villain: string | null } | null = null;
     for (const a of preflop) {
       const act = (a.action || "").toLowerCase();
-      if (!["raise", "call", "fold", "bet"].includes(act)) continue;
-      const norm = act === "bet" ? "raise" : act;
+      // "check" = BB option (stored as call in HH normalize, or check if present).
+      if (!["raise", "call", "fold", "bet", "check"].includes(act)) continue;
+      const norm =
+        act === "bet" ? "raise" : act === "check" ? "call" : act;
       if (a.is_hero) {
         let raises = 0;
         let limps = 0;
@@ -188,15 +190,27 @@ function resolveHeroStrategyDecision(hand: HandRow): {
           }
         }
         let spot = "rfi";
-        if (raises === 0) spot = limps > 0 && norm === "raise" ? "iso" : "rfi";
-        else if (raises === 1) {
-          spot = callsAfterRaise >= 1 && norm === "raise" ? "squeeze" : "vs_open";
+        if (raises === 0) {
+          if (limps > 0 && norm === "raise") spot = "iso";
+          else if (norm === "call") spot = "limp";
+          else spot = "rfi";
+        } else if (raises === 1) {
+          if (callsAfterRaise >= 1 && norm === "raise") spot = "squeeze";
+          else if (callsAfterRaise >= 1 && norm === "call") spot = "multiway";
+          else spot = "vs_open";
         } else if (raises === 2) spot = "vs_3bet";
         else spot = "vs_4bet";
         let villain: string | null = null;
         for (let i = 0; i < before.length; i += 1) {
           if (before[i] === "raise") {
             villain = pos.get(beforePlayers[i]) ?? null;
+          }
+        }
+        if ((spot === "limp" || spot === "iso") && !villain) {
+          for (let i = before.length - 1; i >= 0; i -= 1) {
+            if (before[i] !== "call") continue;
+            villain = pos.get(beforePlayers[i]) ?? null;
+            break;
           }
         }
         last = { action: norm, spot, villain };

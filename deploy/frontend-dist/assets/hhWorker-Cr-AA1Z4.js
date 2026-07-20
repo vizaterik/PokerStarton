@@ -270,7 +270,7 @@ function detectSpot(actionsBefore, heroAction) {
   }
   if (raises === 0) {
     if (limps > 0 && heroAction === "raise") return "iso";
-    if (heroAction === "call") return "limp";
+    if (heroAction === "call" || heroAction === "check") return "limp";
     return "rfi";
   }
   if (raises === 1) {
@@ -459,7 +459,7 @@ function parseOne(block) {
         amount
       });
       if (street === "preflop") {
-        const pfAct = verb.toLowerCase() === "checks" ? "fold" : norm;
+        const pfAct = verb.toLowerCase() === "checks" ? "check" : norm;
         preflopVol.push([name, pfAct]);
       }
     }
@@ -488,7 +488,7 @@ function parseOne(block) {
   const beforePlayers = [];
   for (const [player, act] of preflopVol) {
     if (player.toLowerCase() === heroName.toLowerCase()) {
-      heroPreflopAction = act;
+      heroPreflopAction = act === "check" ? "call" : act;
       detectedSpot = detectSpot(before, act);
       villainPosition = null;
       for (let i = 0; i < before.length; i++) {

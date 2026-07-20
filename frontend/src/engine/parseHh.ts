@@ -97,7 +97,8 @@ function detectSpot(actionsBefore: string[], heroAction: string): string {
   }
   if (raises === 0) {
     if (limps > 0 && heroAction === "raise") return "iso";
-    if (heroAction === "call") return "limp";
+    // BB option check / limp-call — limp pot, never RFI/Raise.
+    if (heroAction === "call" || heroAction === "check") return "limp";
     return "rfi";
   }
   if (raises === 1) {
@@ -313,7 +314,9 @@ function parseOne(block: string): ParsedHand | null {
         amount,
       });
       if (street === "preflop") {
-        const pfAct = verb.toLowerCase() === "checks" ? "fold" : norm;
+        // Keep BB option "checks" as check (was wrongly stored as fold → shown as Raise).
+        const pfAct =
+          verb.toLowerCase() === "checks" ? "check" : norm;
         preflopVol.push([name, pfAct]);
       }
     }
@@ -346,7 +349,8 @@ function parseOne(block: string): ParsedHand | null {
   const beforePlayers: string[] = [];
   for (const [player, act] of preflopVol) {
     if (player.toLowerCase() === heroName.toLowerCase()) {
-      heroPreflopAction = act;
+      // Chart compare uses raise/call/fold — BB check ≡ call (continue).
+      heroPreflopAction = act === "check" ? "call" : act;
       detectedSpot = detectSpot(before, act);
       villainPosition = null;
       for (let i = 0; i < before.length; i++) {

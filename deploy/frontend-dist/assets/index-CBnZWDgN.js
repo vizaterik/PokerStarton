@@ -24236,7 +24236,7 @@ function detectSpot(actionsBefore, heroAction) {
   }
   if (raises === 0) {
     if (limps > 0 && heroAction === "raise") return "iso";
-    if (heroAction === "call") return "limp";
+    if (heroAction === "call" || heroAction === "check") return "limp";
     return "rfi";
   }
   if (raises === 1) {
@@ -24425,7 +24425,7 @@ function parseOne(block) {
         amount
       });
       if (street === "preflop") {
-        const pfAct = verb.toLowerCase() === "checks" ? "fold" : norm;
+        const pfAct = verb.toLowerCase() === "checks" ? "check" : norm;
         preflopVol.push([name, pfAct]);
       }
     }
@@ -24454,7 +24454,7 @@ function parseOne(block) {
   const beforePlayers = [];
   for (const [player, act] of preflopVol) {
     if (player.toLowerCase() === heroName.toLowerCase()) {
-      heroPreflopAction = act;
+      heroPreflopAction = act === "check" ? "call" : act;
       detectedSpot = detectSpot(before, act);
       villainPosition = null;
       for (let i = 0; i < before.length; i++) {
@@ -30836,7 +30836,7 @@ function getWorker() {
   if (!worker) {
     worker = new Worker(new URL(
       /* @vite-ignore */
-      "/assets/hhWorker-4Qyl6anc.js",
+      "/assets/hhWorker-Cr-AA1Z4.js",
       import.meta.url
     ), { type: "module" });
   }
@@ -31595,8 +31595,8 @@ function resolveHeroStrategyDecision(hand) {
     let last = null;
     for (const a of preflop) {
       const act = (a.action || "").toLowerCase();
-      if (!["raise", "call", "fold", "bet"].includes(act)) continue;
-      const norm = act === "bet" ? "raise" : act;
+      if (!["raise", "call", "fold", "bet", "check"].includes(act)) continue;
+      const norm = act === "bet" ? "raise" : act === "check" ? "call" : act;
       if (a.is_hero) {
         let raises = 0;
         let limps = 0;
@@ -31611,15 +31611,27 @@ function resolveHeroStrategyDecision(hand) {
           }
         }
         let spot = "rfi";
-        if (raises === 0) spot = limps > 0 && norm === "raise" ? "iso" : "rfi";
-        else if (raises === 1) {
-          spot = callsAfterRaise >= 1 && norm === "raise" ? "squeeze" : "vs_open";
+        if (raises === 0) {
+          if (limps > 0 && norm === "raise") spot = "iso";
+          else if (norm === "call") spot = "limp";
+          else spot = "rfi";
+        } else if (raises === 1) {
+          if (callsAfterRaise >= 1 && norm === "raise") spot = "squeeze";
+          else if (callsAfterRaise >= 1 && norm === "call") spot = "multiway";
+          else spot = "vs_open";
         } else if (raises === 2) spot = "vs_3bet";
         else spot = "vs_4bet";
         let villain = null;
         for (let i = 0; i < before.length; i += 1) {
           if (before[i] === "raise") {
             villain = pos.get(beforePlayers[i]) ?? null;
+          }
+        }
+        if ((spot === "limp" || spot === "iso") && !villain) {
+          for (let i = before.length - 1; i >= 0; i -= 1) {
+            if (before[i] !== "call") continue;
+            villain = pos.get(beforePlayers[i]) ?? null;
+            break;
           }
         }
         last = { action: norm, spot, villain };
