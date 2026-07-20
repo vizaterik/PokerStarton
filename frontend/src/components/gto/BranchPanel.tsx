@@ -246,10 +246,18 @@ export default function BranchPanel({
         ? normalizeChartPos(spot.villain_position)
         : null;
       const spotKey = (spot.spot_key || "").trim().toLowerCase();
-      const soloOpen = !villN || villN === heroN;
+      const labelMu = (spot.label || "")
+        .replace(/^(Raise|3-bet|4-bet|Limp|All-in|RAISE)\s+/i, "")
+        .trim()
+        .toUpperCase();
+      const soloByLabel = Boolean(labelMu) && !/vs/i.test(labelMu);
+      const soloOpen = soloByLabel || !villN || villN === heroN;
       const seedSpot = {
-        spot_key: soloOpen && spotKey !== "limp" ? "rfi" : spotKey || "rfi",
-        hero_position: spot.hero_position || heroN,
+        spot_key:
+          soloOpen && spotKey !== "limp"
+            ? "rfi"
+            : spotKey || (soloOpen ? "rfi" : "vs_open"),
+        hero_position: spot.hero_position || heroN || labelMu,
         villain_position: soloOpen ? null : spot.villain_position,
       };
       // Solo opens: always open-raise preset (not HH replay).

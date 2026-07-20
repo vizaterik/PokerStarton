@@ -2,7 +2,9 @@
  * Build a full constructor branch from a session/strategy spot — same lines as
  * style presets (sizings + fold to flop), then open editor like onOpenBranch.
  */
-import { putStrategyTree } from "../../api/client";
+import { produce } from "immer";
+import { getStrategy, putStrategyTree } from "../../api/client";
+import { treeStackDepth, treeTableSize } from "../strategyModules";
 import {
   fourBetLine,
   isoLine,
@@ -14,7 +16,12 @@ import {
   threeBetLine,
   type PresetLine,
 } from "./branchPresets";
-import { commitWithAutoFolds, findNode, pathToNode } from "./engine";
+import {
+  alignDocMeta,
+  commitWithAutoFolds,
+  findNode,
+  pathToNode,
+} from "./engine";
 import {
   buildPlayedLine,
   type PlayedLine,
@@ -102,6 +109,11 @@ function spotToPresetLine(
   const villain = spot.villain_position
     ? chartPosToSeat(spot.villain_position, tableSize)
     : null;
+
+  // RFI / solo open — ignore stray villain tags from HH merges.
+  if (key === "rfi") {
+    return openLine(hero);
+  }
 
   if (key === "limp") {
     if (villain && villain !== hero) return limpLine(villain, hero);
@@ -269,6 +281,29 @@ function lineLooksReady(
   return spots.length >= 1;
 }
 
+/** Ensure preflop root starts at the first seat so open-raises can seed. */
+function prepareDocForSeed(
+  doc: GameTreeDocument,
+  tableSize?: TableSize,
+  stackDepth?: number,
+): GameTreeDocument {
+  let next = doc;
+  if (tableSize != null || stackDepth != null) {
+    next = alignDocMeta(
+      next,
+      tableSize ?? next.tableSize,
+      (stackDepth ?? next.stackDepth) as typeof next.stackDepth,
+    );
+  }
+  const first = seatsFor(next.tableSize)[0];
+  if (next.root.activePlayer !== first) {
+    next = produce(next, (draft) => {
+      draft.root.activePlayer = first;
+    });
+  }
+  return next;
+}
+
 /**
  * Build (or extend) the preflop line like style presets, close to flop,
  * and return the same editor focus as opening a saved branch.
@@ -277,10 +312,11 @@ export function seedSpotIntoDoc(
   doc: GameTreeDocument,
   spot: SpotSeed,
 ): SeedSpotResult | null {
-  const line = spotToPresetLine(spot, doc.tableSize);
+  const prepared = prepareDocForSeed(doc);
+  const line = spotToPresetLine(spot, prepared.tableSize);
   if (!line) return null;
 
-  const { doc: built, tipId } = seedPresetLine(doc, line);
+  const { doc: built, tipId } = seedPresetLine(prepared, line);
   if (!tipId || !lineLooksReady(built, tipId, line)) return null;
 
   const focus = focusForSpot(built, tipId, spot);
@@ -318,20 +354,41 @@ export function treeAlreadyHasSpotLine(
   return countNodes(result.doc.root) === before;
 }
 
+async function loadDocForSeed(strategyId: string): Promise<GameTreeDocument> {
+  let doc = loadTree(strategyId);
+  try {
+    const strategy = await getStrategy(strategyId);
+    doc = prepareDocForSeed(
+      doc,
+      treeTableSize(strategy.table_size ?? "6-max"),
+      treeStackDepth(strategy.stack_depth ?? "100bb"),
+    );
+  } catch {
+    doc = prepareDocForSeed(doc);
+  }
+  return doc;
+}
+
+function persistSeeded(
+  strategyId: string,
+  result: SeedSpotResult,
+): SeedFocus {
+  const next = { ...result.doc, updatedAt: new Date().toISOString() };
+  saveTree(next);
+  void putStrategyTree(strategyId, next as unknown as Record<string, unknown>).catch(
+    () => undefined,
+  );
+  return { tipNodeId: result.tipNodeId, paintNodeId: result.paintNodeId };
+}
+
 /** Persist one spot into the local strategy tree; returns focus for the editor. */
 export function seedSpotIntoTree(
   strategyId: string,
   spot: SpotSeed,
 ): SeedFocus | null {
-  const result = seedSpotIntoDoc(loadTree(strategyId), spot);
+  const result = seedSpotIntoDoc(prepareDocForSeed(loadTree(strategyId)), spot);
   if (!result) return null;
-  const next = { ...result.doc, updatedAt: new Date().toISOString() };
-  saveTree(next);
-  // Push so editor hydrate does not replace with an older remote tree.
-  void putStrategyTree(strategyId, next as unknown as Record<string, unknown>).catch(
-    () => undefined,
-  );
-  return { tipNodeId: result.tipNodeId, paintNodeId: result.paintNodeId };
+  return persistSeeded(strategyId, result);
 }
 
 /** Same as seedSpotIntoTree but waits for remote save (best-effort, 4s cap). */
@@ -339,19 +396,46 @@ export async function seedSpotIntoTreeAsync(
   strategyId: string,
   spot: SpotSeed,
 ): Promise<SeedFocus | null> {
-  const result = seedSpotIntoDoc(loadTree(strategyId), spot);
+  const doc = await loadDocForSeed(strategyId);
+  // Try as given, then force RFI open (solo UTG/MP/…) if first pass fails.
+  let result = seedSpotIntoDoc(doc, spot);
+  if (!result) {
+    result = seedSpotIntoDoc(doc, {
+      spot_key: "rfi",
+      hero_position: spot.hero_position,
+      villain_position: null,
+    });
+  }
+  // MP ↔ HJ alias on 6-max if seat mapping still misses.
+  if (!result) {
+    const alt =
+      spot.hero_position.trim().toUpperCase() === "MP"
+        ? "HJ"
+        : spot.hero_position.trim().toUpperCase() === "HJ"
+          ? "MP"
+          : null;
+    if (alt) {
+      result = seedSpotIntoDoc(doc, {
+        spot_key: "rfi",
+        hero_position: alt,
+        villain_position: null,
+      });
+    }
+  }
   if (!result) return null;
-  const next = { ...result.doc, updatedAt: new Date().toISOString() };
-  saveTree(next);
+  const focus = persistSeeded(strategyId, result);
   try {
     await Promise.race([
-      putStrategyTree(strategyId, next as unknown as Record<string, unknown>),
+      putStrategyTree(
+        strategyId,
+        loadTree(strategyId) as unknown as Record<string, unknown>,
+      ),
       new Promise<void>((resolve) => setTimeout(resolve, 4000)),
     ]);
   } catch {
     /* local tree is enough for editor focus */
   }
-  return { tipNodeId: result.tipNodeId, paintNodeId: result.paintNodeId };
+  return focus;
 }
 
 function defaultSizing(action: PlayedLineAction, raiseCount: number, seat: Seat): number | undefined {

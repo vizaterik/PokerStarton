@@ -683,11 +683,21 @@ export default function StrategyAnalysisPanel({
           ? normalizeChartPos(spot.villain_position)
           : null;
         const spotKey = (spot.spot_key || "").trim().toLowerCase();
-        // Solo opens (UTG / MP / …): open-raise preset, await tree save.
-        const soloOpen = !villN || villN === heroN;
+        // Solo opens: label like `UTG` / `MP` (no `vs`) → always RFI open-raise.
+        const labelMu = normalizeMatchupTag(
+          (spot.label || "").replace(
+            /^(Raise|3-bet|4-bet|Limp|All-in|RAISE)\s+/i,
+            "",
+          ),
+        );
+        const soloByLabel = Boolean(labelMu) && !/vs/i.test(labelMu);
+        const soloOpen = soloByLabel || !villN || villN === heroN;
         const seedSpot = {
-          spot_key: soloOpen && spotKey !== "limp" ? "rfi" : spotKey || "rfi",
-          hero_position: spot.hero_position || heroN,
+          spot_key:
+            soloOpen && spotKey !== "limp"
+              ? "rfi"
+              : spotKey || (soloOpen ? "rfi" : "vs_open"),
+          hero_position: spot.hero_position || heroN || labelMu,
           villain_position: soloOpen ? null : spot.villain_position,
         };
 

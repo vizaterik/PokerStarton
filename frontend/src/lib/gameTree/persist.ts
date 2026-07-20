@@ -1,4 +1,5 @@
 import { createDocument } from "./engine";
+import { seatsFor } from "./seats";
 import type { GameTreeDocument, GameTreeNode, Seat } from "./types";
 
 const KEY = (strategyId: string) => `pokerledger.gameTree.v1.${strategyId}`;
@@ -22,6 +23,12 @@ export function normalizeTree(
     strategyId,
   };
   if (doc.tableSize === 6) migrateSeats(doc.root);
+  // Preflop always starts at the first seat (UTG / BTN…). Wrong root seat
+  // breaks open-raise seeding (can't skip-ahead backwards).
+  const first = seatsFor(doc.tableSize)[0];
+  if (doc.root.activePlayer !== first) {
+    doc.root.activePlayer = first;
+  }
   return doc;
 }
 

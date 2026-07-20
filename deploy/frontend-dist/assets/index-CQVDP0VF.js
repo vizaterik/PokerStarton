@@ -24735,6 +24735,10 @@ function normalizeTree(raw, strategyId) {
     strategyId
   };
   if (doc.tableSize === 6) migrateSeats(doc.root);
+  const first = seatsFor(doc.tableSize)[0];
+  if (doc.root.activePlayer !== first) {
+    doc.root.activePlayer = first;
+  }
   return doc;
 }
 function loadTree(strategyId) {
@@ -29020,6 +29024,9 @@ function spotToPresetLine(spot, tableSize) {
   if (!hero) return null;
   const key2 = (spot.spot_key || "").trim().toLowerCase();
   const villain = spot.villain_position ? chartPosToSeat(spot.villain_position, tableSize) : null;
+  if (key2 === "rfi") {
+    return openLine(hero);
+  }
   if (key2 === "limp") {
     if (villain && villain !== hero) return limpLine(villain, hero);
     return limpLine(hero, null);
@@ -29135,10 +29142,28 @@ function lineLooksReady(doc, tipId, line) {
   if (line.kind === "srp" && line.opener !== line.villain) return spots.length >= 2;
   return spots.length >= 1;
 }
+function prepareDocForSeed(doc, tableSize, stackDepth) {
+  let next = doc;
+  if (tableSize != null || stackDepth != null) {
+    next = alignDocMeta(
+      next,
+      tableSize ?? next.tableSize,
+      stackDepth ?? next.stackDepth
+    );
+  }
+  const first = seatsFor(next.tableSize)[0];
+  if (next.root.activePlayer !== first) {
+    next = produce(next, (draft) => {
+      draft.root.activePlayer = first;
+    });
+  }
+  return next;
+}
 function seedSpotIntoDoc(doc, spot) {
-  const line = spotToPresetLine(spot, doc.tableSize);
+  const prepared = prepareDocForSeed(doc);
+  const line = spotToPresetLine(spot, prepared.tableSize);
   if (!line) return null;
-  const { doc: built, tipId } = seedPresetLine(doc, line);
+  const { doc: built, tipId } = seedPresetLine(prepared, line);
   if (!tipId || !lineLooksReady(built, tipId, line)) return null;
   const focus = focusForSpot(built, tipId, spot);
   if (focus) {
@@ -29159,9 +29184,21 @@ function seedSpotIntoDoc(doc, spot) {
     paintNodeId: spots[0].nodeId
   };
 }
-function seedSpotIntoTree(strategyId, spot) {
-  const result = seedSpotIntoDoc(loadTree(strategyId), spot);
-  if (!result) return null;
+async function loadDocForSeed(strategyId) {
+  let doc = loadTree(strategyId);
+  try {
+    const strategy = await getStrategy(strategyId);
+    doc = prepareDocForSeed(
+      doc,
+      treeTableSize(strategy.table_size ?? "6-max"),
+      treeStackDepth(strategy.stack_depth ?? "100bb")
+    );
+  } catch {
+    doc = prepareDocForSeed(doc);
+  }
+  return doc;
+}
+function persistSeeded(strategyId, result) {
   const next = { ...result.doc, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
   saveTree(next);
   void putStrategyTree(strategyId, next).catch(
@@ -29169,19 +29206,44 @@ function seedSpotIntoTree(strategyId, spot) {
   );
   return { tipNodeId: result.tipNodeId, paintNodeId: result.paintNodeId };
 }
-async function seedSpotIntoTreeAsync(strategyId, spot) {
-  const result = seedSpotIntoDoc(loadTree(strategyId), spot);
+function seedSpotIntoTree(strategyId, spot) {
+  const result = seedSpotIntoDoc(prepareDocForSeed(loadTree(strategyId)), spot);
   if (!result) return null;
-  const next = { ...result.doc, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
-  saveTree(next);
+  return persistSeeded(strategyId, result);
+}
+async function seedSpotIntoTreeAsync(strategyId, spot) {
+  const doc = await loadDocForSeed(strategyId);
+  let result = seedSpotIntoDoc(doc, spot);
+  if (!result) {
+    result = seedSpotIntoDoc(doc, {
+      spot_key: "rfi",
+      hero_position: spot.hero_position,
+      villain_position: null
+    });
+  }
+  if (!result) {
+    const alt = spot.hero_position.trim().toUpperCase() === "MP" ? "HJ" : spot.hero_position.trim().toUpperCase() === "HJ" ? "MP" : null;
+    if (alt) {
+      result = seedSpotIntoDoc(doc, {
+        spot_key: "rfi",
+        hero_position: alt,
+        villain_position: null
+      });
+    }
+  }
+  if (!result) return null;
+  const focus = persistSeeded(strategyId, result);
   try {
     await Promise.race([
-      putStrategyTree(strategyId, next),
+      putStrategyTree(
+        strategyId,
+        loadTree(strategyId)
+      ),
       new Promise((resolve) => setTimeout(resolve, 4e3))
     ]);
   } catch {
   }
-  return { tipNodeId: result.tipNodeId, paintNodeId: result.paintNodeId };
+  return focus;
 }
 function defaultSizing(action, raiseCount, seat) {
   if (action.action !== "RAISE") return void 0;
@@ -29428,10 +29490,12 @@ function BranchPanel({
       const heroN = normalizeChartPos(spot.hero_position);
       const villN = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
       const spotKey = (spot.spot_key || "").trim().toLowerCase();
-      const soloOpen = !villN || villN === heroN;
+      const labelMu = (spot.label || "").replace(/^(Raise|3-bet|4-bet|Limp|All-in|RAISE)\s+/i, "").trim().toUpperCase();
+      const soloByLabel = Boolean(labelMu) && !/vs/i.test(labelMu);
+      const soloOpen = soloByLabel || !villN || villN === heroN;
       const seedSpot = {
-        spot_key: soloOpen && spotKey !== "limp" ? "rfi" : spotKey || "rfi",
-        hero_position: spot.hero_position || heroN,
+        spot_key: soloOpen && spotKey !== "limp" ? "rfi" : spotKey || (soloOpen ? "rfi" : "vs_open"),
+        hero_position: spot.hero_position || heroN || labelMu,
         villain_position: soloOpen ? null : spot.villain_position
       };
       let seeded = soloOpen || spotKey === "rfi" ? seedSpotIntoDoc(doc, seedSpot) : null;
@@ -34916,10 +34980,17 @@ function StrategyAnalysisPanel({
         const heroN = normalizeChartPos(spot.hero_position || "");
         const villN = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
         const spotKey = (spot.spot_key || "").trim().toLowerCase();
-        const soloOpen = !villN || villN === heroN;
+        const labelMu = normalizeMatchupTag(
+          (spot.label || "").replace(
+            /^(Raise|3-bet|4-bet|Limp|All-in|RAISE)\s+/i,
+            ""
+          )
+        );
+        const soloByLabel = Boolean(labelMu) && !/vs/i.test(labelMu);
+        const soloOpen = soloByLabel || !villN || villN === heroN;
         const seedSpot = {
-          spot_key: soloOpen && spotKey !== "limp" ? "rfi" : spotKey || "rfi",
-          hero_position: spot.hero_position || heroN,
+          spot_key: soloOpen && spotKey !== "limp" ? "rfi" : spotKey || (soloOpen ? "rfi" : "vs_open"),
+          hero_position: spot.hero_position || heroN || labelMu,
           villain_position: soloOpen ? null : spot.villain_position
         };
         let focus = soloOpen || spotKey === "rfi" ? await seedSpotIntoTreeAsync(strategyId, seedSpot) : null;
