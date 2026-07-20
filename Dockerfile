@@ -6,8 +6,8 @@ RUN npm ci
 COPY frontend/ ./
 # Empty base → browser calls /api and /health on the same origin.
 ENV VITE_API_BASE=
-# Skip tsc on VPS: typecheck locally; tsc + vite in parallel with apt OOMs small hosts.
-ENV NODE_OPTIONS=--max-old-space-size=1536
+# Low-RAM VPS: skip tsc + minify (esbuild minify was hanging after transform).
+ENV NODE_OPTIONS=--max-old-space-size=768
 RUN npm run build:docker
 
 # Frontend first so BuildKit does not run apt + npm build at the same time (low-RAM VPS).
