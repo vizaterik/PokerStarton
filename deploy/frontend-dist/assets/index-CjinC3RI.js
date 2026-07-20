@@ -31134,6 +31134,242 @@ function AnalysisBgWait({ uploadBlock, pendingHands }) {
     )
   ] });
 }
+function normalizeRoom(room, label) {
+  const r = (room || "").toLowerCase();
+  if (r === "ggpoker" || r === "gg") return "ggpoker";
+  if (r === "pokerstars" || r === "ps") return "pokerstars";
+  if (label == null ? void 0 : label.trim().toUpperCase().startsWith("GG")) return "ggpoker";
+  return "pokerstars";
+}
+function restOfLabel(label) {
+  if (!label) return "";
+  return label.replace(/^(PS|GG)\s*·\s*/i, "").trim();
+}
+function PsIcon({ gradId }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { className: "room-badge__svg", viewBox: "0 0 32 32", "aria-hidden": true, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("defs", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("linearGradient", { id: `${gradId}-red`, x1: "0", y1: "0", x2: "1", y2: "1", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("stop", { offset: "0%", stopColor: "#ff4d4d" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("stop", { offset: "55%", stopColor: "#e11d2e" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("stop", { offset: "100%", stopColor: "#9b0f1a" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("linearGradient", { id: `${gradId}-shine`, x1: "0", y1: "0", x2: "0", y2: "1", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("stop", { offset: "0%", stopColor: "#fff", stopOpacity: "0.35" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("stop", { offset: "100%", stopColor: "#fff", stopOpacity: "0" })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "1", y: "1", width: "30", height: "30", rx: "7", fill: `url(#${gradId}-red)` }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("rect", { x: "1", y: "1", width: "30", height: "30", rx: "7", fill: `url(#${gradId}-shine)` }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "path",
+      {
+        d: "M16 5.2l1.55 4.55h4.8l-3.9 2.85 1.5 4.55L16 14.4l-3.95 2.75 1.5-4.55-3.9-2.85h4.8L16 5.2z",
+        fill: "#fff8e7",
+        opacity: "0.95"
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "text",
+      {
+        x: "16",
+        y: "25.2",
+        textAnchor: "middle",
+        fill: "#fff",
+        fontFamily: "Sora, system-ui, sans-serif",
+        fontSize: "9.5",
+        fontWeight: "800",
+        letterSpacing: "0.04em",
+        children: "PS"
+      }
+    )
+  ] });
+}
+function GgIcon({ gradId }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("svg", { className: "room-badge__svg", viewBox: "0 0 32 32", "aria-hidden": true, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("defs", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("linearGradient", { id: `${gradId}-amber`, x1: "0", y1: "0", x2: "1", y2: "1", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("stop", { offset: "0%", stopColor: "#f6c453" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("stop", { offset: "100%", stopColor: "#d4a017" })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "rect",
+      {
+        x: "1",
+        y: "1",
+        width: "30",
+        height: "30",
+        rx: "7",
+        fill: "#121212",
+        stroke: `url(#${gradId}-amber)`,
+        strokeWidth: "1.5"
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "text",
+      {
+        x: "16",
+        y: "21.5",
+        textAnchor: "middle",
+        fill: `url(#${gradId}-amber)`,
+        fontFamily: "Sora, system-ui, sans-serif",
+        fontSize: "11",
+        fontWeight: "800",
+        letterSpacing: "0.02em",
+        children: "GG"
+      }
+    )
+  ] });
+}
+function RoomBadge({
+  room,
+  label,
+  showName = true,
+  className = ""
+}) {
+  const uid2 = reactExports.useId().replace(/:/g, "");
+  const kind = normalizeRoom(room, label);
+  const isGG = kind === "ggpoker";
+  const name = isGG ? "GGPoker" : "PokerStars";
+  const rest = restOfLabel(label);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `session-label ${className}`.trim(), children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `room-badge room-badge--${isGG ? "gg" : "ps"}`, title: name, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "room-badge__icon", children: isGG ? /* @__PURE__ */ jsxRuntimeExports.jsx(GgIcon, { gradId: `${uid2}-gg` }) : /* @__PURE__ */ jsxRuntimeExports.jsx(PsIcon, { gradId: `${uid2}-ps` }) }),
+      showName ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "room-badge__name", children: isGG ? "GGPoker" : "PokerStars" }) : null
+    ] }),
+    rest ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "session-label__rest", children: [
+      " · ",
+      rest
+    ] }) : null
+  ] });
+}
+function fmtWhen(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+function accuracyPct(s) {
+  const total = (s.correct_count ?? 0) + (s.deviations_count ?? 0);
+  if (total <= 0) return null;
+  return (s.correct_count ?? 0) / total * 100;
+}
+function DatabaseSessionsPanel({
+  strategyId,
+  selectedId,
+  onSelect
+}) {
+  const [sessions, setSessions] = reactExports.useState([]);
+  const [loading, setLoading] = reactExports.useState(true);
+  const [error, setError] = reactExports.useState(null);
+  reactExports.useEffect(() => {
+    let cancelled = false;
+    const ac = new AbortController();
+    setLoading(true);
+    setError(null);
+    void listSessions(ac.signal).then((rows) => {
+      if (cancelled) return;
+      setSessions(rows);
+    }).catch((err) => {
+      if (cancelled || ac.signal.aborted) return;
+      setError(err instanceof Error ? err.message : "Не удалось загрузить сессии");
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+      ac.abort();
+    };
+  }, []);
+  const sorted = reactExports.useMemo(() => {
+    const rows = [...sessions];
+    rows.sort((a, b) => {
+      const ta = a.started_at || a.created_at || "";
+      const tb = b.started_at || b.created_at || "";
+      return tb.localeCompare(ta);
+    });
+    return rows;
+  }, [sessions]);
+  const totals = reactExports.useMemo(() => {
+    let hands = 0;
+    let correct = 0;
+    let deviations = 0;
+    for (const s of sorted) {
+      hands += s.hands_count ?? 0;
+      correct += s.correct_count ?? 0;
+      deviations += s.deviations_count ?? 0;
+    }
+    return { hands, correct, deviations, count: sorted.length };
+  }, [sorted]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "db-sessions panel", "aria-label": "Сессии базы", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "db-sessions-head", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Все сессии" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Сессии активной базы профиля — архив и актуальные загрузки." })
+      ] }),
+      !loading && totals.count > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "db-sessions-totals", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: totals.count }),
+          " сесс."
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: totals.hands.toLocaleString("ru-RU") }),
+          " рук"
+        ] }),
+        totals.correct + totals.deviations > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "pos", children: totals.correct }),
+          " / ",
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "neg", children: totals.deviations })
+        ] }) : null
+      ] }) : null
+    ] }),
+    loading ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Загрузка сессий…" }) : null,
+    error ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "error", children: error }) : null,
+    !loading && !error && sorted.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Пока нет сессий в базе. Загрузите историю во вкладке «Анализ сессии»." }) : null,
+    sorted.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "upload-session-list", children: sorted.map((s, index) => {
+      const acc = accuracyPct(s);
+      const active = selectedId === s.id;
+      const forStrategy = !strategyId || !s.strategy_id || s.strategy_id === strategyId;
+      return /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          type: "button",
+          className: `upload-session-row${active ? " active" : ""}`,
+          onClick: () => onSelect == null ? void 0 : onSelect(active ? null : s),
+          title: forStrategy ? s.label : "Сессия другой стратегии",
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "usr-meta", children: index + 1 }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "usr-label", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+              RoomBadge,
+              {
+                room: s.room,
+                label: s.label || s.source_filename,
+                showName: false
+              }
+            ) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "usr-meta", children: fmtWhen(s.started_at || s.created_at) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "usr-meta", children: [
+              (s.hands_count ?? 0).toLocaleString("ru-RU"),
+              " рук"
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: `usr-dev${(s.deviations_count ?? 0) > 0 ? " bad" : ""}`,
+                title: "Ошибки",
+                children: s.deviations_count ?? 0
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "usr-meta", title: "Точность", children: acc == null ? "—" : `${acc.toFixed(0)}%` })
+          ]
+        }
+      ) }, s.id);
+    }) }) : null
+  ] });
+}
 function yieldTick() {
   return new Promise((r) => setTimeout(r, 0));
 }
@@ -35336,31 +35572,50 @@ function StrategyAnalysisPanel({
     void reloadMissingSpots();
   }, [tab, preflopSub, strategyId, refreshKey, loading, reloadMissingSpots]);
   reactExports.useEffect(() => {
+    if (!strategyId || analysisSuspended || tab !== "preflop") return;
     let cancelled = false;
-    void resolveConstructorTree(strategyId).then(() => {
-      if (!cancelled) setTreeTick((n) => n + 1);
-    }).catch(() => {
-    });
+    void (async () => {
+      try {
+        await ensureConstructorChartsSynced(strategyId);
+        if (cancelled) return;
+        setTreeTick((n) => n + 1);
+        const rev = readChartsRevision(strategyId);
+        if (rev) lastChartsRevRef.current = rev;
+        setChartsBump((n) => n + 1);
+        await reloadMissingSpots();
+        if (cancelled) return;
+        const spots = await listSpots(strategyId).catch(() => []);
+        if (!cancelled) setStrategySpots(spots);
+      } catch {
+        if (cancelled) return;
+        setTreeTick((n) => n + 1);
+        setChartsBump((n) => n + 1);
+        void reloadMissingSpots();
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [strategyId, refreshKey, strategyRevision]);
+  }, [tab, strategyId, analysisSuspended, refreshKey, strategyRevision, reloadMissingSpots]);
   reactExports.useEffect(() => {
     const syncConstructor = () => {
-      setTreeTick((n) => n + 1);
-      const rev = readChartsRevision(strategyId);
-      if (!rev) return;
-      if (lastChartsRevRef.current != null && lastChartsRevRef.current !== rev) {
-        setChartsBump((n) => n + 1);
-      }
-      lastChartsRevRef.current = rev;
+      void resolveConstructorTree(strategyId).then(() => {
+        setTreeTick((n) => n + 1);
+        const rev = readChartsRevision(strategyId);
+        if (!rev) return;
+        if (lastChartsRevRef.current != null && lastChartsRevRef.current !== rev) {
+          setChartsBump((n) => n + 1);
+        }
+        lastChartsRevRef.current = rev;
+      }).catch(() => {
+        setTreeTick((n) => n + 1);
+      });
     };
     const onVis = () => {
       if (document.visibilityState === "visible") syncConstructor();
     };
     window.addEventListener("focus", syncConstructor);
     document.addEventListener("visibilitychange", onVis);
-    syncConstructor();
     return () => {
       window.removeEventListener("focus", syncConstructor);
       document.removeEventListener("visibilitychange", onVis);
@@ -36642,7 +36897,18 @@ function StrategyAnalysisPanel({
           className: tab === "preflop" ? "active" : "",
           onClick: () => {
             setDevError(null);
-            setTab("preflop");
+            if (tab === "preflop") {
+              setChartsBump((n) => n + 1);
+              void ensureConstructorChartsSynced(strategyId).then(() => {
+                setTreeTick((n) => n + 1);
+                return reloadMissingSpots();
+              }).catch(() => {
+                setTreeTick((n) => n + 1);
+                void reloadMissingSpots();
+              });
+            } else {
+              setTab("preflop");
+            }
           },
           title: "Сверка решений с вашей стратегией (чарты и ветки)",
           children: "Стратегии"
@@ -36863,7 +37129,21 @@ function StrategyAnalysisPanel({
     )
   ] });
 }
+const SCOPE_TABS = [
+  {
+    id: "session",
+    label: "Анализ сессии",
+    lead: "Загрузите актуальную историю рук — разберём сессию и сверим со стратегией."
+  },
+  {
+    id: "database",
+    label: "Анализ базы",
+    lead: "Все сессии активной базы: архив загрузок, профит и сверка по накопленным раздачам."
+  }
+];
 function AnalysisPage() {
+  var _a;
+  const [scope, setScope] = reactExports.useState("session");
   const [strategyId, setStrategyId] = reactExports.useState(() => readLastStrategyId() ?? "");
   const [revision, setRevision] = reactExports.useState(0);
   const [pendingHandTotal, setPendingHandTotal] = reactExports.useState(null);
@@ -36871,6 +37151,7 @@ function AnalysisPage() {
   const [bgRunning, setBgRunning] = reactExports.useState(
     () => isAnalysisJobRunning(readLastStrategyId() ?? void 0)
   );
+  const [selectedSession, setSelectedSession] = reactExports.useState(null);
   const lastDoneTokenRef = reactExports.useRef(0);
   reactExports.useEffect(() => {
     const syncBusy = () => {
@@ -36901,6 +37182,7 @@ function AnalysisPage() {
     setPendingHandTotal(estimatedHands && estimatedHands > 0 ? estimatedHands : null);
     markAnalysisUploadStarted(id, estimatedHands, { external: true });
     setBgRunning(true);
+    setScope("session");
   }, []);
   const onUploaded = reactExports.useCallback((report, id) => {
     setStrategyId(id);
@@ -36922,40 +37204,80 @@ function AnalysisPage() {
     setBgRunning(false);
     setRevision((n) => n + 1);
   }, []);
+  const activeLead = ((_a = SCOPE_TABS.find((t) => t.id === scope)) == null ? void 0 : _a.lead) ?? SCOPE_TABS[0].lead;
+  const resultsBlock = bgRunning || job.status === "error" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-page-results", children: /* @__PURE__ */ jsxRuntimeExports.jsx(AnalysisBgWait, { pendingHands: pendingHandTotal ?? job.hands }) }) : !strategyId ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-empty panel analysis-page-results", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Выберите стратегию" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "muted", children: [
+      "Ещё нет стратегии? ",
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Link, { to: "/strategies", children: "Соберите чарты" }),
+      " — затем вернитесь за разбором."
+    ] })
+  ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-page-results", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+    StrategyAnalysisPanel,
+    {
+      strategyId,
+      strategyRevision: revision,
+      analysisSuspended: false,
+      pendingHandTotal,
+      showUpload: false,
+      backgroundJobMode: true
+    }
+  ) });
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "page analysis-page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "upload-hero", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "upload-kicker", children: "Session check" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: "Анализ" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "lead", children: "Загрузите историю рук — разберём сессию, сверим со стратегией и сохраним отчёт в базу профиля для карьеры и расписания." })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "lead", children: activeLead })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      SessionUploadPanel,
+    /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "career-tabs analysis-scope-tabs", role: "tablist", "aria-label": "Режим анализа", children: SCOPE_TABS.map((t) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
       {
-        importMode: "client",
-        onStrategyIdChange: onStrategyChange,
-        onUploadStarted,
-        onUploadFinished,
-        onUploaded
-      }
-    ),
-    bgRunning || job.status === "error" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-page-results", style: { marginTop: "1.5rem" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(AnalysisBgWait, { pendingHands: pendingHandTotal ?? job.hands }) }) : !strategyId ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-empty panel", style: { marginTop: "1.5rem" }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Выберите стратегию" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "muted", children: [
-        "Ещё нет стратегии? ",
-        /* @__PURE__ */ jsxRuntimeExports.jsx(Link, { to: "/strategies", children: "Соберите чарты" }),
-        " — затем вернитесь за разбором."
-      ] })
-    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-page-results", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-      StrategyAnalysisPanel,
-      {
-        strategyId,
-        strategyRevision: revision,
-        analysisSuspended: false,
-        pendingHandTotal,
-        showUpload: false,
-        backgroundJobMode: true
-      }
-    ) })
+        type: "button",
+        role: "tab",
+        "aria-selected": scope === t.id,
+        className: scope === t.id ? "active" : "",
+        onClick: () => setScope(t.id),
+        children: t.label
+      },
+      t.id
+    )) }),
+    scope === "session" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-scope-panel", role: "tabpanel", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        SessionUploadPanel,
+        {
+          importMode: "client",
+          onStrategyIdChange: onStrategyChange,
+          onUploadStarted,
+          onUploadFinished,
+          onUploaded
+        }
+      ),
+      resultsBlock
+    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-scope-panel", role: "tabpanel", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        DatabaseSessionsPanel,
+        {
+          strategyId: strategyId || void 0,
+          selectedId: (selectedSession == null ? void 0 : selectedSession.id) ?? null,
+          onSelect: setSelectedSession
+        }
+      ),
+      selectedSession ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "db-session-focus panel", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { children: selectedSession.label || selectedSession.source_filename }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "muted", children: [
+          (selectedSession.hands_count ?? 0).toLocaleString("ru-RU"),
+          " рук · верно",
+          " ",
+          selectedSession.correct_count ?? 0,
+          " · ошибки",
+          " ",
+          selectedSession.deviations_count ?? 0,
+          selectedSession.status === "archived" ? " · в архиве" : ""
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Ниже — полный отчёт по раздачам стратегии в активной базе (не только эта строка)." })
+      ] }) : null,
+      resultsBlock
+    ] })
   ] });
 }
 const MATCHUPS = [

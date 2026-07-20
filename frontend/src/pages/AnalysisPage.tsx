@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { BatchUploadReport } from "../api/client";
+import type { BatchUploadReport, PlaySession } from "../api/client";
 import AnalysisBgWait from "../components/AnalysisBgWait";
+import DatabaseSessionsPanel from "../components/DatabaseSessionsPanel";
 import SessionUploadPanel from "../components/SessionUploadPanel";
 import StrategyAnalysisPanel from "../components/StrategyAnalysisPanel";
 import {
@@ -14,7 +15,23 @@ import {
 } from "../lib/analysisJob";
 import { readLastStrategyId, writeLastStrategyId } from "../lib/handDbCache";
 
+type AnalysisScope = "session" | "database";
+
+const SCOPE_TABS: { id: AnalysisScope; label: string; lead: string }[] = [
+  {
+    id: "session",
+    label: "Анализ сессии",
+    lead: "Загрузите актуальную историю рук — разберём сессию и сверим со стратегией.",
+  },
+  {
+    id: "database",
+    label: "Анализ базы",
+    lead: "Все сессии активной базы: архив загрузок, профит и сверка по накопленным раздачам.",
+  },
+];
+
 export default function AnalysisPage() {
+  const [scope, setScope] = useState<AnalysisScope>("session");
   const [strategyId, setStrategyId] = useState(() => readLastStrategyId() ?? "");
   const [revision, setRevision] = useState(0);
   const [pendingHandTotal, setPendingHandTotal] = useState<number | null>(null);
@@ -22,6 +39,7 @@ export default function AnalysisPage() {
   const [bgRunning, setBgRunning] = useState(() =>
     isAnalysisJobRunning(readLastStrategyId() ?? undefined),
   );
+  const [selectedSession, setSelectedSession] = useState<PlaySession | null>(null);
   const lastDoneTokenRef = useRef(0);
 
   useEffect(() => {
@@ -61,6 +79,7 @@ export default function AnalysisPage() {
     setPendingHandTotal(estimatedHands && estimatedHands > 0 ? estimatedHands : null);
     markAnalysisUploadStarted(id, estimatedHands, { external: true });
     setBgRunning(true);
+    setScope("session");
   }, []);
 
   /** Import finished — refresh the panel. */
@@ -86,47 +105,91 @@ export default function AnalysisPage() {
     setRevision((n) => n + 1);
   }, []);
 
+  const activeLead =
+    SCOPE_TABS.find((t) => t.id === scope)?.lead ?? SCOPE_TABS[0].lead;
+
+  const resultsBlock =
+    bgRunning || job.status === "error" ? (
+      <div className="analysis-page-results">
+        <AnalysisBgWait pendingHands={pendingHandTotal ?? job.hands} />
+      </div>
+    ) : !strategyId ? (
+      <div className="analysis-empty panel analysis-page-results">
+        <h2>Выберите стратегию</h2>
+        <p className="muted">
+          Ещё нет стратегии? <Link to="/strategies">Соберите чарты</Link> — затем вернитесь за
+          разбором.
+        </p>
+      </div>
+    ) : (
+      <div className="analysis-page-results">
+        <StrategyAnalysisPanel
+          strategyId={strategyId}
+          strategyRevision={revision}
+          analysisSuspended={false}
+          pendingHandTotal={pendingHandTotal}
+          showUpload={false}
+          backgroundJobMode
+        />
+      </div>
+    );
+
   return (
     <section className="page analysis-page">
       <header className="upload-hero">
         <p className="upload-kicker">Session check</p>
         <h1>Анализ</h1>
-        <p className="lead">
-          Загрузите историю рук — разберём сессию, сверим со стратегией и сохраним отчёт в базу
-          профиля для карьеры и расписания.
-        </p>
+        <p className="lead">{activeLead}</p>
       </header>
 
-      <SessionUploadPanel
-        importMode="client"
-        onStrategyIdChange={onStrategyChange}
-        onUploadStarted={onUploadStarted}
-        onUploadFinished={onUploadFinished}
-        onUploaded={onUploaded}
-      />
+      <nav className="career-tabs analysis-scope-tabs" role="tablist" aria-label="Режим анализа">
+        {SCOPE_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={scope === t.id}
+            className={scope === t.id ? "active" : ""}
+            onClick={() => setScope(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
 
-      {bgRunning || job.status === "error" ? (
-        <div className="analysis-page-results" style={{ marginTop: "1.5rem" }}>
-          <AnalysisBgWait pendingHands={pendingHandTotal ?? job.hands} />
-        </div>
-      ) : !strategyId ? (
-        <div className="analysis-empty panel" style={{ marginTop: "1.5rem" }}>
-          <h2>Выберите стратегию</h2>
-          <p className="muted">
-            Ещё нет стратегии? <Link to="/strategies">Соберите чарты</Link> — затем вернитесь за
-            разбором.
-          </p>
+      {scope === "session" ? (
+        <div className="analysis-scope-panel" role="tabpanel">
+          <SessionUploadPanel
+            importMode="client"
+            onStrategyIdChange={onStrategyChange}
+            onUploadStarted={onUploadStarted}
+            onUploadFinished={onUploadFinished}
+            onUploaded={onUploaded}
+          />
+          {resultsBlock}
         </div>
       ) : (
-        <div className="analysis-page-results">
-          <StrategyAnalysisPanel
-            strategyId={strategyId}
-            strategyRevision={revision}
-            analysisSuspended={false}
-            pendingHandTotal={pendingHandTotal}
-            showUpload={false}
-            backgroundJobMode
+        <div className="analysis-scope-panel" role="tabpanel">
+          <DatabaseSessionsPanel
+            strategyId={strategyId || undefined}
+            selectedId={selectedSession?.id ?? null}
+            onSelect={setSelectedSession}
           />
+          {selectedSession ? (
+            <div className="db-session-focus panel">
+              <h3>{selectedSession.label || selectedSession.source_filename}</h3>
+              <p className="muted">
+                {(selectedSession.hands_count ?? 0).toLocaleString("ru-RU")} рук · верно{" "}
+                {selectedSession.correct_count ?? 0} · ошибки{" "}
+                {selectedSession.deviations_count ?? 0}
+                {selectedSession.status === "archived" ? " · в архиве" : ""}
+              </p>
+              <p className="muted">
+                Ниже — полный отчёт по раздачам стратегии в активной базе (не только эта строка).
+              </p>
+            </div>
+          ) : null}
+          {resultsBlock}
         </div>
       )}
     </section>

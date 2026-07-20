@@ -56,6 +56,7 @@ import {
 } from "../lib/gameTree/branches";
 import { loadTree } from "../lib/gameTree/persist";
 import {
+  ensureConstructorChartsSynced,
   loadBranchPaintMatrix,
   resolveConstructorTree,
 } from "../lib/gameTree/syncTreeCharts";
@@ -973,39 +974,63 @@ export default function StrategyAnalysisPanel({
     void reloadMissingSpots();
   }, [tab, preflopSub, strategyId, refreshKey, loading, reloadMissingSpots]);
 
-  // Hydrate constructor tree (cache path may skip chart sync).
+  /**
+   * Always pull the latest constructor tree + DB charts when opening «Стратегии»
+   * so every painted branch appears in Ветки / Ошибки / Обзор.
+   */
   useEffect(() => {
+    if (!strategyId || analysisSuspended || tab !== "preflop") return;
     let cancelled = false;
-    void resolveConstructorTree(strategyId)
-      .then(() => {
-        if (!cancelled) setTreeTick((n) => n + 1);
-      })
-      .catch(() => {
-        /* offline */
-      });
+    void (async () => {
+      try {
+        await ensureConstructorChartsSynced(strategyId);
+        if (cancelled) return;
+        setTreeTick((n) => n + 1);
+        const rev = readChartsRevision(strategyId);
+        if (rev) lastChartsRevRef.current = rev;
+        // Rebuild Обзор / Позиции / Ветки / Ошибки against the fresh tree.
+        setChartsBump((n) => n + 1);
+        await reloadMissingSpots();
+        if (cancelled) return;
+        const spots = await listSpots(strategyId).catch(() => []);
+        if (!cancelled) setStrategySpots(spots);
+      } catch {
+        if (cancelled) return;
+        setTreeTick((n) => n + 1);
+        setChartsBump((n) => n + 1);
+        void reloadMissingSpots();
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [strategyId, refreshKey, strategyRevision]);
+  }, [tab, strategyId, analysisSuspended, refreshKey, strategyRevision, reloadMissingSpots]);
 
-  // Re-read constructor tree when returning from the editor (deleted / painted branches).
+  // Re-pull constructor when returning from the editor (deleted / painted branches).
   useEffect(() => {
     const syncConstructor = () => {
-      setTreeTick((n) => n + 1);
-      const rev = readChartsRevision(strategyId);
-      if (!rev) return;
-      if (lastChartsRevRef.current != null && lastChartsRevRef.current !== rev) {
-        // Constructor charts changed — rebuild all «Моя стратегия» tabs.
-        setChartsBump((n) => n + 1);
-      }
-      lastChartsRevRef.current = rev;
+      void resolveConstructorTree(strategyId)
+        .then(() => {
+          setTreeTick((n) => n + 1);
+          const rev = readChartsRevision(strategyId);
+          if (!rev) return;
+          if (
+            lastChartsRevRef.current != null &&
+            lastChartsRevRef.current !== rev
+          ) {
+            setChartsBump((n) => n + 1);
+          }
+          lastChartsRevRef.current = rev;
+        })
+        .catch(() => {
+          setTreeTick((n) => n + 1);
+        });
     };
     const onVis = () => {
       if (document.visibilityState === "visible") syncConstructor();
     };
     window.addEventListener("focus", syncConstructor);
     document.addEventListener("visibilitychange", onVis);
-    syncConstructor();
     return () => {
       window.removeEventListener("focus", syncConstructor);
       document.removeEventListener("visibilitychange", onVis);
@@ -2612,7 +2637,21 @@ export default function StrategyAnalysisPanel({
           className={tab === "preflop" ? "active" : ""}
           onClick={() => {
             setDevError(null);
-            setTab("preflop");
+            // Re-enter tab even if already active — force strategy reload.
+            if (tab === "preflop") {
+              setChartsBump((n) => n + 1);
+              void ensureConstructorChartsSynced(strategyId)
+                .then(() => {
+                  setTreeTick((n) => n + 1);
+                  return reloadMissingSpots();
+                })
+                .catch(() => {
+                  setTreeTick((n) => n + 1);
+                  void reloadMissingSpots();
+                });
+            } else {
+              setTab("preflop");
+            }
           }}
           title="Сверка решений с вашей стратегией (чарты и ветки)"
         >

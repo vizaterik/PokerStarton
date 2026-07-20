@@ -2658,8 +2658,79 @@ button.linkish {
   animation: rise-in 0.45s ease both;
 }
 
+.analysis-scope-tabs {
+  margin-bottom: 1.25rem;
+}
+
+.analysis-scope-panel {
+  min-width: 0;
+}
+
 .analysis-page-results {
   margin-top: 1.75rem;
+}
+
+.db-sessions {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1.1rem 1.15rem 1.2rem;
+}
+
+.db-sessions-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem 1.25rem;
+}
+
+.db-sessions-head h2 {
+  margin: 0 0 0.2rem;
+  font-family: "Sora", sans-serif;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.db-sessions-head .muted {
+  margin: 0;
+  max-width: 36rem;
+}
+
+.db-sessions-totals {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.65rem 1rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.db-sessions-totals strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.db-sessions-totals .pos {
+  color: var(--accent);
+}
+
+.db-sessions-totals .neg {
+  color: #ff8f8f;
+}
+
+.db-session-focus {
+  margin-top: 1rem;
+  padding: 0.95rem 1.1rem;
+}
+
+.db-session-focus h3 {
+  margin: 0 0 0.35rem;
+  font-family: "Sora", sans-serif;
+  font-size: 1.05rem;
+}
+
+.db-session-focus .muted {
+  margin: 0.15rem 0 0;
 }
 
 .analysis-upload {
@@ -3050,10 +3121,10 @@ button.linkish {
 .upload-session-row {
   width: 100%;
   display: grid;
-  grid-template-columns: 2.1rem minmax(0, 1.6fr) 4.5rem 5.5rem 2.5rem 2rem;
+  grid-template-columns: 2.1rem minmax(0, 1.8fr) 6.5rem 4.5rem 2.5rem 2.75rem;
   align-items: center;
   gap: 0.55rem;
-  padding: 0.48rem 0.75rem;
+  padding: 0.55rem 0.75rem;
   border: none;
   background: transparent;
   color: inherit;
