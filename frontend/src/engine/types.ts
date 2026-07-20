@@ -57,7 +57,9 @@ export type LocalImportResult = {
   handsInserted: number;
   /** Already present in IndexedDB (same external_hand_id) */
   duplicatesSkipped: number;
-  /** Successfully parsed from files (inserted + duplicates) */
+  /** Parsed but not inserted — day already at 5k cap */
+  limitSkipped?: number;
+  /** Successfully parsed from files (inserted + duplicates + limit) */
   handsParsed: number;
   sessionId: string;
   /** @deprecated use handsParsed / handsInserted */

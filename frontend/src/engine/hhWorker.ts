@@ -4,6 +4,7 @@ import { estimateHandCount, parseHandHistory, splitHandBlocks } from "./parseHh"
 import {
   flushLocalDb,
   insertHandBatch,
+  loadDayHandCounts,
   openLocalDb,
 } from "./localDb";
 import type { LocalImportResult, ProgressPayload } from "./types";
@@ -41,6 +42,7 @@ async function runImport(
   await openLocalDb();
   // Stack sessions: new hands append; duplicates skip by external_hand_id.
   const sessionId = `local-${Date.now().toString(36)}`;
+  const dayCounts = await loadDayHandCounts(strategyId);
 
   let totalEstimate = 0;
   for (const f of files) totalEstimate += Math.max(1, estimateHandCount(f.text));
@@ -49,6 +51,7 @@ async function runImport(
   let done = 0;
   let insertedTotal = 0;
   let dupTotal = 0;
+  let limitTotal = 0;
   let parsedTotal = 0;
 
   const emit = (phase: string, message: string, pct: number) => {
@@ -76,9 +79,15 @@ async function runImport(
       const text = slice.join("\n\n");
       const hands = parseHandHistory(text);
       parsedTotal += hands.length;
-      const { inserted, duplicates } = await insertHandBatch(strategyId, sessionId, hands);
+      const { inserted, duplicates, limitSkipped } = await insertHandBatch(
+        strategyId,
+        sessionId,
+        hands,
+        dayCounts,
+      );
       insertedTotal += inserted;
       dupTotal += duplicates;
+      limitTotal += limitSkipped;
       done += slice.length;
       const pct = 5 + (done / totalEstimate) * 70;
       emit(
@@ -100,6 +109,7 @@ async function runImport(
       strategyId,
       handsInserted: insertedTotal,
       duplicatesSkipped: dupTotal,
+      limitSkipped: limitTotal,
       handsParsed: parsedTotal,
       hands: parsedTotal,
       sessionId,

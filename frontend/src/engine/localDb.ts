@@ -143,6 +143,39 @@ function toRow(strategyId: string, sessionId: string, h: ParsedHand): HandRow {
   };
 }
 
+/** Max new+existing hands per calendar day in the stacked local DB. */
+export const DAILY_HAND_UPLOAD_LIMIT = 5000;
+
+/** Calendar day key from hand timestamp (`YYYY-MM-DD` or `unknown`). */
+export function handCalendarDay(playedAt: string | null | undefined): string {
+  if (!playedAt) return "unknown";
+  const iso = playedAt.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const t = Date.parse(playedAt);
+  if (!Number.isFinite(t)) return "unknown";
+  return new Date(t).toISOString().slice(0, 10);
+}
+
+export type SessionDayRow = { day: string; hands: number };
+
+/** Distinct session days in the stacked DB (newest first). */
+export async function listSessionDays(strategyId: string): Promise<SessionDayRow[]> {
+  const rows = await listHandsForStrategy(strategyId);
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const day = handCalendarDay(r.played_at);
+    map.set(day, (map.get(day) ?? 0) + 1);
+  }
+  return [...map.entries()]
+    .map(([day, hands]) => ({ day, hands }))
+    .sort((a, b) => b.day.localeCompare(a.day));
+}
+
+export type ListHandsOpts = {
+  /** If set, only hands on these calendar days. Empty array → no hands. */
+  days?: string[] | null;
+};
+
 /** Explicit wipe of local hands for a strategy (not used on normal session import). */
 export async function clearStrategyHands(strategyId: string): Promise<number> {
   const db = await openLocalDb();
@@ -158,38 +191,63 @@ export async function clearStrategyHands(strategyId: string): Promise<number> {
   return rows.length;
 }
 
+export async function loadDayHandCounts(
+  strategyId: string,
+): Promise<Map<string, number>> {
+  const existing = await listHandsForStrategy(strategyId);
+  const dayCounts = new Map<string, number>();
+  for (const r of existing) {
+    const day = handCalendarDay(r.played_at);
+    dayCounts.set(day, (dayCounts.get(day) ?? 0) + 1);
+  }
+  return dayCounts;
+}
+
 export async function insertHandBatch(
   strategyId: string,
   sessionId: string,
   hands: ParsedHand[],
-): Promise<{ inserted: number; duplicates: number }> {
+  dayCounts?: Map<string, number>,
+): Promise<{ inserted: number; duplicates: number; limitSkipped: number }> {
   const db = await openLocalDb();
   let inserted = 0;
   let duplicates = 0;
+  let limitSkipped = 0;
+
+  // Reuse caller's map across chunks so we don't re-scan the whole DB each batch.
+  const counts = dayCounts ?? (await loadDayHandCounts(strategyId));
 
   for (const h of hands) {
     const row = toRow(strategyId, sessionId, h);
+    const day = handCalendarDay(h.played_at);
     // eslint-disable-next-line no-await-in-loop
-    const existed = await new Promise<boolean>((resolve, reject) => {
+    const outcome = await new Promise<"dup" | "ins" | "limit">((resolve, reject) => {
       const tx = db.transaction([STORE_HANDS], "readwrite");
       const store = tx.objectStore(STORE_HANDS);
       const getReq = store.get(row.key);
       getReq.onsuccess = () => {
         if (getReq.result) {
-          resolve(true);
+          resolve("dup");
+          return;
+        }
+        const have = counts.get(day) ?? 0;
+        if (have >= DAILY_HAND_UPLOAD_LIMIT) {
+          resolve("limit");
           return;
         }
         store.put(row);
-        resolve(false);
+        counts.set(day, have + 1);
+        resolve("ins");
       };
       getReq.onerror = () => reject(getReq.error ?? new Error("get failed"));
       tx.onerror = () => reject(tx.error ?? new Error("tx failed"));
     });
-    if (existed) duplicates += 1;
+    if (outcome === "dup") duplicates += 1;
+    else if (outcome === "limit") limitSkipped += 1;
     else inserted += 1;
   }
 
-  return { inserted, duplicates };
+  return { inserted, duplicates, limitSkipped };
 }
 
 export async function countHandsForStrategy(strategyId: string): Promise<number> {
@@ -202,15 +260,22 @@ export async function countHandsForStrategy(strategyId: string): Promise<number>
   });
 }
 
-export async function listHandsForStrategy(strategyId: string): Promise<HandRow[]> {
+export async function listHandsForStrategy(
+  strategyId: string,
+  opts?: ListHandsOpts,
+): Promise<HandRow[]> {
   const db = await openLocalDb();
-  return new Promise((resolve, reject) => {
+  const rows = await new Promise<HandRow[]>((resolve, reject) => {
     const tx = db.transaction([STORE_HANDS], "readonly");
     const idx = tx.objectStore(STORE_HANDS).index("by_strategy");
     const req = idx.getAll(strategyId);
     req.onsuccess = () => resolve((req.result as HandRow[]) || []);
     req.onerror = () => reject(req.error ?? new Error("list hands failed"));
   });
+  if (!opts?.days) return rows;
+  if (opts.days.length === 0) return [];
+  const want = new Set(opts.days);
+  return rows.filter((r) => want.has(handCalendarDay(r.played_at)));
 }
 
 export async function flushLocalDb(): Promise<void> {

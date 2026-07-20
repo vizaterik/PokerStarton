@@ -1371,6 +1371,69 @@ button.linkish {
   min-width: 0;
 }
 
+.analysis-db-meta {
+  margin: 0 0 0.85rem;
+}
+
+.analysis-day-filter {
+  margin: 1.1rem 0 0.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 0.9rem;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.analysis-day-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.analysis-day-filter-head strong {
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.analysis-day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.analysis-day-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.4rem 0.75rem;
+  font-family: "Sora", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.analysis-day-chip em {
+  font-style: normal;
+  opacity: 0.75;
+  font-weight: 500;
+}
+
+.analysis-day-chip.is-on {
+  color: #0c1210;
+  background: var(--accent);
+  border-color: rgba(136, 249, 145, 0.45);
+}
+
+.analysis-day-chip:hover:not(.is-on) {
+  color: rgba(245, 247, 250, 0.92);
+  border-color: rgba(136, 249, 145, 0.28);
+}
+
 .analysis-page-results {
   margin-top: 1.75rem;
 }

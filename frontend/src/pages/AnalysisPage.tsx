@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { listStrategies, type BatchUploadReport, type Strategy } from "../api/client";
 import AnalysisBgWait from "../components/AnalysisBgWait";
 import SessionUploadPanel from "../components/SessionUploadPanel";
 import StrategyAnalysisPanel from "../components/StrategyAnalysisPanel";
-import { countHandsForStrategy } from "../engine/localDb";
+import {
+  countHandsForStrategy,
+  DAILY_HAND_UPLOAD_LIMIT,
+  listSessionDays,
+  type SessionDayRow,
+} from "../engine/localDb";
 import {
   getAnalysisJob,
   isAnalysisJobRunning,
@@ -13,31 +18,24 @@ import {
   subscribeAnalysisJob,
   type AnalysisJobState,
 } from "../lib/analysisJob";
-import { peekAnalysisHud } from "../lib/analysisCache";
 import { readLastStrategyId, writeLastStrategyId } from "../lib/handDbCache";
 
-type AnalysisScope = "session" | "database";
-
-const SCOPE_TABS: { id: AnalysisScope; label: string; lead: string }[] = [
-  {
-    id: "session",
-    label: "Анализ сессии",
-    lead: "Загрузите сессию — она добавится в общую базу (дубли пропускаются), отчёт пересчитается по всем накопленным раздачам.",
-  },
-  {
-    id: "database",
-    label: "Анализ базы",
-    lead: "Стек всех загруженных сессий: график, HUD и стратегии по всей накопленной базе.",
-  },
-];
+function formatDayLabel(day: string) {
+  if (day === "unknown") return "Без даты";
+  const [y, m, d] = day.split("-");
+  if (!y || !m || !d) return day;
+  return `${d}.${m}.${y}`;
+}
 
 export default function AnalysisPage() {
-  const [scope, setScope] = useState<AnalysisScope>("database");
   const [strategyId, setStrategyId] = useState(() => readLastStrategyId() ?? "");
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [revision, setRevision] = useState(0);
   const [pendingHandTotal, setPendingHandTotal] = useState<number | null>(null);
   const [localHands, setLocalHands] = useState<number | null>(null);
+  const [sessionDays, setSessionDays] = useState<SessionDayRow[]>([]);
+  /** null = all days selected */
+  const [selectedDays, setSelectedDays] = useState<string[] | null>(null);
   const [job, setJob] = useState<AnalysisJobState>(() => getAnalysisJob());
   const [bgRunning, setBgRunning] = useState(() =>
     isAnalysisJobRunning(readLastStrategyId() ?? undefined),
@@ -72,15 +70,29 @@ export default function AnalysisPage() {
   useEffect(() => {
     if (!strategyId) {
       setLocalHands(null);
+      setSessionDays([]);
       return;
     }
     let cancelled = false;
-    void countHandsForStrategy(strategyId)
-      .then((n) => {
-        if (!cancelled) setLocalHands(n);
+    void Promise.all([
+      countHandsForStrategy(strategyId),
+      listSessionDays(strategyId),
+    ])
+      .then(([n, days]) => {
+        if (cancelled) return;
+        setLocalHands(n);
+        setSessionDays(days);
+        setSelectedDays((prev) => {
+          if (prev == null) return null;
+          const keep = prev.filter((d) => days.some((x) => x.day === d));
+          return keep.length ? keep : null;
+        });
       })
       .catch(() => {
-        if (!cancelled) setLocalHands(null);
+        if (!cancelled) {
+          setLocalHands(null);
+          setSessionDays([]);
+        }
       });
     return () => {
       cancelled = true;
@@ -104,8 +116,6 @@ export default function AnalysisPage() {
         setPendingHandTotal(next.hands);
         setBgRunning(false);
         setRevision((n) => n + 1);
-        // Session lands in the shared DB — open the database report.
-        setScope("database");
       }
       if (next.status === "error" && (!strategyId || next.strategyId === strategyId)) {
         setBgRunning(false);
@@ -118,6 +128,7 @@ export default function AnalysisPage() {
   const onStrategyChange = useCallback((id: string) => {
     setStrategyId(id);
     writeLastStrategyId(id);
+    setSelectedDays(null);
   }, []);
 
   const onUploadStarted = useCallback((id: string, estimatedHands?: number) => {
@@ -126,7 +137,6 @@ export default function AnalysisPage() {
     setPendingHandTotal(estimatedHands && estimatedHands > 0 ? estimatedHands : null);
     markAnalysisUploadStarted(id, estimatedHands, { external: true });
     setBgRunning(true);
-    setScope("session");
   }, []);
 
   const onUploaded = useCallback((report: BatchUploadReport, id: string) => {
@@ -137,7 +147,6 @@ export default function AnalysisPage() {
     if (getAnalysisJob().status === "done") {
       setBgRunning(false);
       setRevision((n) => n + 1);
-      setScope("database");
     }
   }, []);
 
@@ -152,102 +161,153 @@ export default function AnalysisPage() {
     setRevision((n) => n + 1);
   }, []);
 
-  const activeLead =
-    SCOPE_TABS.find((t) => t.id === scope)?.lead ?? SCOPE_TABS[0].lead;
+  const toggleDay = useCallback((day: string) => {
+    setSelectedDays((prev) => {
+      const all = sessionDays.map((d) => d.day);
+      if (prev == null) {
+        // Was "all" → select only this day off means all except? Better: start from all, remove day.
+        return all.filter((d) => d !== day);
+      }
+      if (prev.includes(day)) {
+        const next = prev.filter((d) => d !== day);
+        if (next.length === 0) return [];
+        if (next.length === all.length) return null;
+        return next;
+      }
+      const next = [...prev, day];
+      if (next.length === all.length) return null;
+      return next;
+    });
+  }, [sessionDays]);
 
-  const hasCachedReport = Boolean(
-    strategyId && peekAnalysisHud(strategyId)?.analysis,
-  );
+  const selectAllDays = useCallback(() => setSelectedDays(null), []);
+
+  const dayFilter = useMemo(() => selectedDays, [selectedDays]);
+  const filteredHands = useMemo(() => {
+    if (selectedDays == null) return localHands;
+    return sessionDays
+      .filter((d) => selectedDays.includes(d.day))
+      .reduce((s, d) => s + d.hands, 0);
+  }, [selectedDays, sessionDays, localHands]);
+
   const waiting = bgRunning || job.status === "error";
-
-  const resultsBlock = waiting ? (
-    <div className="analysis-page-results">
-      <AnalysisBgWait pendingHands={pendingHandTotal ?? job.hands ?? localHands} />
-    </div>
-  ) : !strategyId ? (
-    <div className="analysis-empty panel analysis-page-results">
-      <h2>Выберите стратегию</h2>
-      <p className="muted">
-        Ещё нет стратегии? <Link to="/strategies">Соберите чарты</Link> — затем вернитесь за
-        разбором.
-      </p>
-    </div>
-  ) : (
-    <div className="analysis-page-results">
-      {scope === "database" && strategies.length > 1 ? (
-        <div className="db-analyze-toolbar db-analyze-toolbar--inline">
-          <label className="upload-field">
-            <span>Стратегия</span>
-            <select
-              value={strategyId}
-              onChange={(e) => onStrategyChange(e.target.value)}
-              disabled={bgRunning}
-            >
-              {strategies.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {localHands != null ? (
-            <span className="muted db-hands-pill">
-              {localHands.toLocaleString("ru-RU")} рук в базе
-              {hasCachedReport ? "" : " · загрузите сессию"}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      <StrategyAnalysisPanel
-        strategyId={strategyId}
-        strategyRevision={revision}
-        analysisSuspended={false}
-        pendingHandTotal={pendingHandTotal}
-        showUpload={false}
-        backgroundJobMode
-      />
-    </div>
-  );
 
   return (
     <section className="page analysis-page">
       <header className="upload-hero">
         <p className="upload-kicker">Session check</p>
-        <h1>Анализ</h1>
-        <p className="lead">{activeLead}</p>
+        <h1>Анализ сессии</h1>
+        <p className="lead">
+          Загрузка добавляет раздачи в общую базу (дубли пропускаются). Лимит{" "}
+          {DAILY_HAND_UPLOAD_LIMIT.toLocaleString("ru-RU")} рук на календарный день. Отчёт — по
+          выбранным дням из этой базы.
+        </p>
       </header>
 
-      <nav className="career-tabs analysis-scope-tabs" role="tablist" aria-label="Режим анализа">
-        {SCOPE_TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={scope === t.id}
-            className={scope === t.id ? "active" : ""}
-            onClick={() => setScope(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      <div className="analysis-scope-panel">
+        {strategies.length > 1 ? (
+          <div className="db-analyze-toolbar db-analyze-toolbar--inline">
+            <label className="upload-field">
+              <span>Стратегия</span>
+              <select
+                value={strategyId}
+                onChange={(e) => onStrategyChange(e.target.value)}
+                disabled={bgRunning}
+              >
+                {strategies.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {localHands != null ? (
+              <span className="muted db-hands-pill">
+                {localHands.toLocaleString("ru-RU")} рук в базе
+                {filteredHands != null && selectedDays != null
+                  ? ` · выбрано ${filteredHands.toLocaleString("ru-RU")}`
+                  : ""}
+              </span>
+            ) : null}
+          </div>
+        ) : localHands != null ? (
+          <p className="muted db-hands-pill analysis-db-meta">
+            {localHands.toLocaleString("ru-RU")} рук в базе
+            {filteredHands != null && selectedDays != null
+              ? ` · выбрано ${filteredHands.toLocaleString("ru-RU")}`
+              : ""}
+          </p>
+        ) : null}
 
-      {scope === "session" ? (
-        <div className="analysis-scope-panel" role="tabpanel">
-          <SessionUploadPanel
-            importMode="client"
-            onStrategyIdChange={onStrategyChange}
-            onUploadStarted={onUploadStarted}
-            onUploadFinished={onUploadFinished}
-            onUploaded={onUploaded}
-          />
-          {resultsBlock}
-        </div>
-      ) : (
-        <div className="analysis-scope-panel" role="tabpanel">
-          {resultsBlock}
-        </div>
-      )}
+        <SessionUploadPanel
+          importMode="client"
+          strategyId={strategyId || undefined}
+          onStrategyIdChange={onStrategyChange}
+          onUploadStarted={onUploadStarted}
+          onUploadFinished={onUploadFinished}
+          onUploaded={onUploaded}
+        />
+
+        {sessionDays.length > 0 ? (
+          <div className="analysis-day-filter" aria-label="Дни сессий">
+            <div className="analysis-day-filter-head">
+              <strong>Дни в базе</strong>
+              <button
+                type="button"
+                className="linkish"
+                disabled={selectedDays == null}
+                onClick={selectAllDays}
+              >
+                Все дни
+              </button>
+            </div>
+            <div className="analysis-day-chips">
+              {sessionDays.map((d) => {
+                const on = selectedDays == null || selectedDays.includes(d.day);
+                return (
+                  <button
+                    key={d.day}
+                    type="button"
+                    className={`analysis-day-chip${on ? " is-on" : ""}`}
+                    aria-pressed={on}
+                    onClick={() => toggleDay(d.day)}
+                    title={`${d.hands.toLocaleString("ru-RU")} рук`}
+                  >
+                    <span>{formatDayLabel(d.day)}</span>
+                    <em>{d.hands.toLocaleString("ru-RU")}</em>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {waiting ? (
+          <div className="analysis-page-results">
+            <AnalysisBgWait pendingHands={pendingHandTotal ?? job.hands ?? localHands} />
+          </div>
+        ) : !strategyId ? (
+          <div className="analysis-empty panel analysis-page-results">
+            <h2>Выберите стратегию</h2>
+            <p className="muted">
+              Ещё нет стратегии? <Link to="/strategies">Соберите чарты</Link> — затем вернитесь за
+              разбором.
+            </p>
+          </div>
+        ) : (
+          <div className="analysis-page-results">
+            <StrategyAnalysisPanel
+              strategyId={strategyId}
+              strategyRevision={revision}
+              analysisSuspended={false}
+              pendingHandTotal={pendingHandTotal}
+              showUpload={false}
+              backgroundJobMode
+              dayFilter={dayFilter}
+            />
+          </div>
+        )}
+      </div>
     </section>
   );
 }

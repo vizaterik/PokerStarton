@@ -49,7 +49,11 @@ import {
 } from "../lib/spotCoverage";
 import { resolveHeroStrategyDecision } from "./handSpot";
 import type { HudFlags } from "./hudFlags";
-import { listHandsForStrategy, type HandRow } from "./localDb";
+import {
+  listHandsForStrategy,
+  type HandRow,
+  type ListHandsOpts,
+} from "./localDb";
 import { clearLocalRecommendationsCache } from "./localRecommendations";
 import type { ProgressPayload } from "./types";
 
@@ -1011,12 +1015,13 @@ async function buildDeviations(
 export async function buildLocalChartDeviations(
   strategyId: string,
   onProgress?: (message: string) => void,
+  handsOpts?: ListHandsOpts,
 ): Promise<{ deviations: StrategyDeviationsResponse; spots: StrategySpot[]; hands: number }> {
   onProgress?.("Проверяем стратегию…");
   await yieldToUi();
 
   // Hands first — show N/N counter immediately (same feel as Math tab).
-  const hands = await listHandsForStrategy(strategyId);
+  const hands = await listHandsForStrategy(strategyId, handsOpts);
   const total = hands.length;
   if (total > 0) {
     onProgress?.(`Разбор сессии… 0 / ${total.toLocaleString("ru-RU")}`);
@@ -1117,8 +1122,9 @@ export async function buildLocalChartDeviations(
  */
 export async function restoreLocalSessionReport(
   strategyId: string,
+  handsOpts?: ListHandsOpts,
 ): Promise<{ hands: number } | null> {
-  const hands = await listHandsForStrategy(strategyId);
+  const hands = await listHandsForStrategy(strategyId, handsOpts);
   if (!hands.length) return null;
   const analysis = buildAnalysis(strategyId, hands);
   const prev = peekAnalysisCache(strategyId);
@@ -1177,18 +1183,19 @@ export async function restoreLocalSessionReport(
 export async function finalizeLocalAnalysis(
   strategyId: string,
   onProgress?: (p: ProgressPayload) => void,
+  handsOpts?: ListHandsOpts,
 ): Promise<{ hands: number }> {
   clearLocalRecommendationsCache();
   onProgress?.({
     done: 0,
     total: 1,
     phase: "hud",
-    message: "Собираем HUD и график по всей базе…",
+    message: "Собираем HUD и график по базе…",
     pct: 85,
   });
 
-  // All stacked sessions for this strategy (import appends; does not wipe).
-  const hands = await listHandsForStrategy(strategyId);
+  // Stacked DB is the single source — import only appends (dupes / day-cap skip).
+  const hands = await listHandsForStrategy(strategyId, handsOpts);
   const analysis = buildAnalysis(strategyId, hands);
 
   onProgress?.({

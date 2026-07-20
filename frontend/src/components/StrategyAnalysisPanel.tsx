@@ -104,6 +104,11 @@ type Props = {
    * Panel only paints from cache / waits for the job.
    */
   backgroundJobMode?: boolean;
+  /**
+   * Calendar days to include from the stacked DB (`YYYY-MM-DD`).
+   * null/undefined = all days; [] = empty report.
+   */
+  dayFilter?: string[] | null;
 };
 
 function isAbortError(err: unknown) {
@@ -427,7 +432,13 @@ export default function StrategyAnalysisPanel({
   analysisSuspended: analysisSuspendedProp = false,
   pendingHandTotal = null,
   backgroundJobMode = false,
+  dayFilter = null,
 }: Props) {
+  const handsOpts = useMemo(
+    () => (dayFilter == null ? undefined : { days: dayFilter }),
+    [dayFilter],
+  );
+  const dayFilterKey = dayFilter == null ? "all" : dayFilter.slice().sort().join(",");
   const navigate = useNavigate();
   const [treeTick, setTreeTick] = useState(0);
   const [tab, setTab] = useState<AnalysisTab>("chart");
@@ -520,10 +531,14 @@ export default function StrategyAnalysisPanel({
     setDevsLoading((prev) => prev || !hasDevsRef.current);
     setChartProgress("Проверяем стратегию…");
 
-    void buildLocalChartDeviations(strategyId, (message) => {
-      if (cancelled || chartGenRef.current !== gen) return;
-      setChartProgress(message);
-    })
+    void buildLocalChartDeviations(
+      strategyId,
+      (message) => {
+        if (cancelled || chartGenRef.current !== gen) return;
+        setChartProgress(message);
+      },
+      handsOpts,
+    )
       .then((res) => {
         if (cancelled || chartGenRef.current !== gen) return;
         lastBuiltChartsBumpRef.current = chartsBump;
@@ -548,7 +563,7 @@ export default function StrategyAnalysisPanel({
     return () => {
       cancelled = true;
     };
-  }, [tab, strategyId, analysisSuspended, refreshKey, chartsBump]);
+  }, [tab, strategyId, analysisSuspended, refreshKey, chartsBump, handsOpts]);
 
   const onSessionUploaded = useCallback(
     (report: { total_hands?: number } | undefined, id: string) => {
@@ -820,23 +835,27 @@ export default function StrategyAnalysisPanel({
       try {
         // Local analysis page: show the same report as after upload (from cache / IDB).
         if (backgroundJobMode) {
-          const hud = peekAnalysisHud(strategyId);
-          if (hud && !isStale()) {
-            setData(hud.analysis);
-            setHandTotal(hud.handTotal || hud.analysis.hands);
-            setLoading(false);
-            setDevsLoading(false);
-            return;
+          // Day filter → always rebuild from stacked DB (cache is all-days).
+          const filtered = dayFilter != null;
+          if (!filtered) {
+            const hud = peekAnalysisHud(strategyId);
+            if (hud && !isStale()) {
+              setData(hud.analysis);
+              setHandTotal(hud.handTotal || hud.analysis.hands);
+              setLoading(false);
+              setDevsLoading(false);
+              return;
+            }
           }
           if (isAnalysisJobRunning(strategyId)) return;
 
-          // Cache miss — rebuild HUD from IndexedDB and show the normal analysis UI.
+          // Rebuild HUD from IndexedDB (optional day filter).
           try {
-            const rows = await listHandsForStrategy(strategyId);
+            const rows = await listHandsForStrategy(strategyId, handsOpts);
             if (isStale()) return;
             if (rows.length > 0) {
               setHandTotal(rows.length);
-              await restoreLocalSessionReport(strategyId);
+              await restoreLocalSessionReport(strategyId, handsOpts);
               if (isStale()) return;
               const restoredHud = peekAnalysisHud(strategyId);
               if (restoredHud) {
@@ -846,6 +865,12 @@ export default function StrategyAnalysisPanel({
                 setDevsLoading(false);
                 return;
               }
+            } else if (filtered) {
+              setData(null);
+              setHandTotal(0);
+              setLoading(false);
+              setDevsLoading(false);
+              return;
             }
           } catch {
             /* empty */
@@ -975,6 +1000,9 @@ export default function StrategyAnalysisPanel({
     analysisSuspended,
     stopAnalysisRun,
     backgroundJobMode,
+    dayFilterKey,
+    handsOpts,
+    dayFilter,
   ]);
 
   /** Pull strategy-compare payload only when opening «Стратегии» (keeps Анализ click light). */

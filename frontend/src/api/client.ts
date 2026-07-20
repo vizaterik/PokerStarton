@@ -1215,6 +1215,8 @@ export type BatchUploadReport = {
   files_count: number;
   total_hands: number;
   total_duplicates_skipped: number;
+  /** Hands skipped because the calendar day already has 5k in the local DB. */
+  total_limit_skipped?: number;
   total_deviations: number;
   total_correct: number;
 };

@@ -178,8 +178,10 @@ export default function SessionUploadPanel({
           : await uploadHands(fileList, strategyId);
 
         const dups = result.total_duplicates_skipped ?? 0;
+        const limited = result.total_limit_skipped ?? 0;
         // Re-import of the same file: 0 new rows but hands already in IndexedDB.
-        const clientHasWork = useClient && (result.total_hands > 0 || dups > 0);
+        const clientHasWork =
+          useClient && (result.total_hands > 0 || dups > 0 || limited > 0);
 
         let uploadNote: string | null = null;
         if (clientHasWork) {
@@ -236,12 +238,14 @@ export default function SessionUploadPanel({
             const n = fin.hands.toLocaleString("ru-RU");
             const added = result.total_hands > 0 ? result.total_hands : snap.handsSaved;
             if (added > 0 && (dups > 0 || snap.duplicatesSkipped > 0)) {
-              uploadNote = `Сессия в базе · +${added.toLocaleString("ru-RU")} новых · всего в отчёте ${n} рук (стек сессий)`;
+              uploadNote = `В базу · +${added.toLocaleString("ru-RU")} · всего ${n} рук`;
             } else if (added > 0) {
-              uploadNote = `Сессия в базе · +${added.toLocaleString("ru-RU")} · всего в отчёте ${n} рук`;
+              uploadNote = `В базу · +${added.toLocaleString("ru-RU")} · всего ${n} рук`;
             } else {
-              // Upload OK, но новых строк нет — раздачи уже лежали в профиле.
-              uploadNote = `Дубли пропущены · отчёт по всей базе · ${n} рук`;
+              uploadNote = `Дубли пропущены · в базе ${n} рук`;
+            }
+            if (limited > 0) {
+              uploadNote = `${uploadNote} · лимит 5 000/день: пропущено ${limited.toLocaleString("ru-RU")}`;
             }
             if (!strategyHasPlayCharts(strategyId)) {
               uploadNote = `${uploadNote}. ${STRATEGY_CHARTS_GAP_HINT}`;

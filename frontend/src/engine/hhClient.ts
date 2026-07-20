@@ -109,8 +109,9 @@ function toBatchReport(result: LocalImportResult, fileCount: number): BatchUploa
       },
     ],
     files_count: fileCount,
-    total_hands: recognized,
+    total_hands: result.handsInserted,
     total_duplicates_skipped: result.duplicatesSkipped,
+    total_limit_skipped: result.limitSkipped ?? 0,
     total_deviations: 0,
     total_correct: 0,
   };
