@@ -9414,6 +9414,18 @@ body.confirm-open #root {
   overflow: visible;
 }
 
+.preflop-chart-compare--duo {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.preflop-chart-compare--duo .preflop-chart-pane {
+  min-height: 0;
+}
+
+.preflop-chart-compare--duo .dev-error-matrix {
+  --cell: 2rem;
+}
+
 .preflop-chart-pane--full {
   grid-column: 1 / -1;
   min-height: 0;

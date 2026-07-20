@@ -1900,8 +1900,8 @@ export default function StrategyAnalysisPanel({
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Клик по ветке — Стратегия · Ошибки · VPIP. Нет в стратегии: пустые стратегия и
-            ошибки, VPIP из сессии; зелёный «+» добавит линию в редактор.
+            Проанализированные ветки из раздач + те, которых нет в стратегии (с «+»).
+            Клик — Стратегия · Ошибки · VPIP.
           </p>
 
           {scoreRows.length === 0 ? (
@@ -2172,8 +2172,7 @@ export default function StrategyAnalysisPanel({
       <>
         <div className="preflop-errors-toolbar">
           <p className="muted analysis-chart-hint">
-            Слева только впипнутые ветки — счётчик ошибки/раздачи. Кликай и сравнивай
-            стратегию с ошибками.
+            Слева проанализированные впип-ветки. Справа два диапазона: Ошибки и VPIP.
           </p>
           <div className="preflop-errors-actions">
             {(() => {
@@ -2300,43 +2299,7 @@ export default function StrategyAnalysisPanel({
                     </strong>
                   </span>
                 </h3>
-                <div className="preflop-chart-compare">
-                  <div className="preflop-chart-pane">
-                    <header>
-                      <strong>Стратегия</strong>
-                      <span>raise / call / fold</span>
-                    </header>
-                    {strategyChartLoading ? (
-                      <p className="muted">Загружаем чарт…</p>
-                    ) : (
-                      <StrategyChartPreview
-                        cells={strategyChart}
-                        selected={selectedHand}
-                        onSelectHand={(code) => {
-                          const mu =
-                            errorFilter.matchup ||
-                            activeChart.label ||
-                            analysisMatchup(
-                              activeChart.spot_key,
-                              activeChart.hero_position,
-                              activeChart.villain_position,
-                              activeChart.label,
-                            );
-                          const pot =
-                            errorFilter.potKind ||
-                            activeChart.pot_kind ||
-                            spotPotKind(activeChart.spot_key);
-                          selectCombo(code, {
-                            spotKey: activeChart.spot_key,
-                            heroPosition: activeChart.hero_position,
-                            villainPosition: activeChart.villain_position,
-                            matchup: mu,
-                            potKind: pot,
-                          });
-                        }}
-                      />
-                    )}
-                  </div>
+                <div className="preflop-chart-compare preflop-chart-compare--duo">
                   <div className="preflop-chart-pane">
                     <header>
                       <strong>Ошибки</strong>
@@ -2369,7 +2332,7 @@ export default function StrategyAnalysisPanel({
                       }}
                     />
                   </div>
-                  <div className="preflop-chart-pane preflop-chart-pane--full">
+                  <div className="preflop-chart-pane">
                     <header>
                       <strong>VPIP</strong>
                       <span>raise / call / fold · клик = выбрать</span>
