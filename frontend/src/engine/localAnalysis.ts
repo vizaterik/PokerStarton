@@ -817,15 +817,10 @@ async function buildDeviations(
     };
   });
 
-  // Group by constructor pot+matchup (Raise UTGvsBB ≠ 3-bet UTGvsBB).
+  // Keep every scored HH branch; remap label to constructor when pot+matchup matches.
+  // Do not drop session variants that are not (yet) in the constructor.
   if (treeBranches.length) {
     const coverOpts = { strictOpen: true, strictPot: true } as const;
-    const rowCovered = (row: {
-      spot_key: string;
-      hero_position: string;
-      villain_position?: string | null;
-    }) => spotCoveredByBranches(row, treeBranches, coverOpts);
-    by_branch = by_branch.filter((row) => rowCovered(row));
     const branchAcc = new Map<string, PreflopBranchAccuracy>();
     for (const row of by_branch) {
       const spotLike = {

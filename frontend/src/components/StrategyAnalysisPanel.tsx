@@ -37,7 +37,10 @@ import {
   strategyHasPlayCharts,
 } from "../lib/gameTree/strategyReady";
 import { treeMatchupLabel, spotPotKind } from "../lib/branchLabel";
-import { listMissingSpotsLocal } from "../engine/localMissingSpots";
+import {
+  listMissingSpotsLocal,
+  listSessionBranches,
+} from "../engine/localMissingSpots";
 import {
   collectAnalysisBranches,
   collectEditorBranches,
@@ -158,64 +161,6 @@ function freqPct(v: number | null) {
   return `${Math.round(v * 100)}%`;
 }
 
-function branchKey(
-  b: Pick<
-    PreflopBranchAccuracy,
-    "spot_key" | "hero_position" | "villain_position" | "pot_kind" | "matchup"
-  >,
-) {
-  const pot = b.pot_kind || spotPotKind(b.spot_key);
-  const mu = b.matchup || `${b.hero_position}vs${b.villain_position ?? ""}`;
-  return `${pot}|${mu}|${b.spot_key}|${b.hero_position}|${b.villain_position ?? ""}`;
-}
-
-/** Matchup first, pot tags nested underneath (Raise / 3-bet / …). */
-function groupBranchesByMatchup(rows: PreflopBranchAccuracy[]) {
-  const order: string[] = [];
-  const groups = new Map<string, PreflopBranchAccuracy[]>();
-  for (const row of rows) {
-    const mu = analysisMatchup(
-      row.spot_key,
-      row.hero_position,
-      row.villain_position,
-      row.matchup || row.spot_label,
-    );
-    const key = normalizeMatchupTag(mu) || mu;
-    if (!groups.has(key)) {
-      groups.set(key, []);
-      order.push(key);
-    }
-    groups.get(key)!.push(row);
-  }
-  for (const list of groups.values()) {
-    list.sort((a, b) => {
-      const pa = a.pot_kind || spotPotKind(a.spot_key);
-      const pb = b.pot_kind || spotPotKind(b.spot_key);
-      return pa.localeCompare(pb) || (b.decisions ?? 0) - (a.decisions ?? 0);
-    });
-  }
-  return order.map((key) => {
-    const items = groups.get(key)!;
-    const label =
-      items[0] &&
-      analysisMatchup(
-        items[0].spot_key,
-        items[0].hero_position,
-        items[0].villain_position,
-        items[0].matchup || items[0].spot_label,
-      );
-    const decisions = items.reduce((n, r) => n + (r.decisions ?? 0), 0);
-    const correct = items.reduce((n, r) => n + (r.correct ?? 0), 0);
-    return {
-      key,
-      matchup: label || key,
-      items,
-      decisions,
-      correct_pct: decisions ? Math.round((1000 * correct) / decisions) / 10 : 100,
-    };
-  });
-}
-
 function chartKey(c: Pick<ChartErrorSpot, "spot_key" | "hero_position" | "villain_position">) {
   return `${c.spot_key}|${c.hero_position}|${c.villain_position ?? ""}`;
 }
@@ -296,8 +241,8 @@ export default function StrategyAnalysisPanel({
   const [treeTick, setTreeTick] = useState(0);
   const [tab, setTab] = useState<AnalysisTab>("chart");
   const [preflopSub, setPreflopSub] = useState<PreflopSubTab>("overview");
-  /** Ветки: pot tag filter (`srp` / `3bp` / …). Null = все. */
-  const [branchPotFilter, setBranchPotFilter] = useState<string | null>(null);
+  /** All HH branch variants parsed from the session (pot+matchup). */
+  const [sessionBranches, setSessionBranches] = useState<EnsuredSpotInfo[]>([]);
   /** Bumps when constructor charts fingerprint changes — rebuild Обзор/Позиции/Ветки/Ошибки. */
   const [chartsBump, setChartsBump] = useState(0);
   const lastChartsRevRef = useRef<string | null>(null);
@@ -479,12 +424,15 @@ export default function StrategyAnalysisPanel({
       const treeDoc = await resolveConstructorTree(strategyId);
       setTreeTick((n) => n + 1);
       const editorBranches = collectEditorBranches(treeDoc.root);
-      // Local IndexedDB session is source of truth for “нет в стратегии”.
+      // Local IndexedDB session is source of truth for all parsed branch variants.
       const localHands = await listHandsForStrategy(strategyId);
       if (localHands.length > 0) {
+        const session = await listSessionBranches(strategyId);
+        setSessionBranches(session);
         setMissingSpots(await listMissingSpotsLocal(strategyId, editorBranches));
         return;
       }
+      setSessionBranches([]);
       const res = await fetchMissingSpots(strategyId);
       const branches = editorBranches;
       setMissingSpots(
@@ -504,8 +452,11 @@ export default function StrategyAnalysisPanel({
       );
     } catch {
       try {
+        const session = await listSessionBranches(strategyId);
+        setSessionBranches(session);
         setMissingSpots(await listMissingSpotsLocal(strategyId));
       } catch {
+        setSessionBranches([]);
         setMissingSpots([]);
       }
     } finally {
@@ -794,7 +745,6 @@ export default function StrategyAnalysisPanel({
       if (lastChartsRevRef.current != null && lastChartsRevRef.current !== rev) {
         // Constructor charts changed — rebuild all «Моя стратегия» tabs.
         setChartsBump((n) => n + 1);
-        setBranchPotFilter(null);
       }
       lastChartsRevRef.current = rev;
     };
@@ -846,16 +796,8 @@ export default function StrategyAnalysisPanel({
         if (potKind && b.potKind !== potKind) return false;
         return spotCoveredByBranches(spot, [b], coverOpts);
       });
-    const by_branch = (devs.by_branch ?? []).filter((row) =>
-      covers(
-        {
-          spot_key: row.spot_key,
-          hero_position: row.hero_position,
-          villain_position: row.villain_position,
-        },
-        row.pot_kind || spotPotKind(row.spot_key),
-      ),
-    );
+    // Ветки: keep every scored HH variant (not only constructor-covered).
+    const by_branch = devs.by_branch ?? [];
     const chart_errors = (devs.chart_errors ?? []).filter((c) =>
       covers(
         {
@@ -1345,15 +1287,14 @@ export default function StrategyAnalysisPanel({
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Профит только HU после флопа (ровно 2 игрока): тег пота и матчап{" "}
-            <strong>BBvsSB</strong>. Кликни матчап — откроются раздачи. Ниже —
-            точность по чартам стратегии.
+            Сначала все варианты веток из раздач (матчап + тег). HU-профит после флопа —
+            клик откроет раздачи. Ниже — точность, если чарт есть в стратегии.
           </p>
 
-          {huRows.length === 0 && rows.length === 0 ? (
+          {huRows.length === 0 && rows.length === 0 && sessionBranches.length === 0 ? (
             <p className="muted">
-              Нет веток для анализа — задай чарты в стратегии (или примени стиль в редакторе) и
-              загрузи раздачи.
+              Нет веток для анализа — загрузи раздачи (и при необходимости задай чарты в
+              стратегии).
             </p>
           ) : (
             <>
@@ -1485,145 +1426,173 @@ export default function StrategyAnalysisPanel({
                 <p className="muted">Нет HU-потов после флопа за период стратегии.</p>
               )}
 
-              {rows.length > 0 ? (
-                <>
-                  <p className="muted analysis-chart-hint" style={{ marginTop: "1.25rem" }}>
-                    Теги сверху — только те, что есть в конструкторе и сессии. Клик по
-                    матчапу открывает сверку и ошибки.
-                  </p>
-                  {(() => {
-                    const potOrder = ["srp", "3bp", "4bp", "allin", "limp"] as const;
-                    const constructorPots = new Set(
-                      paintedTreeBranches.map((b) => b.potKind),
-                    );
-                    const presentPots = potOrder.filter((p) =>
-                      rows.some((r) => {
-                        const pk = r.pot_kind || spotPotKind(r.spot_key);
-                        if (pk !== p) return false;
-                        // Only tags that exist in constructor (when tree is known).
-                        return !constructorPots.size || constructorPots.has(p);
-                      }),
-                    );
-                    const activePot =
-                      branchPotFilter && presentPots.includes(branchPotFilter as (typeof potOrder)[number])
-                        ? branchPotFilter
-                        : null;
-                    const filteredRows = activePot
-                      ? rows.filter(
-                          (r) => (r.pot_kind || spotPotKind(r.spot_key)) === activePot,
-                        )
-                      : rows;
-                    const groups = groupBranchesByMatchup(filteredRows);
-
-                    return (
-                      <>
-                        {presentPots.length > 0 ? (
-                          <div
-                            className="gto-filter-chips gto-filter-pots branch-pot-filters"
-                            role="group"
-                            aria-label="Тег пота"
-                          >
-                            <button
-                              type="button"
-                              className={activePot == null ? "is-active" : ""}
-                              onClick={() => setBranchPotFilter(null)}
-                            >
-                              Все
-                              <em>{rows.length}</em>
-                            </button>
-                            {presentPots.map((p) => {
-                              const n = rows.filter(
-                                (r) => (r.pot_kind || spotPotKind(r.spot_key)) === p,
-                              ).length;
-                              return (
-                                <button
-                                  key={p}
-                                  type="button"
-                                  className={activePot === p ? "is-active" : ""}
-                                  onClick={() => setBranchPotFilter(p)}
-                                >
-                                  {potKindTag(p)}
-                                  <em>{n}</em>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-
-                        <ul className="branch-matchup-list">
-                          {groups.map((group) => {
-                            const potsForGroup = group.items.map((row) => ({
-                              row,
-                              potKind: row.pot_kind || spotPotKind(row.spot_key),
-                              mu: analysisMatchup(
-                                row.spot_key,
-                                row.hero_position,
-                                row.villain_position,
-                                row.matchup || row.spot_label,
-                              ),
-                            }));
-                            const openMatchup = () => {
-                              // Prefer active pot filter; else the only / richest pot tag.
-                              const pick =
-                                (activePot &&
-                                  potsForGroup.find((x) => x.potKind === activePot)) ||
-                                [...potsForGroup].sort(
-                                  (a, b) =>
-                                    (b.row.decisions ?? 0) - (a.row.decisions ?? 0),
-                                )[0];
-                              if (!pick) return;
-                              goErrors({
-                                matchup: pick.mu,
-                                potKind: pick.potKind,
-                              });
-                            };
+              {(() => {
+                // First: every branch variant parsed from HH; overlay chart accuracy when present.
+                const accByKey = new Map<string, PreflopBranchAccuracy>();
+                for (const row of rows) {
+                  const mu = analysisMatchup(
+                    row.spot_key,
+                    row.hero_position,
+                    row.villain_position,
+                    row.matchup || row.spot_label,
+                  );
+                  const pot = row.pot_kind || spotPotKind(row.spot_key);
+                  accByKey.set(`${pot}|${normalizeMatchupTag(mu)}`, row);
+                }
+                const sessionRows: Array<{
+                  spot_key: string;
+                  hero_position: string;
+                  villain_position: string | null | undefined;
+                  matchup: string;
+                  pot_kind: string;
+                  pot_tag: string;
+                  decisions: number;
+                  correct_pct: number | null;
+                  hands_count: number;
+                  hasChart: boolean;
+                }> =
+                  sessionBranches.length > 0
+                    ? sessionBranches.map((s) => {
+                        const mu = analysisMatchup(
+                          s.spot_key,
+                          s.hero_position,
+                          s.villain_position,
+                          s.label,
+                        );
+                        const potKind = spotPotKind(s.spot_key);
+                        const acc = accByKey.get(
+                          `${potKind}|${normalizeMatchupTag(mu)}`,
+                        );
+                        return {
+                          spot_key: s.spot_key,
+                          hero_position: s.hero_position,
+                          villain_position: s.villain_position,
+                          matchup: mu,
+                          pot_kind: potKind,
+                          pot_tag: potKindTag(potKind),
+                          decisions: acc?.decisions ?? 0,
+                          correct_pct: acc?.correct_pct ?? null,
+                          hands_count: s.hands_count ?? 0,
+                          hasChart: Boolean(acc && acc.decisions > 0),
+                        };
+                      })
+                    : rows.map((row) => {
+                        const mu = analysisMatchup(
+                          row.spot_key,
+                          row.hero_position,
+                          row.villain_position,
+                          row.matchup || row.spot_label,
+                        );
+                        const potKind = row.pot_kind || spotPotKind(row.spot_key);
+                        return {
+                          spot_key: row.spot_key,
+                          hero_position: row.hero_position,
+                          villain_position: row.villain_position,
+                          matchup: mu,
+                          pot_kind: potKind,
+                          pot_tag: row.pot_tag || potKindTag(potKind),
+                          decisions: row.decisions,
+                          correct_pct: row.correct_pct as number | null,
+                          hands_count: row.decisions,
+                          hasChart: row.decisions > 0,
+                        };
+                      });
+                // Also keep scored rows not yet listed in session (edge / cache).
+                for (const row of rows) {
+                  const mu = analysisMatchup(
+                    row.spot_key,
+                    row.hero_position,
+                    row.villain_position,
+                    row.matchup || row.spot_label,
+                  );
+                  const potKind = row.pot_kind || spotPotKind(row.spot_key);
+                  const key = `${potKind}|${normalizeMatchupTag(mu)}`;
+                  if (sessionRows.some(
+                    (r) =>
+                      `${r.pot_kind}|${normalizeMatchupTag(r.matchup)}` === key,
+                  )) {
+                    continue;
+                  }
+                  sessionRows.push({
+                    spot_key: row.spot_key,
+                    hero_position: row.hero_position,
+                    villain_position: row.villain_position,
+                    matchup: mu,
+                    pot_kind: potKind,
+                    pot_tag: row.pot_tag || potKindTag(potKind),
+                    decisions: row.decisions,
+                    correct_pct: row.correct_pct,
+                    hands_count: row.decisions,
+                    hasChart: true,
+                  });
+                }
+                sessionRows.sort(
+                  (a, b) =>
+                    (b.decisions || b.hands_count) - (a.decisions || a.hands_count) ||
+                    a.matchup.localeCompare(b.matchup, "ru"),
+                );
+                if (!sessionRows.length) return null;
+                return (
+                  <>
+                    <p className="muted analysis-chart-hint" style={{ marginTop: "1.25rem" }}>
+                      Все варианты веток из раздач (тег на матчапе). Клик → сверка и ошибки,
+                      если чарт есть в стратегии.
+                    </p>
+                    <div className="analysis-table-wrap">
+                      <table className="analysis-table">
+                        <thead>
+                          <tr>
+                            <th>Матчап</th>
+                            <th>Разд.</th>
+                            <th>Реш.</th>
+                            <th>Точность</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sessionRows.map((row) => {
+                            const potKind = row.pot_kind;
+                            const mu = row.matchup;
                             return (
-                              <li key={group.key} className="branch-matchup-group">
-                                <button
-                                  type="button"
-                                  className="branch-matchup-open"
-                                  onClick={openMatchup}
-                                >
-                                  <strong className="err-chart-matchup">
-                                    {group.matchup}
-                                  </strong>
-                                  <span className="branch-matchup-meta">
-                                    <em>{group.decisions} реш.</em>
-                                    <em
-                                      className={
-                                        group.correct_pct >= 80 ? "pos" : "neg"
-                                      }
-                                    >
-                                      {group.correct_pct.toFixed(1)}%
+                              <tr
+                                key={`${potKind}|${mu}|${row.spot_key}|${row.hero_position}`}
+                                className={row.hasChart ? "clickable-row" : ""}
+                                onClick={() => {
+                                  if (!row.hasChart) return;
+                                  goErrors({ matchup: mu, potKind });
+                                }}
+                              >
+                                <td>
+                                  <span className="err-chart-tags">
+                                    <strong className="err-chart-matchup">{mu}</strong>
+                                    <em className={`pot-tag pot-${potKind}`}>
+                                      {row.pot_tag || potKindTag(potKind)}
                                     </em>
                                   </span>
-                                </button>
-                                {!activePot && potsForGroup.length > 1 ? (
-                                  <div className="branch-row-pots">
-                                    {potsForGroup.map(({ row, potKind, mu }) => (
-                                      <button
-                                        key={branchKey(row)}
-                                        type="button"
-                                        className={`pot-tag pot-${potKind} branch-row-pot`}
-                                        onClick={() =>
-                                          goErrors({ matchup: mu, potKind })
-                                        }
-                                      >
-                                        {row.pot_tag || potKindTag(potKind)}
-                                        <em>{row.correct_pct.toFixed(0)}%</em>
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </li>
+                                </td>
+                                <td>{row.hands_count.toLocaleString("ru-RU")}</td>
+                                <td>{row.decisions || "—"}</td>
+                                <td
+                                  className={
+                                    row.correct_pct == null
+                                      ? "muted"
+                                      : row.correct_pct >= 80
+                                        ? "pos"
+                                        : "neg"
+                                  }
+                                >
+                                  {row.correct_pct == null
+                                    ? "нет чарта"
+                                    : `${row.correct_pct.toFixed(1)}%`}
+                                </td>
+                              </tr>
                             );
                           })}
-                        </ul>
-                      </>
-                    );
-                  })()}
-                </>
-              ) : null}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )}
 
