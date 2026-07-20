@@ -30,7 +30,10 @@ import {
   writeAnalysisCache,
   type AnalysisCachePayload,
 } from "../lib/analysisCache";
-import { seedSpotIntoTree } from "../lib/gameTree/seedTreeFromSpots";
+import {
+  seedPlayedLineIntoTree,
+  seedSpotIntoTree,
+} from "../lib/gameTree/seedTreeFromSpots";
 import { stashEditorFocus } from "../lib/gameTree/editorFocus";
 import {
   STRATEGY_CHARTS_GAP_HINT,
@@ -573,8 +576,24 @@ export default function StrategyAnalysisPanel({
       setAddingSpots(true);
       setAddingSpotKey(key);
       try {
-        // Seed constructor branch first — editor focus + paint seat for this HH spot.
-        const focus = seedSpotIntoTree(strategyId, spot);
+        // Prefer real HH line so the editor opens on a closed branch ready to paint
+        // (RangeSpotsBar + matrix — no manual raise/fold windows).
+        const hands = await listHandsForStrategy(strategyId);
+        const heroN = normalizeChartPos(spot.hero_position);
+        const villN = spot.villain_position
+          ? normalizeChartPos(spot.villain_position)
+          : null;
+        const spotKey = spot.spot_key.trim().toLowerCase();
+        const sample =
+          hands.find((h) => {
+            const hs = (h.detected_spot || "").trim().toLowerCase();
+            if (hs !== spotKey) return false;
+            if (normalizeChartPos(h.hero_position || "") !== heroN) return false;
+            if (!villN) return true;
+            return normalizeChartPos(h.villain_position || "") === villN;
+          }) ?? null;
+        let focus = sample ? seedPlayedLineIntoTree(strategyId, sample) : null;
+        if (!focus) focus = seedSpotIntoTree(strategyId, spot);
         if (!focus) {
           setSpotsHint(
             "Не удалось создать ветку в конструкторе для этого матчапа. Проверь позиции и размер стола.",
@@ -1065,6 +1084,57 @@ export default function StrategyAnalysisPanel({
       );
   }, [liveDevs, paintedTreeBranches, sessionBranches, strategyId]);
 
+  /**
+   * VPIP branches in strategy + missing VPIP matchups (same list, missing highlighted).
+   */
+  const branchListRows = useMemo(() => {
+    const covered = new Set(
+      branchScoreRows.map(
+        (r) => `${r.pot_kind}|${normalizeMatchupTag(r.matchup)}`,
+      ),
+    );
+    const inStrategy = branchScoreRows.map((r) => ({
+      ...r,
+      missing: false as const,
+      missingSpot: null as EnsuredSpotInfo | null,
+    }));
+    const missingRows = uncoveredMissing
+      .map((s) => {
+        const potKind = spotPotKind(s.spot_key) as BranchPotKind;
+        const mu = analysisMatchup(
+          s.spot_key,
+          s.hero_position,
+          s.villain_position,
+          s.label,
+        );
+        const played = s.hands_count ?? 0;
+        const key = `${potKind}|${normalizeMatchupTag(mu)}`;
+        if (played <= 0 || covered.has(key)) return null;
+        return {
+          spot_key: s.spot_key,
+          hero_position: s.hero_position,
+          villain_position: s.villain_position,
+          matchup: mu,
+          pot_kind: potKind,
+          pot_tag: potKindTag(potKind),
+          hands_count: played,
+          decisions: 0,
+          played,
+          correct_pct: null as number | null,
+          hasChart: false,
+          missing: true as const,
+          missingSpot: s,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r != null);
+    return [...inStrategy, ...missingRows].sort(
+      (a, b) =>
+        Number(a.missing) - Number(b.missing) ||
+        b.played - a.played ||
+        a.matchup.localeCompare(b.matchup, "ru"),
+    );
+  }, [branchScoreRows, uncoveredMissing]);
+
   /** Focus a strategy branch for Strategy|Error range compare (stay on current subtab). */
   const selectBranchFocus = useCallback(
     (row: {
@@ -1092,8 +1162,9 @@ export default function StrategyAnalysisPanel({
     if (tab !== "preflop" || (preflopSub !== "branches" && preflopSub !== "errors")) {
       return;
     }
-    if (!branchScoreRows.length) return;
-    const focused = branchScoreRows.some(
+    const rows = preflopSub === "branches" ? branchListRows : branchScoreRows;
+    if (!rows.length) return;
+    const focused = rows.some(
       (r) =>
         errorFilter.matchup &&
         errorFilter.potKind &&
@@ -1102,10 +1173,11 @@ export default function StrategyAnalysisPanel({
           potLookupKinds(r.pot_kind).includes(errorFilter.potKind)),
     );
     if (focused) return;
-    selectBranchFocus(branchScoreRows[0]);
+    selectBranchFocus(rows[0]);
   }, [
     tab,
     preflopSub,
+    branchListRows,
     branchScoreRows,
     errorFilter.matchup,
     errorFilter.potKind,
@@ -1684,27 +1756,33 @@ export default function StrategyAnalysisPanel({
     }
 
     if (preflopSub === "branches") {
-      const scoreRows = branchScoreRows;
+      const scoreRows = branchListRows;
       const branchErrCount = filteredDevs.length;
       const focusMu = errorFilter.matchup || "";
       const focusPot = errorFilter.potKind || "";
+      const focusMissing =
+        scoreRows.find(
+          (r) =>
+            r.missing &&
+            focusMu &&
+            focusPot &&
+            matchupsCompatible(r.matchup, focusMu) &&
+            (r.pot_kind === focusPot ||
+              potLookupKinds(r.pot_kind).includes(focusPot)),
+        ) ?? null;
 
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Слева только ветки, которые были во впипе сессии — счётчик ошибки/раздачи.
-            Сравнение: стратегия, ошибки и диапазон из раздач. Вне стратегии — ниже.
+            Слева впипнутые ветки сессии: в стратегии — сравнение чартов, без стратегии —
+            подсветка и «Добавить ветку» сразу в редактор покраски.
           </p>
 
-          {!paintedTreeBranches.length ? (
+          {scoreRows.length === 0 ? (
             <p className="muted">
-              В стратегии нет покрашенных веток — открой тренажёр, нарисуй чарты, затем
-              вернись к отчёту.
-            </p>
-          ) : scoreRows.length === 0 ? (
-            <p className="muted">
-              Нет веток стратегии с раздачами в этой сессии — загрузи HH или выбери другую
-              базу.
+              {missingLoading
+                ? "Проверяем раздачи…"
+                : "Нет впипнутых веток в этой сессии — загрузи HH или выбери другую базу."}
             </p>
           ) : (
             <div className="preflop-errors-layout branches-compare-layout">
@@ -1718,25 +1796,35 @@ export default function StrategyAnalysisPanel({
                       matchupsCompatible(row.matchup, focusMu) &&
                       (row.pot_kind === focusPot ||
                         potLookupKinds(row.pot_kind).includes(focusPot));
-                    const errForRow = (liveDevs.deviations ?? []).filter((d) =>
-                      matchesFilter(
-                        d,
-                        {
-                          matchup: row.matchup,
-                          potKind: row.pot_kind,
-                          spotKey: row.spot_key,
-                          heroPosition: row.hero_position,
-                          villainPosition: row.villain_position,
-                        },
-                        paintedTreeBranches,
-                      ),
-                    ).length;
+                    const errForRow = row.missing
+                      ? 0
+                      : (liveDevs?.deviations ?? []).filter((d) =>
+                          matchesFilter(
+                            d,
+                            {
+                              matchup: row.matchup,
+                              potKind: row.pot_kind,
+                              spotKey: row.spot_key,
+                              heroPosition: row.hero_position,
+                              villainPosition: row.villain_position,
+                            },
+                            paintedTreeBranches,
+                          ),
+                        ).length;
                     const played = row.played || row.decisions || row.hands_count || 0;
+                    const addKey = row.missingSpot
+                      ? missingKey(row.missingSpot)
+                      : "";
+                    const busy = Boolean(addKey && addingSpotKey === addKey);
                     return (
-                      <li key={`${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`}>
+                      <li
+                        key={`${row.missing ? "miss" : "ok"}|${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`}
+                      >
                         <button
                           type="button"
-                          className={active ? "is-active" : ""}
+                          className={`${active ? "is-active" : ""}${
+                            row.missing ? " is-missing" : ""
+                          }`}
                           onClick={() => selectBranchFocus(row)}
                         >
                           <span className="err-chart-tags err-chart-tags--inline">
@@ -1745,10 +1833,31 @@ export default function StrategyAnalysisPanel({
                             </em>
                             <strong className="err-chart-matchup">{row.matchup}</strong>
                           </span>
-                          <em className="err-count" title="ошибки / впипнутые раздачи">
-                            {errForRow}/{played}
-                          </em>
+                          <span className="branch-list-meta">
+                            {row.missing ? (
+                              <em className="branch-missing-tag">нет в стратегии</em>
+                            ) : null}
+                            <em
+                              className="err-count"
+                              title="ошибки / впипнутые раздачи"
+                            >
+                              {errForRow}/{played}
+                            </em>
+                          </span>
                         </button>
+                        {row.missing && row.missingSpot ? (
+                          <button
+                            type="button"
+                            className="missing-spot-add branch-list-add"
+                            disabled={addingSpots}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void addOneMissingSpot(row.missingSpot!);
+                            }}
+                          >
+                            {busy ? "…" : "Добавить ветку"}
+                          </button>
+                        ) : null}
                       </li>
                     );
                   })}
@@ -1756,7 +1865,70 @@ export default function StrategyAnalysisPanel({
               </aside>
 
               <div className="preflop-chart-main">
-                {activeChart && focusMu ? (
+                {focusMissing && focusMu ? (
+                  <>
+                    <h3 className="analysis-subhead">
+                      <span className="err-chart-tags err-chart-tags--inline">
+                        <em className={`pot-tag pot-${focusMissing.pot_kind}`}>
+                          {focusMissing.pot_tag}
+                        </em>
+                        <strong className="err-chart-matchup">
+                          {focusMissing.matchup}
+                        </strong>
+                      </span>
+                      <em className="branch-missing-tag"> · нет в стратегии</em>
+                    </h3>
+                    <div className="preflop-chart-compare">
+                      <div className="preflop-chart-pane preflop-chart-pane--missing">
+                        <header>
+                          <strong>Стратегия</strong>
+                          <span>ветки ещё нет</span>
+                        </header>
+                        <p className="muted analysis-chart-hint">
+                          Было {focusMissing.played} разд. во впипе. Добавь ветку — откроется
+                          редактор с готовой линией: переключение по чартам и покраска, без
+                          ручного raise/fold.
+                        </p>
+                        <button
+                          type="button"
+                          className="missing-spot-add"
+                          disabled={addingSpots || !focusMissing.missingSpot}
+                          onClick={() => {
+                            if (focusMissing.missingSpot) {
+                              void addOneMissingSpot(focusMissing.missingSpot);
+                            }
+                          }}
+                        >
+                          {addingSpotKey ===
+                          (focusMissing.missingSpot
+                            ? missingKey(focusMissing.missingSpot)
+                            : "")
+                            ? "Открываем редактор…"
+                            : "Добавить ветку → редактор"}
+                        </button>
+                      </div>
+                      <div className="preflop-chart-pane">
+                        <header>
+                          <strong>Ошибки</strong>
+                          <span>после добавления чарта</span>
+                        </header>
+                        <p className="muted analysis-chart-hint">
+                          Пока нет эталона — ошибок стратегии нет.
+                        </p>
+                      </div>
+                      <div className="preflop-chart-pane preflop-chart-pane--played">
+                        <header>
+                          <strong>Из раздач</strong>
+                          <span>{focusMissing.played} впип</span>
+                        </header>
+                        <p className="muted analysis-chart-hint">
+                          После добавления ветки и пересчёта здесь появится диапазон из
+                          сессии.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                ) : activeChart && focusMu ? (
                   <>
                     <h3 className="analysis-subhead">
                       <span className="err-chart-tags err-chart-tags--inline">
@@ -1900,66 +2072,6 @@ export default function StrategyAnalysisPanel({
             </div>
           )}
 
-          <div className="missing-spots-panel">
-            <div className="missing-spots-head">
-              <div>
-                <strong>Добавить в стратегию</strong>
-                <p className="muted">
-                  Было в раздачах, но такой ветки (пот + матчап) нет в стратегии — добавь и
-                  сразу отредактируй чарт.
-                </p>
-              </div>
-            </div>
-            {missingLoading ? (
-              <p className="muted">Проверяем раздачи…</p>
-            ) : uncoveredMissing.length > 0 ? (
-              <ul className="missing-spots-list">
-                {[...uncoveredMissing]
-                  .sort(
-                    (a, b) =>
-                      (a.profit_money ?? 0) - (b.profit_money ?? 0) ||
-                      (b.hands_count ?? 0) - (a.hands_count ?? 0),
-                  )
-                  .map((s) => {
-                    const key = missingKey(s);
-                    const busy = addingSpotKey === key;
-                    const pl = s.profit_money ?? 0;
-                    const mu = treeMatchupLabel(
-                      s.spot_key,
-                      s.hero_position,
-                      s.villain_position,
-                    );
-                    const potKind = spotPotKind(s.spot_key);
-                    return (
-                      <li key={key}>
-                        <div className="missing-spot-main">
-                          <span className="err-chart-tags err-chart-tags--inline">
-                            <em className={`pot-tag pot-${potKind}`}>
-                              {potKindTag(potKind)}
-                            </em>
-                            <strong className="err-chart-matchup">{mu}</strong>
-                          </span>
-                          <em>{(s.hands_count ?? 0).toLocaleString("ru-RU")} разд.</em>
-                          <em className={pl >= 0 ? "pos" : "neg"}>
-                            ${pl.toFixed(2)}
-                          </em>
-                        </div>
-                        <button
-                          type="button"
-                          className="missing-spot-add"
-                          disabled={addingSpots}
-                          onClick={() => void addOneMissingSpot(s)}
-                        >
-                          {busy ? "…" : "Добавить в стратегию"}
-                        </button>
-                      </li>
-                    );
-                  })}
-              </ul>
-            ) : (
-              <p className="muted">Все ситуации из сессии уже есть в стратегии.</p>
-            )}
-          </div>
         </>
       );
     }

@@ -9243,6 +9243,45 @@ body.confirm-open #root {
   color: #fff;
 }
 
+.preflop-chart-list button.is-missing {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.preflop-chart-list button.is-missing.is-active {
+  border-color: rgba(251, 191, 36, 0.75);
+  background: rgba(251, 191, 36, 0.16);
+}
+
+.preflop-chart-list-flat li {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.branch-list-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.branch-missing-tag {
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #fbbf24;
+  white-space: nowrap;
+}
+
+.branch-list-add {
+  width: 100%;
+  justify-content: center;
+}
+
+.preflop-chart-pane--missing {
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
 .preflop-chart-list button em.err-count,
 .err-count {
   font-style: normal;
