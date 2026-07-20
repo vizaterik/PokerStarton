@@ -192,9 +192,9 @@ export function buildReplayFromRawText(
     hero_net_bb: Math.round((extras?.hero_net_bb ?? 0) * 10000) / 10000,
     seats: parseSeats(
       raw,
-      parsed?.hero_name ?? extras?.hero_name,
+      parsed?.hero_name ?? extras?.hero_name ?? null,
       heroHand,
-      parsed?.hero_position ?? extras?.hero_position,
+      parsed?.hero_position ?? extras?.hero_position ?? null,
     ),
     actions,
     raw_text: raw,
