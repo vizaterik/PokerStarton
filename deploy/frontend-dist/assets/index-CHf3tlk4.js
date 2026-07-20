@@ -15713,7 +15713,7 @@ function writeLastStrategyId(id) {
   } catch {
   }
 }
-const CHART_COMPARE_VER = 9;
+const CHART_COMPARE_VER = 10;
 const PREFIX$2 = "pokerledger.analysis.v7:";
 const LEGACY$1 = [
   "pokerledger.analysis.v1:",
