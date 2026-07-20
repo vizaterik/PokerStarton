@@ -194,11 +194,15 @@ export function loadBranchPaintMatrix(
   try {
     const doc = loadTree(strategyId);
     const wantMu = normalizeMatchupTag(matchup);
-    const branch = collectAnalysisBranches(doc.root).find(
-      (b) =>
-        b.potKind === potKind &&
-        normalizeMatchupTag(b.label) === wantMu,
-    );
+    const rev = (() => {
+      const m = wantMu.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
+      return m ? `${m[2]}vs${m[1]}` : null;
+    })();
+    const branch = collectAnalysisBranches(doc.root).find((b) => {
+      if (b.potKind !== potKind) return false;
+      const have = normalizeMatchupTag(b.label);
+      return have === wantMu || (rev != null && have === rev);
+    });
     if (!branch) return null;
     const node = findNode(doc.root, branch.paintNodeId);
     if (!node) return null;

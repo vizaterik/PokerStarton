@@ -9138,6 +9138,10 @@ body.confirm-open #root {
   align-items: start;
 }
 
+.preflop-errors-layout--focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 @media (max-width: 900px) {
   .preflop-errors-layout {
     grid-template-columns: 1fr;
