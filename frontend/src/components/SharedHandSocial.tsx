@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   fetchHandShareSocial,
@@ -8,17 +8,24 @@ import {
   type HandShareSocial,
   type ShareStreet,
 } from "../api/client";
+import { SHARE_STREET_LABELS } from "../lib/shareStreets";
 
-const STREETS: { key: ShareStreet; label: string }[] = [
-  { key: "preflop", label: "Префлоп" },
-  { key: "flop", label: "Флоп" },
-  { key: "turn", label: "Терн" },
-  { key: "river", label: "Ривер" },
-];
+type Props = {
+  token: string;
+  /** Streets that exist in this hand */
+  playedStreets: ShareStreet[];
+  /** Streets unlocked by replay progress (≤ current street) */
+  unlockedStreets: ShareStreet[];
+  /** Active street in the replayer */
+  currentStreet: ShareStreet;
+};
 
-type Props = { token: string };
-
-export default function SharedHandSocial({ token }: Props) {
+export default function SharedHandSocial({
+  token,
+  playedStreets,
+  unlockedStreets,
+  currentStreet,
+}: Props) {
   const [data, setData] = useState<HandShareSocial | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,6 +38,11 @@ export default function SharedHandSocial({ token }: Props) {
   const [savingStreet, setSavingStreet] = useState<ShareStreet | null>(null);
   const [likeBusy, setLikeBusy] = useState(false);
   const loggedIn = isLoggedIn();
+
+  const visibleStreets = useMemo(() => {
+    const unlock = new Set(unlockedStreets);
+    return playedStreets.filter((s) => unlock.has(s));
+  }, [playedStreets, unlockedStreets]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -101,6 +113,8 @@ export default function SharedHandSocial({ token }: Props) {
   const commentsByStreet = (street: ShareStreet) =>
     (data?.comments || []).filter((c) => c.street === street);
 
+  const lockedAhead = playedStreets.filter((s) => !visibleStreets.includes(s));
+
   return (
     <section className="share-social" aria-label="Комментарии и лайки">
       <div className="share-social-head">
@@ -116,6 +130,12 @@ export default function SharedHandSocial({ token }: Props) {
         </button>
       </div>
 
+      <p className="share-social-hint share-social-progress">
+        Сейчас: <strong>{SHARE_STREET_LABELS[currentStreet]}</strong>
+        {" · "}
+        комментарии открываются по ходу реплея
+      </p>
+
       {!loggedIn && (
         <p className="share-social-hint">
           <Link to="/login">Войдите</Link>, чтобы лайкнуть раздачу и оставить по одному
@@ -125,13 +145,24 @@ export default function SharedHandSocial({ token }: Props) {
       {error && <p className="share-social-error">{error}</p>}
       {loading && <p className="share-social-muted">Загрузка…</p>}
 
+      {!loading && visibleStreets.length === 0 && (
+        <p className="share-social-muted">Листайте реплей — откроется комментарий к улице</p>
+      )}
+
       {!loading &&
-        STREETS.map(({ key, label }) => {
+        visibleStreets.map((key) => {
           const list = commentsByStreet(key);
           const mine = Boolean(data?.my_comments_by_street[key]);
+          const isCurrent = key === currentStreet;
           return (
-            <div key={key} className="share-street-block">
-              <div className="share-street-title">{label}</div>
+            <div
+              key={key}
+              className={`share-street-block${isCurrent ? " is-current" : ""}`}
+            >
+              <div className="share-street-title">
+                {SHARE_STREET_LABELS[key]}
+                {isCurrent ? <span className="share-street-now">сейчас</span> : null}
+              </div>
               {list.length === 0 ? (
                 <p className="share-social-muted">Пока нет комментариев</p>
               ) : (
@@ -144,7 +175,7 @@ export default function SharedHandSocial({ token }: Props) {
                   ))}
                 </ul>
               )}
-              {loggedIn && (
+              {loggedIn && isCurrent && (
                 <div className="share-comment-form">
                   <textarea
                     value={drafts[key]}
@@ -153,7 +184,7 @@ export default function SharedHandSocial({ token }: Props) {
                     placeholder={
                       mine
                         ? "Ваш комментарий (можно изменить)"
-                        : "Один комментарий на эту улицу"
+                        : `Комментарий к улице «${SHARE_STREET_LABELS[key]}»`
                     }
                     onChange={(e) =>
                       setDrafts((prev) => ({ ...prev, [key]: e.target.value }))
@@ -175,6 +206,13 @@ export default function SharedHandSocial({ token }: Props) {
             </div>
           );
         })}
+
+      {!loading && lockedAhead.length > 0 && (
+        <p className="share-social-muted share-social-locked">
+          Дальше откроется:{" "}
+          {lockedAhead.map((s) => SHARE_STREET_LABELS[s]).join(" → ")}
+        </p>
+      )}
     </section>
   );
 }

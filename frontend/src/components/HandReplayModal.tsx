@@ -8,6 +8,7 @@ import {
   fetchResultsHuPotHands,
   fetchStatHands,
   fetchStrategyHuPotHands,
+  type ShareStreet,
   type StatHandsResponse,
 } from "../api/client";
 import {
@@ -15,6 +16,11 @@ import {
   fetchLocalStatHands,
   isLocalHandId,
 } from "../engine/localReplay";
+import {
+  streetAtAction,
+  streetsPlayedInHand,
+  unlockedCommentStreets,
+} from "../lib/shareStreets";
 
 const SERVER_HAND_UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -86,6 +92,12 @@ type Props = {
   huPot?: HuPotReplayQuery | null;
   /** Embed as page (no close / no share create) */
   pageMode?: boolean;
+  /** Public share: report which streets are unlocked for comments */
+  onStreetProgress?: (info: {
+    currentStreet: ShareStreet;
+    playedStreets: ShareStreet[];
+    unlockedStreets: ShareStreet[];
+  }) => void;
   onClose: () => void;
 };
 
@@ -112,6 +124,7 @@ export default function HandReplayModal({
   publicToken = null,
   huPot = null,
   pageMode = false,
+  onStreetProgress,
   onClose,
 }: Props) {
   const [data, setData] = useState<StatHandsResponse | null>(null);
@@ -235,6 +248,15 @@ export default function HandReplayModal({
   const hand = data?.hands[handIdx] ?? null;
   const maxAction = hand ? hand.actions.length - 1 : -1;
   const handsCount = data?.hands.length ?? 0;
+
+  useEffect(() => {
+    if (!onStreetProgress) return;
+    onStreetProgress({
+      currentStreet: streetAtAction(hand, actionIdx),
+      playedStreets: streetsPlayedInHand(hand),
+      unlockedStreets: unlockedCommentStreets(hand, actionIdx),
+    });
+  }, [hand, actionIdx, onStreetProgress]);
 
   const canNextStep = hand != null && actionIdx < maxAction;
   const canPrevStep = hand != null && actionIdx > -1;

@@ -1,4 +1,6 @@
+import { useCallback, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import type { ShareStreet } from "../api/client";
 import BrandMark from "../components/BrandMark";
 import HandReplayModal from "../components/HandReplayModal";
 import SharedHandSocial from "../components/SharedHandSocial";
@@ -6,6 +8,22 @@ import { BRAND } from "../lib/brand";
 
 export default function SharedHandPage() {
   const { token = "" } = useParams<{ token: string }>();
+  const [currentStreet, setCurrentStreet] = useState<ShareStreet>("preflop");
+  const [playedStreets, setPlayedStreets] = useState<ShareStreet[]>(["preflop"]);
+  const [unlockedStreets, setUnlockedStreets] = useState<ShareStreet[]>(["preflop"]);
+
+  const onStreetProgress = useCallback(
+    (info: {
+      currentStreet: ShareStreet;
+      playedStreets: ShareStreet[];
+      unlockedStreets: ShareStreet[];
+    }) => {
+      setCurrentStreet(info.currentStreet);
+      setPlayedStreets(info.playedStreets);
+      setUnlockedStreets(info.unlockedStreets);
+    },
+    [],
+  );
 
   if (!token.trim()) {
     return (
@@ -32,10 +50,16 @@ export default function SharedHandPage() {
         pageMode
         publicToken={token}
         label="Shared hand"
+        onStreetProgress={onStreetProgress}
         onClose={() => undefined}
       />
       <div className="share-social-wrap">
-        <SharedHandSocial token={token} />
+        <SharedHandSocial
+          token={token}
+          currentStreet={currentStreet}
+          playedStreets={playedStreets}
+          unlockedStreets={unlockedStreets}
+        />
       </div>
     </div>
   );

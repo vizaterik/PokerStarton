@@ -10695,6 +10695,17 @@ body.confirm-open #root {
 .share-street-block {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   padding: 0.85rem 0 0.35rem;
+  opacity: 0.72;
+  transition: opacity 160ms ease, background 160ms ease;
+}
+
+.share-street-block.is-current {
+  opacity: 1;
+  margin: 0 -0.35rem;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+  border-radius: 0.55rem;
+  background: rgba(52, 211, 153, 0.06);
 }
 
 .share-street-title {
@@ -10704,6 +10715,30 @@ body.confirm-open #root {
   text-transform: uppercase;
   color: rgba(232, 234, 239, 0.5);
   margin-bottom: 0.45rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.share-street-now {
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+}
+
+.share-social-progress strong {
+  color: #6ee7b7;
+  font-weight: 700;
+}
+
+.share-social-locked {
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
 }
 
 .share-comment-list {
