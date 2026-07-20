@@ -19,14 +19,9 @@ def create_hand_share_from_text(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> HandShareRead:
-    """Share any hand by raw HH text (works for local IndexedDB replays)."""
+    """Share any hand from a replay snapshot (local IndexedDB or server)."""
     try:
-        return hand_share_svc.create_share_from_raw_text(
-            db,
-            current_user,
-            raw_text=payload.raw_text,
-            external_hand_id=payload.external_hand_id,
-        )
+        return hand_share_svc.create_share_from_replay(db, current_user, payload)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:

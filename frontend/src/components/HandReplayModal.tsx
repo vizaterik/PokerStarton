@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   createHandShare,
-  createHandShareFromText,
+  createHandShareFromReplay,
   fetchHandReplay,
   fetchPublicHandReplay,
   fetchResultsHuPotHands,
@@ -21,6 +21,28 @@ const SERVER_HAND_UUID_RE =
 
 function isServerHandId(id: string | null | undefined): boolean {
   return Boolean(id && SERVER_HAND_UUID_RE.test(id));
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
 }
 import { peekAnalysisCache } from "../lib/analysisCache";
 import { formatHandHistoryText } from "../lib/formatHandHistory";
@@ -99,6 +121,8 @@ export default function HandReplayModal({
   const [actionIdx, setActionIdx] = useState(-1);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
   const [shareState, setShareState] = useState<"idle" | "loading" | "ok" | "fail">("idle");
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(true);
   const [amountUnit, setAmountUnit] = useState<AmountUnit>(readAmountUnit);
   const logListRef = useRef<HTMLOListElement | null>(null);
@@ -128,6 +152,8 @@ export default function HandReplayModal({
     setActionIdx(-1);
     setCopyState("idle");
     setShareState("idle");
+    setShareError(null);
+    setShareUrl(null);
 
     const ids = handIdsKey ? handIdsKey.split(",") : [];
     const wrapHands = (
@@ -328,25 +354,40 @@ export default function HandReplayModal({
   async function copyShareLink() {
     if (!hand) return;
     setShareState("loading");
+    setShareError(null);
+    setShareUrl(null);
     try {
+      if (!hand.actions?.length) {
+        throw new Error("В раздаче нет действий — выберите другую руку");
+      }
       const id = hand.id ?? handId;
       const raw = (hand.raw_text || "").trim() || formatHandHistoryText(hand);
-      if (!raw.trim()) throw new Error("empty hh");
-      const share =
-        isServerHandId(id) && !isLocalHandId(id)
-          ? await createHandShare(id)
-          : await createHandShareFromText({
-              raw_text: raw,
-              external_hand_id: hand.external_hand_id,
-            });
+      let share;
+      if (isServerHandId(id) && !isLocalHandId(id)) {
+        try {
+          share = await createHandShare(id);
+        } catch {
+          share = await createHandShareFromReplay({ ...hand, raw_text: raw });
+        }
+      } else {
+        share = await createHandShareFromReplay({ ...hand, raw_text: raw });
+      }
       const path = share.path.startsWith("/") ? share.path : `/${share.path}`;
       const url = `${window.location.origin}${path}`;
-      await navigator.clipboard.writeText(url);
+      setShareUrl(url);
+      const copied = await copyText(url);
+      if (!copied) {
+        setShareError("Ссылка создана — скопируйте вручную ниже");
+        setShareState("ok");
+        return;
+      }
       setShareState("ok");
-      window.setTimeout(() => setShareState("idle"), 2000);
-    } catch {
+      window.setTimeout(() => setShareState("idle"), 2500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Не удалось создать ссылку";
+      setShareError(msg);
       setShareState("fail");
-      window.setTimeout(() => setShareState("idle"), 2200);
+      window.setTimeout(() => setShareState("idle"), 4000);
     }
   }
 
@@ -416,10 +457,19 @@ export default function HandReplayModal({
         </header>
 
         {error && <p className="pr-error">{error}</p>}
+        {shareError && <p className="pr-error">{shareError}</p>}
+        {shareUrl && (
+          <p className="pr-share-url">
+            <a href={shareUrl} target="_blank" rel="noreferrer">
+              {shareUrl}
+            </a>
+          </p>
+        )}
         {loading && <p className="pr-muted">Loading hands…</p>}
         {!loading && data && data.hands.length === 0 && (
           <p className="pr-muted">No hands for «{label}».</p>
         )}
+
 
         {hand && (
           <>

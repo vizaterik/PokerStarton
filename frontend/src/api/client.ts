@@ -950,17 +950,67 @@ export function createHandShare(handId: string) {
   return request<HandShare>(`/api/hands/${handId}/share`, { method: "POST" });
 }
 
-/** Share from raw HH — for local / unsynced replays (auth required). */
+/** Share a specific replay snapshot — works for local / unsynced hands (auth required). */
+export function createHandShareFromReplay(hand: {
+  raw_text: string;
+  external_hand_id?: string | null;
+  played_at?: string | null;
+  table_name?: string | null;
+  small_blind?: number | null;
+  big_blind?: number | null;
+  hero_name?: string | null;
+  hero_position?: string | null;
+  hero_cards?: string[];
+  hero_net?: number | null;
+  hero_net_bb?: number | null;
+  actions: Array<{
+    street: string;
+    order: number;
+    player_name: string;
+    is_hero: boolean;
+    action: string;
+    amount: number | null;
+  }>;
+}) {
+  const heroHand =
+    hand.hero_cards && hand.hero_cards.length >= 2
+      ? `${hand.hero_cards[0]}${hand.hero_cards[1]}`.replace(/\s+/g, "").slice(0, 4)
+      : undefined;
+  return request<HandShare>("/api/hands/share", {
+    method: "POST",
+    body: JSON.stringify({
+      raw_text: hand.raw_text || `Hand #${hand.external_hand_id || "share"}`,
+      external_hand_id: hand.external_hand_id || undefined,
+      played_at: hand.played_at || undefined,
+      table_name: hand.table_name || undefined,
+      small_blind: hand.small_blind ?? undefined,
+      big_blind: hand.big_blind ?? undefined,
+      hero_name: hand.hero_name || undefined,
+      hero_position: hand.hero_position || undefined,
+      hero_hand: heroHand,
+      hero_net: hand.hero_net ?? undefined,
+      hero_net_bb: hand.hero_net_bb ?? undefined,
+      actions: (hand.actions || []).map((a) => ({
+        street: a.street,
+        action_order: a.order,
+        player_name: a.player_name,
+        is_hero: a.is_hero,
+        action: a.action,
+        amount: a.amount,
+      })),
+    }),
+  });
+}
+
+/** @deprecated use createHandShareFromReplay */
 export function createHandShareFromText(payload: {
   raw_text: string;
   external_hand_id?: string | null;
 }) {
-  return request<HandShare>("/api/hands/share", {
-    method: "POST",
-    body: JSON.stringify({
-      raw_text: payload.raw_text,
-      external_hand_id: payload.external_hand_id || undefined,
-    }),
+  return createHandShareFromReplay({
+    raw_text: payload.raw_text,
+    external_hand_id: payload.external_hand_id,
+    actions: [],
   });
 }
 
