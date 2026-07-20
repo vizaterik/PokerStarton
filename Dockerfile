@@ -6,17 +6,20 @@ RUN npm ci
 COPY frontend/ ./
 # Empty base → browser calls /api and /health on the same origin.
 ENV VITE_API_BASE=
-RUN npm run build
+# Skip tsc on VPS: typecheck locally; tsc + vite in parallel with apt OOMs small hosts.
+ENV NODE_OPTIONS=--max-old-space-size=1536
+RUN npm run build:docker
 
+# Frontend first so BuildKit does not run apt + npm build at the same time (low-RAM VPS).
 FROM python:3.12-slim
 WORKDIR /app
+COPY --from=frontend /fe/dist /app/static
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
-COPY --from=frontend /fe/dist /app/static
 ENV DESKTOP_STATIC_DIR=/app/static
 ENV PYTHONUNBUFFERED=1
 EXPOSE 10000
