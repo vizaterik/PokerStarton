@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createSpot,
   fetchMissingSpots,
+  putStrategyTree,
   type EnsuredSpotInfo,
 } from "../../api/client";
 import { listHandsForStrategy } from "../../engine/localDb";
@@ -13,11 +14,17 @@ import {
 } from "../../lib/gameTree/branchPresets";
 import type { BranchPotKind, SavedBranch } from "../../lib/gameTree/branches";
 import { potKindTag } from "../../lib/gameTree/branches";
+import { buildPlayedLine } from "../../lib/gameTree/lineMatch";
+import { saveTree } from "../../lib/gameTree/persist";
 import {
+  seedPlayedLineIntoDoc,
   seedSpotIntoDoc,
   type SeedFocus,
 } from "../../lib/gameTree/seedTreeFromSpots";
-import { coveredByConstructorTags } from "../../lib/spotCoverage";
+import {
+  coveredByConstructorTags,
+  normalizeChartPos,
+} from "../../lib/spotCoverage";
 import type {
   GameTreeDocument,
   StackDepth,
@@ -229,23 +236,55 @@ export default function BranchPanel({
     setAddingKey(key);
     setHint(null);
     try {
-      await createSpot(strategyId, {
-        spot_key: spot.spot_key,
-        hero_position: spot.hero_position,
-        villain_position: spot.villain_position,
-        label: spot.label || undefined,
-      });
-      const seeded = seedSpotIntoDoc(doc, spot);
-      if (seeded) {
-        onSpotAdded?.(seeded.doc, {
-          tipNodeId: seeded.tipNodeId,
-          paintNodeId: seeded.paintNodeId,
-        });
+      // Same as analysis «Ветки» +: prefer real HH line → closed flop tip → paint.
+      const hands = await listHandsForStrategy(strategyId);
+      const heroN = normalizeChartPos(spot.hero_position);
+      const villN = spot.villain_position
+        ? normalizeChartPos(spot.villain_position)
+        : null;
+      const spotKey = spot.spot_key.trim().toLowerCase();
+      const sample =
+        hands.find((h) => {
+          const hs = (h.detected_spot || "").trim().toLowerCase();
+          if (hs !== spotKey) return false;
+          if (normalizeChartPos(h.hero_position || "") !== heroN) return false;
+          if (!villN) return true;
+          return normalizeChartPos(h.villain_position || "") === villN;
+        }) ?? null;
+
+      let seeded = sample
+        ? seedPlayedLineIntoDoc(doc, buildPlayedLine(sample))
+        : null;
+      if (!seeded) seeded = seedSpotIntoDoc(doc, spot);
+      if (!seeded) {
+        setHint(
+          "Не удалось собрать готовую ветку — проверь позиции и размер стола.",
+        );
         return;
       }
-      setHint(
-        "Спот в базе есть, но линию в дереве не собрали — открой редактор и построй вручную.",
-      );
+
+      try {
+        await createSpot(strategyId, {
+          spot_key: spot.spot_key,
+          hero_position: spot.hero_position,
+          villain_position: spot.villain_position,
+          label: spot.label || undefined,
+        });
+      } catch {
+        /* DB spot may already exist; tree seed opens the editor. */
+      }
+
+      const next = { ...seeded.doc, updatedAt: new Date().toISOString() };
+      saveTree(next);
+      void putStrategyTree(
+        strategyId,
+        next as unknown as Record<string, unknown>,
+      ).catch(() => undefined);
+
+      onSpotAdded?.(next, {
+        tipNodeId: seeded.tipNodeId,
+        paintNodeId: seeded.paintNodeId,
+      });
       await reloadMissing();
     } catch (err: unknown) {
       setHint(err instanceof Error ? err.message : "Не удалось добавить ветку");
@@ -500,7 +539,8 @@ export default function BranchPanel({
         ) : (
           <>
             <p className="gto-branches-hint" style={{ marginBottom: "0.35rem" }}>
-              Ситуации из раздач без такого же тега в конструкторе (пот + матчап).
+              Нет в стратегии — «+» соберёт готовую ветку до флопа, останется
+              закрасить.
             </p>
             <ul className="gto-missing-list">
               {visibleMissing.map((s) => {
@@ -518,7 +558,11 @@ export default function BranchPanel({
                         <em className={`pot-tag pot-${spotPotKind(s.spot_key)}`}>
                           {spotPotTag(s.spot_key)}
                         </em>
-                        {treeMatchupLabel(s.spot_key, s.hero_position, s.villain_position)}
+                        {treeMatchupLabel(
+                          s.spot_key,
+                          s.hero_position,
+                          s.villain_position,
+                        ).replace(/\bMP\b/g, "HJ")}
                         <em className="gto-missing-tag">нет чарта</em>
                       </span>
                       <span className="gto-missing-meta">

@@ -27782,6 +27782,13 @@ function collectFacingBranches(root) {
   visit(root, [root]);
   return [...byKey.values()];
 }
+function matchupMergeKey(label) {
+  const raw = label.trim().toUpperCase().replace(/\s+/g, "");
+  const alias = (p) => p === "HJ" || p === "MP1" || p === "MP+1" ? "MP" : p;
+  const m = raw.match(/^([A-Z0-9+]+)VS([A-Z0-9+]+)$/);
+  if (!m) return alias(raw);
+  return `${alias(m[1])}vs${alias(m[2])}`;
+}
 function mergeBranchesByMatchup(branches) {
   const byKey = /* @__PURE__ */ new Map();
   for (const raw of branches) {
@@ -27789,7 +27796,7 @@ function mergeBranchesByMatchup(branches) {
       ...raw,
       potKind: normalizeBranchPotKind(raw.potKind)
     };
-    const key2 = `${b.potKind}|${b.label}`;
+    const key2 = `${b.potKind}|${matchupMergeKey(b.label)}`;
     const prev = byKey.get(key2);
     if (!prev) {
       byKey.set(key2, b);
@@ -28704,12 +28711,26 @@ async function listSessionBranches(strategyId) {
     (a, b) => (a.profit_money ?? 0) - (b.profit_money ?? 0) || (b.hands_count ?? 0) - (a.hands_count ?? 0)
   );
 }
-function isCovered(spot, branches, charts) {
+function isCovered(strategyId, spot, branches, charts) {
   const coverOpts = { strictOpen: true, strictPot: true };
   if (branches.length && spotCoveredByBranches(spot, branches, coverOpts)) {
     return true;
   }
   if (charts.length && spotCoveredByCharts(spot, charts)) return true;
+  const pot = spotPotKind(spot.spot_key);
+  const mu = normalizeMatchupTag(
+    treeMatchupLabel(
+      spot.spot_key,
+      normalizeChartPos(spot.hero_position),
+      spot.villain_position ? normalizeChartPos(spot.villain_position) : null
+    )
+  );
+  if (!mu || mu === "—") return false;
+  for (const b of branches) {
+    if (!potLookupKinds(pot).includes(b.potKind) && b.potKind !== pot) continue;
+    if (normalizeMatchupTag(b.label) === mu) return true;
+  }
+  if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
   return false;
 }
 async function listMissingSpotsLocal(strategyId, branchesOverride) {
@@ -28733,7 +28754,7 @@ async function listMissingSpotsLocal(strategyId, branchesOverride) {
       hero_position: s.hero_position,
       villain_position: s.villain_position
     };
-    return !isCovered(spot, branches, charts);
+    return !isCovered(strategyId, spot, branches, charts);
   });
 }
 function chartPosToSeat(pos, tableSize) {
@@ -29074,23 +29095,44 @@ function BranchPanel({
     setAddingKey(key2);
     setHint(null);
     try {
-      await createSpot(strategyId, {
-        spot_key: spot.spot_key,
-        hero_position: spot.hero_position,
-        villain_position: spot.villain_position,
-        label: spot.label || void 0
-      });
-      const seeded = seedSpotIntoDoc(doc, spot);
-      if (seeded) {
-        onSpotAdded == null ? void 0 : onSpotAdded(seeded.doc, {
-          tipNodeId: seeded.tipNodeId,
-          paintNodeId: seeded.paintNodeId
-        });
+      const hands = await listHandsForStrategy(strategyId);
+      const heroN = normalizeChartPos(spot.hero_position);
+      const villN = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
+      const spotKey = spot.spot_key.trim().toLowerCase();
+      const sample = hands.find((h) => {
+        const hs = (h.detected_spot || "").trim().toLowerCase();
+        if (hs !== spotKey) return false;
+        if (normalizeChartPos(h.hero_position || "") !== heroN) return false;
+        if (!villN) return true;
+        return normalizeChartPos(h.villain_position || "") === villN;
+      }) ?? null;
+      let seeded = sample ? seedPlayedLineIntoDoc(doc, buildPlayedLine(sample)) : null;
+      if (!seeded) seeded = seedSpotIntoDoc(doc, spot);
+      if (!seeded) {
+        setHint(
+          "Не удалось собрать готовую ветку — проверь позиции и размер стола."
+        );
         return;
       }
-      setHint(
-        "Спот в базе есть, но линию в дереве не собрали — открой редактор и построй вручную."
-      );
+      try {
+        await createSpot(strategyId, {
+          spot_key: spot.spot_key,
+          hero_position: spot.hero_position,
+          villain_position: spot.villain_position,
+          label: spot.label || void 0
+        });
+      } catch {
+      }
+      const next = { ...seeded.doc, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+      saveTree(next);
+      void putStrategyTree(
+        strategyId,
+        next
+      ).catch(() => void 0);
+      onSpotAdded == null ? void 0 : onSpotAdded(next, {
+        tipNodeId: seeded.tipNodeId,
+        paintNodeId: seeded.paintNodeId
+      });
       await reloadMissing();
     } catch (err) {
       setHint(err instanceof Error ? err.message : "Не удалось добавить ветку");
@@ -29299,7 +29341,7 @@ ${b.label}`)) {
       ] }),
       hint ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "gto-branches-hint-ok", children: hint }) : null,
       missingLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "gto-branches-empty", children: "Сверяем…" }) : sortedMissing.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "gto-branches-empty", children: "Все матчапы из сессий уже есть среди тегов конструктора." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "gto-branches-hint", style: { marginBottom: "0.35rem" }, children: "Ситуации из раздач без такого же тега в конструкторе (пот + матчап)." }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "gto-branches-hint", style: { marginBottom: "0.35rem" }, children: "Нет в стратегии — «+» соберёт готовую ветку до флопа, останется закрасить." }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "gto-missing-list", children: visibleMissing.map((s) => {
           const key2 = missingKey(s);
           const busy = addingKey === key2;
@@ -29313,7 +29355,11 @@ ${b.label}`)) {
               children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "gto-missing-label", children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: `pot-tag pot-${spotPotKind(s.spot_key)}`, children: spotPotTag(s.spot_key) }),
-                  treeMatchupLabel(s.spot_key, s.hero_position, s.villain_position),
+                  treeMatchupLabel(
+                    s.spot_key,
+                    s.hero_position,
+                    s.villain_position
+                  ).replace(/\bMP\b/g, "HJ"),
                   /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: "gto-missing-tag", children: "нет чарта" })
                 ] }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "gto-missing-meta", children: (s.hands_count ?? 0).toLocaleString("ru-RU") }),
@@ -30139,17 +30185,17 @@ function GtoTreeEditor({ strategy }) {
           const stamped = { ...next, updatedAt: (/* @__PURE__ */ new Date()).toISOString() };
           setDoc(stamped);
           const tip = findNode(stamped.root, focus.tipNodeId);
-          if (!(tip == null ? void 0 : tip.awaitingFlop)) {
-            setSelectedHand(null);
-            setTab("editor");
-            return;
-          }
-          const tipPath = pathToNode(stamped.root, focus.tipNodeId) ?? [];
-          const rangeSpots2 = branchRangeSpots(tipPath, stamped.stackDepth).filter(
+          const tipPath = tip ? pathToNode(stamped.root, focus.tipNodeId) ?? [] : [];
+          const rangeSpots2 = branchRangeSpots(
+            tipPath,
+            stamped.stackDepth
+          ).filter(
             (s) => s.lineAction === "RAISE" || s.lineAction === "CALL"
           );
           const paint = rangeSpots2.find((s) => s.nodeId === focus.paintNodeId) ?? rangeSpots2[0];
-          setActiveId(focus.tipNodeId);
+          setActiveId(
+            (tip == null ? void 0 : tip.awaitingFlop) ? focus.tipNodeId : (paint == null ? void 0 : paint.nodeId) ?? focus.paintNodeId
+          );
           setPaintNodeId((paint == null ? void 0 : paint.nodeId) ?? focus.paintNodeId);
           setSelectedHand(null);
           setTab("editor");

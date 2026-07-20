@@ -620,19 +620,24 @@ export default function GtoTreeEditor({ strategy }: Props) {
             const stamped = { ...next, updatedAt: new Date().toISOString() };
             setDoc(stamped);
             const tip = findNode(stamped.root, focus.tipNodeId);
-            if (!tip?.awaitingFlop) {
-              setSelectedHand(null);
-              setTab("editor");
-              return;
-            }
-            const tipPath = pathToNode(stamped.root, focus.tipNodeId) ?? [];
-            const rangeSpots = branchRangeSpots(tipPath, stamped.stackDepth).filter(
+            const tipPath = tip
+              ? pathToNode(stamped.root, focus.tipNodeId) ?? []
+              : [];
+            const rangeSpots = branchRangeSpots(
+              tipPath,
+              stamped.stackDepth,
+            ).filter(
               (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
             );
             const paint =
               rangeSpots.find((s) => s.nodeId === focus.paintNodeId) ??
               rangeSpots[0];
-            setActiveId(focus.tipNodeId);
+            // Prefer closed flop tip (paint-ready); else still land on seed focus.
+            setActiveId(
+              tip?.awaitingFlop
+                ? focus.tipNodeId
+                : paint?.nodeId ?? focus.paintNodeId,
+            );
             setPaintNodeId(paint?.nodeId ?? focus.paintNodeId);
             setSelectedHand(null);
             setTab("editor");

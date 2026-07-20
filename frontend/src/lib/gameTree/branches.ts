@@ -348,6 +348,16 @@ export function collectFacingBranches(root: GameTreeNode): SavedBranch[] {
   return [...byKey.values()];
 }
 
+/** Matchup key for merge: `HJvsBB` ≡ `MPvsBB` (same as analysis normalize). */
+function matchupMergeKey(label: string): string {
+  const raw = label.trim().toUpperCase().replace(/\s+/g, "");
+  const alias = (p: string) =>
+    p === "HJ" || p === "MP1" || p === "MP+1" ? "MP" : p;
+  const m = raw.match(/^([A-Z0-9+]+)VS([A-Z0-9+]+)$/);
+  if (!m) return alias(raw);
+  return `${alias(m[1])}vs${alias(m[2])}`;
+}
+
 function mergeBranchesByMatchup(branches: SavedBranch[]): SavedBranch[] {
   const byKey = new Map<string, SavedBranch>();
   for (const raw of branches) {
@@ -355,7 +365,7 @@ function mergeBranchesByMatchup(branches: SavedBranch[]): SavedBranch[] {
       ...raw,
       potKind: normalizeBranchPotKind(raw.potKind),
     };
-    const key = `${b.potKind}|${b.label}`;
+    const key = `${b.potKind}|${matchupMergeKey(b.label)}`;
     const prev = byKey.get(key);
     if (!prev) {
       byKey.set(key, b);

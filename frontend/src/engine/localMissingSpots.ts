@@ -7,9 +7,11 @@ import { listSpots } from "../api/client";
 import { spotPotKind, treeMatchupLabel } from "../lib/branchLabel";
 import { collectEditorBranches, type SavedBranch } from "../lib/gameTree/branches";
 import { resolveConstructorTree } from "../lib/gameTree/syncTreeCharts";
+import { loadBranchPaintMatrix } from "../lib/gameTree/syncTreeCharts";
 import {
   normalizeChartPos,
   normalizeMatchupTag,
+  potLookupKinds,
   spotCoveredByBranches,
   spotCoveredByCharts,
   type SpotLike,
@@ -117,10 +119,11 @@ export async function listSessionBranches(
 }
 
 /**
- * Covered only by the same pot + matchup (Raise ≠ 3-bet).
+ * Covered by the same pot + matchup (Raise ≠ 3-bet), or a real paint matrix.
  * Soft "open covers facing" must not hide Missing Strategy rows.
  */
 function isCovered(
+  strategyId: string,
   spot: SpotLike,
   branches: SavedBranch[],
   charts: StrategySpot[],
@@ -130,6 +133,27 @@ function isCovered(
     return true;
   }
   if (charts.length && spotCoveredByCharts(spot, charts)) return true;
+
+  const pot = spotPotKind(spot.spot_key);
+  const mu = normalizeMatchupTag(
+    treeMatchupLabel(
+      spot.spot_key,
+      normalizeChartPos(spot.hero_position),
+      spot.villain_position
+        ? normalizeChartPos(spot.villain_position)
+        : null,
+    ),
+  );
+  if (!mu || mu === "—") return false;
+
+  // Same pot + normalized tag in the editor list (HJ ≡ MP).
+  for (const b of branches) {
+    if (!potLookupKinds(pot).includes(b.potKind) && b.potKind !== pot) continue;
+    if (normalizeMatchupTag(b.label) === mu) return true;
+  }
+
+  // Paint already exists under this pot|matchup (HJ ≡ MP inside loader).
+  if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
   return false;
 }
 
@@ -167,6 +191,6 @@ export async function listMissingSpotsLocal(
       hero_position: s.hero_position,
       villain_position: s.villain_position,
     };
-    return !isCovered(spot, branches!, charts);
+    return !isCovered(strategyId, spot, branches!, charts);
   });
 }
