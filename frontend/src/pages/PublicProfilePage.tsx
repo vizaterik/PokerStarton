@@ -101,7 +101,7 @@ export default function PublicProfilePage() {
                 </div>
               </div>
               <div className="feed-top-stats">
-                <span title="Просмотры">👁 {h.views_count ?? 0}</span>
+                <span title="Просмотры">{h.views_count ?? 0} просм.</span>
                 <span title="Лайки">♥ {h.likes_count}</span>
               </div>
             </li>
