@@ -56,7 +56,6 @@ import {
 } from "../lib/gameTree/branches";
 import { loadTree } from "../lib/gameTree/persist";
 import {
-  ensureConstructorChartsSynced,
   loadBranchPaintMatrix,
   resolveConstructorTree,
 } from "../lib/gameTree/syncTreeCharts";
@@ -974,26 +973,31 @@ export default function StrategyAnalysisPanel({
     void reloadMissingSpots();
   }, [tab, preflopSub, strategyId, refreshKey, loading, reloadMissingSpots]);
 
-  /** Pull painted constructor tree on mount / new upload so charts are ready. */
+  /** Hydrate local constructor tree (cheap GET + localStorage). */
   useEffect(() => {
     if (!strategyId || analysisSuspended) return;
     let cancelled = false;
-    void (async () => {
-      try {
-        await ensureConstructorChartsSynced(strategyId);
+    void resolveConstructorTree(strategyId)
+      .then(() => {
         if (cancelled) return;
         setTreeTick((n) => n + 1);
         const rev = readChartsRevision(strategyId);
         if (rev) lastChartsRevRef.current = rev;
-        setChartsBump((n) => n + 1);
-      } catch {
+      })
+      .catch(() => {
         if (!cancelled) setTreeTick((n) => n + 1);
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
   }, [strategyId, analysisSuspended, refreshKey, strategyRevision]);
+
+  /** Full strategy rescore only after a new upload / parent revision — not on every remount. */
+  useEffect(() => {
+    if (!strategyId || analysisSuspended) return;
+    if (refreshKey === 0) return;
+    setChartsBump((n) => n + 1);
+  }, [refreshKey, strategyId, analysisSuspended]);
 
   /** When opening «Стратегии» — reload branch list (strategy paint refreshes on chart click). */
   useEffect(() => {
@@ -1339,18 +1343,11 @@ export default function StrategyAnalysisPanel({
       });
       setSelectedChartKey(`${row.pot_kind}|${row.matchup}`);
       setSelectedHand(null);
-      // Refresh constructor paint only when a chart/branch is opened.
-      void ensureConstructorChartsSynced(strategyId)
-        .then(() => {
-          setTreeTick((n) => n + 1);
-          const rev = readChartsRevision(strategyId);
-          if (rev) lastChartsRevRef.current = rev;
-        })
-        .catch(() => {
-          setTreeTick((n) => n + 1);
-        });
+      // Local paint only — never upsert all charts to the API on every click
+      // (that was freezing the tab after sessions stacked).
+      setTreeTick((n) => n + 1);
     },
-    [strategyId],
+    [],
   );
 
   // Auto-focus first branch when opening «Ветки» / «Ошибки».
