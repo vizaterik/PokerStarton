@@ -963,6 +963,7 @@ export function createHandShareFromReplay(hand: {
   hero_cards?: string[];
   hero_net?: number | null;
   hero_net_bb?: number | null;
+  board?: string[];
   actions: Array<{
     street: string;
     order: number;
@@ -990,6 +991,7 @@ export function createHandShareFromReplay(hand: {
       hero_hand: heroHand,
       hero_net: hand.hero_net ?? undefined,
       hero_net_bb: hand.hero_net_bb ?? undefined,
+      board: hand.board?.length ? hand.board : undefined,
       actions: (hand.actions || []).map((a) => ({
         street: a.street,
         action_order: a.order,

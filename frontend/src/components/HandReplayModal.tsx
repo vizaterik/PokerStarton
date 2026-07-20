@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  createHandShare,
   createHandShareFromReplay,
   fetchHandReplay,
   fetchPublicHandReplay,
@@ -21,13 +20,6 @@ import {
   streetsPlayedInHand,
   unlockedCommentStreets,
 } from "../lib/shareStreets";
-
-const SERVER_HAND_UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function isServerHandId(id: string | null | undefined): boolean {
-  return Boolean(id && SERVER_HAND_UUID_RE.test(id));
-}
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -385,18 +377,14 @@ export default function HandReplayModal({
       if (!hand.actions?.length) {
         throw new Error("В раздаче нет действий — выберите другую руку");
       }
-      const id = hand.id ?? handId;
+      // Always upload the full in-memory replay snapshot. Server UUID hands from
+      // analysis snapshots are often truncated (preflop-only) and must not be linked.
       const raw = (hand.raw_text || "").trim() || formatHandHistoryText(hand);
-      let share;
-      if (isServerHandId(id) && !isLocalHandId(id)) {
-        try {
-          share = await createHandShare(id);
-        } catch {
-          share = await createHandShareFromReplay({ ...hand, raw_text: raw });
-        }
-      } else {
-        share = await createHandShareFromReplay({ ...hand, raw_text: raw });
-      }
+      const share = await createHandShareFromReplay({
+        ...hand,
+        raw_text: raw,
+        board: hand.board || [],
+      });
       const path = share.path.startsWith("/") ? share.path : `/${share.path}`;
       const url = `${window.location.origin}${path}`;
       setShareUrl(url);

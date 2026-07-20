@@ -65,4 +65,6 @@ class ShareHandFromTextRequest(BaseModel):
     hero_hand: str | None = None
     hero_net: float | None = None
     hero_net_bb: float | None = None
+    # Board cards like ["Ah","Kd","2c"] — used if raw_text is a stub without FLOP lines.
+    board: list[str] = Field(default_factory=list)
     actions: list[ShareReplayAction] = Field(default_factory=list)
