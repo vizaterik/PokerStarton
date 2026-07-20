@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { listStrategies, type BatchUploadReport, type Strategy } from "../api/client";
+import {
+  isLoggedIn,
+  listStrategies,
+  type BatchUploadReport,
+  type Strategy,
+} from "../api/client";
 import AnalysisBgWait from "../components/AnalysisBgWait";
 import SessionUploadPanel from "../components/SessionUploadPanel";
 import StrategyAnalysisPanel from "../components/StrategyAnalysisPanel";
@@ -11,6 +16,14 @@ import {
   listSessionDays,
   type SessionDayRow,
 } from "../engine/localDb";
+import {
+  ensureHandsSyncedToServer,
+  isProfileSyncCurrent,
+  localHandsFingerprint,
+  readProfileSyncState,
+  reconcileProfileSync,
+  type ProfileSyncState,
+} from "../engine/profileSync";
 import { clearAnalysisCache } from "../lib/analysisCache";
 import {
   getAnalysisJob,
@@ -47,6 +60,10 @@ export default function AnalysisPage() {
     isAnalysisJobRunning(readLastStrategyId() ?? undefined),
   );
   const lastDoneTokenRef = useRef(0);
+  const [syncState, setSyncState] = useState<ProfileSyncState | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
+  const syncAttemptRef = useRef<string>("");
 
   useEffect(() => {
     let cancelled = false;
@@ -96,6 +113,7 @@ export default function AnalysisPage() {
         if (cancelled) return;
         setLocalHands(n);
         setSessionDays(days);
+        setSyncState(readProfileSyncState(strategyId));
         setSelectedDays((prev) => {
           if (prev == null) return null;
           const keep = prev.filter((d) => days.some((x) => x.day === d));
@@ -112,6 +130,47 @@ export default function AnalysisPage() {
       cancelled = true;
     };
   }, [strategyId, revision]);
+
+  // Auto-push local hands to the profile DB when the page opens / after import.
+  useEffect(() => {
+    if (!strategyId || bgRunning || !localHands || localHands < 1) return;
+    if (!isLoggedIn()) {
+      setSyncState(readProfileSyncState(strategyId));
+      return;
+    }
+    let cancelled = false;
+    const attemptKey = `${strategyId}:${revision}:${localHands}`;
+    if (syncAttemptRef.current === attemptKey) return;
+
+    void (async () => {
+      const { fingerprint } = await localHandsFingerprint(strategyId);
+      if (cancelled) return;
+      if (isProfileSyncCurrent(strategyId, fingerprint)) {
+        setSyncState(readProfileSyncState(strategyId));
+        setSyncNote(null);
+        syncAttemptRef.current = attemptKey;
+        return;
+      }
+      syncAttemptRef.current = attemptKey;
+      setSyncBusy(true);
+      setSyncNote("Сохраняем раздачи на сервер…");
+      const res = await reconcileProfileSync(strategyId);
+      if (cancelled) return;
+      setSyncState(readProfileSyncState(strategyId));
+      setSyncBusy(false);
+      if (res.ok) {
+        setSyncNote(res.skipped ? null : "Раздачи сохранены на сервере");
+      } else {
+        // Allow another auto-attempt after navigation / revision change.
+        syncAttemptRef.current = "";
+        setSyncNote(res.error || "Не удалось сохранить на сервер");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [strategyId, revision, localHands, bgRunning]);
 
   useEffect(() => {
     const syncBusy = () => {
@@ -213,6 +272,26 @@ export default function AnalysisPage() {
 
   const selectAllDays = useCallback(() => setSelectedDays(null), []);
 
+  const retryServerSync = useCallback(async () => {
+    if (!strategyId || syncBusy || bgRunning) return;
+    syncAttemptRef.current = "";
+    setSyncBusy(true);
+    setSyncNote("Сохраняем раздачи на сервер…");
+    const res = await ensureHandsSyncedToServer(strategyId, {
+      force: true,
+      label: "Повторная синхронизация",
+      sourceFilename: "retry-sync.txt",
+    });
+    setSyncState(readProfileSyncState(strategyId));
+    setSyncBusy(false);
+    if (res.ok) {
+      syncAttemptRef.current = `${strategyId}:${revision}:${localHands ?? 0}`;
+      setSyncNote("Раздачи сохранены на сервере");
+    } else {
+      setSyncNote(res.error || "Не удалось сохранить на сервер");
+    }
+  }, [strategyId, syncBusy, bgRunning, revision, localHands]);
+
   const dayFilter = useMemo(() => selectedDays, [selectedDays]);
   const filteredHands = useMemo(() => {
     if (selectedDays == null) return localHands;
@@ -223,6 +302,47 @@ export default function AnalysisPage() {
 
   const filterActive = selectedDays != null;
   const waiting = bgRunning || job.status === "error";
+  const syncOk = Boolean(syncState && !syncState.error && syncState.fingerprint);
+  const syncNeedsLogin = Boolean(localHands && localHands > 0 && !isLoggedIn());
+  const syncFailed = Boolean(syncState?.error) || syncNeedsLogin;
+
+  const handsMeta = localHands != null ? (
+    <span className="analysis-sync-meta">
+      <span className="muted db-hands-pill">
+        {localHands.toLocaleString("ru-RU")} рук
+        {filterActive && filteredHands != null
+          ? ` · фильтр ${filteredHands.toLocaleString("ru-RU")}`
+          : ""}
+      </span>
+      {localHands > 0 ? (
+        <span
+          className={`analysis-sync-pill${syncBusy ? " is-busy" : ""}${syncOk && !syncBusy ? " is-ok" : ""}${syncFailed && !syncBusy ? " is-bad" : ""}`}
+        >
+          {syncBusy
+            ? "на сервер…"
+            : syncNeedsLogin
+              ? "только в браузере"
+              : syncOk
+                ? "на сервере"
+                : "не на сервере"}
+        </span>
+      ) : null}
+      {syncFailed && !syncBusy && !syncNeedsLogin ? (
+        <button
+          type="button"
+          className="linkish analysis-sync-retry"
+          onClick={() => void retryServerSync()}
+        >
+          Повторить
+        </button>
+      ) : null}
+      {syncNeedsLogin ? (
+        <Link to="/login" className="linkish analysis-sync-retry">
+          Войти
+        </Link>
+      ) : null}
+    </span>
+  ) : null;
 
   return (
     <section className="page analysis-page">
@@ -230,7 +350,7 @@ export default function AnalysisPage() {
         <p className="upload-kicker">Session check</p>
         <h1>Анализ сессии</h1>
         <p className="lead">
-          Загрузка добавляет раздачи в общую базу (дубли пропускаются). Лимит{" "}
+          Разбор в браузере, копия раздач — на сервере в базе профиля. Лимит{" "}
           {DAILY_HAND_UPLOAD_LIMIT.toLocaleString("ru-RU")} рук на календарный день.
         </p>
       </header>
@@ -252,21 +372,14 @@ export default function AnalysisPage() {
                 ))}
               </select>
             </label>
-            {localHands != null ? (
-              <span className="muted db-hands-pill">
-                {localHands.toLocaleString("ru-RU")} рук в базе
-                {filterActive && filteredHands != null
-                  ? ` · фильтр ${filteredHands.toLocaleString("ru-RU")}`
-                  : ""}
-              </span>
-            ) : null}
+            {handsMeta}
           </div>
-        ) : localHands != null ? (
-          <p className="muted db-hands-pill analysis-db-meta">
-            {localHands.toLocaleString("ru-RU")} рук в базе
-            {filterActive && filteredHands != null
-              ? ` · фильтр ${filteredHands.toLocaleString("ru-RU")}`
-              : ""}
+        ) : handsMeta ? (
+          <div className="analysis-db-meta">{handsMeta}</div>
+        ) : null}
+        {syncNote && (syncFailed || syncBusy) ? (
+          <p className={`analysis-sync-note${syncFailed && !syncBusy ? " is-bad" : ""}`}>
+            {syncNote}
           </p>
         ) : null}
 

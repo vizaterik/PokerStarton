@@ -1375,6 +1375,49 @@ button.linkish {
   margin: 0 0 0.85rem;
 }
 
+.analysis-sync-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+}
+
+.analysis-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--muted);
+  opacity: 0.9;
+}
+
+.analysis-sync-pill.is-ok {
+  color: var(--accent);
+}
+
+.analysis-sync-pill.is-bad {
+  color: #f0a090;
+}
+
+.analysis-sync-pill.is-busy {
+  color: rgba(245, 247, 250, 0.78);
+}
+
+.analysis-sync-retry {
+  font-size: 0.75rem;
+}
+
+.analysis-sync-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.analysis-sync-note.is-bad {
+  color: #f0a090;
+}
+
 .analysis-page-results {
   margin-top: 1.75rem;
 }

@@ -134,14 +134,12 @@ def sync_client_hands(
     """Insert pre-parsed hands into the active profile database."""
     n = len(payload.hands)
     assert_analysis_batch_size(n)
-    sub_svc.assert_can_analyze_hands(user, n)
 
     strategy = db.get(Strategy, payload.strategy_id)
     if strategy is None or strategy.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Плейбук не найден")
 
     active_db = db_svc.get_active_database(db, user)
-    assert_database_capacity(db, database_id=active_db.id, additional_hands=n)
 
     label = (payload.label or "Локальный импорт").strip()[:300] or "Локальный импорт"
     source = (payload.source_filename or "local-import.txt").strip()[:512]
@@ -239,6 +237,13 @@ def sync_client_hands(
             continue
         seen.add(eid)
         new_hands.append(parsed)
+
+    # Quota / capacity only for new hands — re-sync of duplicates must not block.
+    if new_hands:
+        sub_svc.assert_can_analyze_hands(user, len(new_hands))
+        assert_database_capacity(
+            db, database_id=active_db.id, additional_hands=len(new_hands)
+        )
 
     spot_by_key, cell_by_key = ({}, {})
     if upload.strategy_id is not None and new_hands:

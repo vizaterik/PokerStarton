@@ -8,7 +8,10 @@ import {
 } from "../api/client";
 import { CLIENT_HH_ENGINE, importHandsLocally } from "../engine/hhClient";
 import { finalizeLocalAnalysis } from "../engine/localAnalysis";
-import { uploadLocalAnalysisSnapshot } from "../engine/uploadAnalysisSnapshot";
+import {
+  ensureHandsSyncedToServer,
+  markProfileSyncError,
+} from "../engine/profileSync";
 import { readLastStrategyId, writeLastStrategyId } from "../lib/handDbCache";
 import {
   completeClientImport,
@@ -214,14 +217,15 @@ export default function SessionUploadPanel({
           updateClientImportProgress(
             strategyId,
             72,
-            "Загружаем отчёт в базу…",
+            "Сохраняем раздачи на сервер…",
             fin.hands,
           );
-          const snap = await uploadLocalAnalysisSnapshot(strategyId, {
+          // Force push — fingerprint may match a prior failed/partial state.
+          const snap = await ensureHandsSyncedToServer(strategyId, {
+            force: true,
             label: `Сессия · ${sourceFilename}`,
             sourceFilename,
             onProgress: (message, pct) => {
-              // Snapshot phase 0–100 → overall 72–99.
               updateClientImportProgress(
                 strategyId,
                 Math.min(99, 72 + Math.round((pct / 100) * 27)),
@@ -232,17 +236,16 @@ export default function SessionUploadPanel({
           });
 
           if (snap.ok) {
-            // Career report is written in uploadLocalAnalysisSnapshot; warm only refreshes DB meta.
             if (!snap.response?.career_report) clearResultsCache();
             void warmHandDbAndResultsCache();
             const n = fin.hands.toLocaleString("ru-RU");
             const added = result.total_hands > 0 ? result.total_hands : snap.handsSaved;
             if (added > 0 && (dups > 0 || snap.duplicatesSkipped > 0)) {
-              uploadNote = `В базу · +${added.toLocaleString("ru-RU")} · всего ${n} рук`;
+              uploadNote = `На сервере · +${added.toLocaleString("ru-RU")} · всего ${n} рук`;
             } else if (added > 0) {
-              uploadNote = `В базу · +${added.toLocaleString("ru-RU")} · всего ${n} рук`;
+              uploadNote = `На сервере · +${added.toLocaleString("ru-RU")} · всего ${n} рук`;
             } else {
-              uploadNote = `Дубли пропущены · в базе ${n} рук`;
+              uploadNote = `На сервере · ${n} рук`;
             }
             if (limited > 0) {
               uploadNote = `${uploadNote} · лимит 5 000/день: пропущено ${limited.toLocaleString("ru-RU")}`;
@@ -253,12 +256,16 @@ export default function SessionUploadPanel({
             completeClientImport(strategyId, fin.hands, uploadNote);
           } else {
             const why = snap.error ? `: ${snap.error}` : "";
-            uploadNote = `Сессия разобрана локально · ${fin.hands.toLocaleString("ru-RU")} рук. Не удалось обновить базу профиля${why}`;
+            markProfileSyncError(
+              strategyId,
+              snap.error || "Не удалось сохранить раздачи на сервер",
+            );
+            uploadNote = `Разбор в браузере · ${fin.hands.toLocaleString("ru-RU")} рук. На сервер не попали${why}`;
             setError(uploadNote);
             completeClientImport(
               strategyId,
               fin.hands,
-              `Локально · ${fin.hands.toLocaleString("ru-RU")} рук · база не обновлена`,
+              `Локально · ${fin.hands.toLocaleString("ru-RU")} рук · сервер не обновлён`,
             );
             ok = false;
           }

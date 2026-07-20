@@ -188,7 +188,6 @@ def upload_analysis_snapshot(
         )
     if n:
         assert_analysis_batch_size(n)
-        sub_svc.assert_can_analyze_hands(user, n)
 
     strategy = db.get(Strategy, payload.strategy_id)
     if strategy is None or strategy.user_id != user.id:
@@ -214,7 +213,9 @@ def upload_analysis_snapshot(
     already = _known_in_database(db, database_id=active_db.id, candidate_ids=candidate_ids)
     new_rows = [h for h in unique if h.external_hand_id.strip()[:64] not in already]
     additional = len(new_rows)
+    # Quota / capacity only for truly new rows — re-sync of duplicates must not block.
     if additional:
+        sub_svc.assert_can_analyze_hands(user, additional)
         assert_database_capacity(db, database_id=active_db.id, additional_hands=additional)
 
     session: PlaySession | None = None

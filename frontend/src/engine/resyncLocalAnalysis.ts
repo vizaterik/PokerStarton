@@ -5,7 +5,7 @@
 
 import { finalizeLocalAnalysis } from "./localAnalysis";
 import { listHandsForStrategy } from "./localDb";
-import { uploadLocalAnalysisSnapshot } from "./uploadAnalysisSnapshot";
+import { ensureHandsSyncedToServer } from "./profileSync";
 import {
   completeClientImport,
   isAnalysisJobBusy,
@@ -55,8 +55,9 @@ export async function resyncLocalAnalysis(strategyId: string): Promise<ResyncRes
       updateClientImportProgress(strategyId, pct, p.message, hands);
     });
 
-    updateClientImportProgress(strategyId, 72, "Загружаем отчёт в базу…", fin.hands);
-    await uploadLocalAnalysisSnapshot(strategyId, {
+    updateClientImportProgress(strategyId, 72, "Сохраняем раздачи на сервер…", fin.hands);
+    const snap = await ensureHandsSyncedToServer(strategyId, {
+      force: true,
       label: "Сессия · сверка",
       sourceFilename: "resync.txt",
       onProgress: (message, pct) => {
@@ -67,12 +68,18 @@ export async function resyncLocalAnalysis(strategyId: string): Promise<ResyncRes
           fin.hands,
         );
       },
-    }).catch(() => null);
+    });
+
+    if (!snap.ok) {
+      const msg = snap.error || "Не удалось сохранить раздачи на сервер";
+      markAnalysisUploadFailed(strategyId, msg);
+      return { ok: false, hands: fin.hands, error: msg };
+    }
 
     completeClientImport(
       strategyId,
       fin.hands,
-      `Сверка обновлена · ${fin.hands.toLocaleString("ru-RU")} рук`,
+      `Сверка обновлена · ${fin.hands.toLocaleString("ru-RU")} рук · на сервере`,
     );
     return { ok: true, hands: fin.hands, error: null };
   } catch (err) {
