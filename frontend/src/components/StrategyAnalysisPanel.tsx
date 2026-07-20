@@ -1400,36 +1400,34 @@ export default function StrategyAnalysisPanel({
     openErrorReplay(d);
   }
 
-  /** Click combo / hand code → filter + open replay (errors first, else played ids). */
-  function openComboReplay(
+  /** Click combo in a range matrix → select/filter only (replay via button). */
+  function selectCombo(code: string, filter: ErrorFilter) {
+    setSelectedHand(code);
+    setErrorFilter({ ...filter, handCode: code });
+  }
+
+  /** Resolve hand ids for a selected combo (errors first, else played cell ids). */
+  function resolveComboHandIds(
     code: string,
     filter: ErrorFilter,
     playCells?: { hand_code: string; hand_ids?: string[] }[] | null,
-  ) {
-    setSelectedHand(code);
-    setErrorFilter({ ...filter, handCode: code });
+  ): { ids: string[]; label: string } {
     const nextFilter = { ...filter, handCode: code };
     const errList = (liveDevs?.deviations ?? []).filter((d) =>
       matchesFilter(d, nextFilter, paintedTreeBranches),
     );
     if (errList.length > 0) {
-      setReplay({
-        mode: "hand",
-        handIds: errList.map((d) => d.hand_id),
-        startIndex: 0,
+      return {
+        ids: errList.map((d) => d.hand_id),
         label: `${code} · ошибки · ${errList.length}`,
-      });
-      return;
+      };
     }
-    const fromCell = (playCells ?? []).find((c) => c.hand_code === code)?.hand_ids ?? [];
-    if (fromCell.length > 0) {
-      setReplay({
-        mode: "hand",
-        handIds: fromCell,
-        startIndex: 0,
-        label: `${code} · раздачи · ${fromCell.length}`,
-      });
-    }
+    const fromCell =
+      (playCells ?? []).find((c) => c.hand_code === code)?.hand_ids ?? [];
+    return {
+      ids: fromCell,
+      label: `${code} · раздачи · ${fromCell.length}`,
+    };
   }
 
   function openHandsReplay(handIds: string[], label: string, startIndex = 0) {
@@ -1440,6 +1438,22 @@ export default function StrategyAnalysisPanel({
       startIndex,
       label,
     });
+  }
+
+  function openSelectedComboReplay(
+    playCells?: { hand_code: string; hand_ids?: string[] }[] | null,
+  ) {
+    const code = selectedHand || errorFilter.handCode;
+    if (!code) {
+      openErrorReplay();
+      return;
+    }
+    const { ids, label } = resolveComboHandIds(code, errorFilter, playCells);
+    if (ids.length) {
+      openHandsReplay(ids, label);
+      return;
+    }
+    openErrorReplay();
   }
 
   function goErrors(filter: ErrorFilter, chart?: ChartErrorSpot | null) {
@@ -1787,17 +1801,13 @@ export default function StrategyAnalysisPanel({
                             cells={strategyChart}
                             selected={selectedHand}
                             onSelectHand={(code) => {
-                              openComboReplay(
-                                code,
-                                {
-                                  spotKey: activeChart.spot_key,
-                                  heroPosition: activeChart.hero_position,
-                                  villainPosition: activeChart.villain_position,
-                                  matchup: focusMu,
-                                  potKind: focusPot,
-                                },
-                                activePlayedChart?.cells ?? activeChart.cells,
-                              );
+                              selectCombo(code, {
+                                spotKey: activeChart.spot_key,
+                                heroPosition: activeChart.hero_position,
+                                villainPosition: activeChart.villain_position,
+                                matchup: focusMu,
+                                potKind: focusPot,
+                              });
                             }}
                           />
                         )}
@@ -1805,30 +1815,26 @@ export default function StrategyAnalysisPanel({
                       <div className="preflop-chart-pane">
                         <header>
                           <strong>Ошибки</strong>
-                          <span>raise / call / fold · счётчик</span>
+                          <span>raise / call / fold · клик = выбрать</span>
                         </header>
                         <DeviationErrorMatrix
                           cells={activeChart.cells}
                           selectedHand={selectedHand}
                           onSelectHand={(code) => {
-                            openComboReplay(
-                              code,
-                              {
-                                spotKey: activeChart.spot_key,
-                                heroPosition: activeChart.hero_position,
-                                villainPosition: activeChart.villain_position,
-                                matchup: focusMu,
-                                potKind: focusPot,
-                              },
-                              activeChart.cells,
-                            );
+                            selectCombo(code, {
+                              spotKey: activeChart.spot_key,
+                              heroPosition: activeChart.hero_position,
+                              villainPosition: activeChart.villain_position,
+                              matchup: focusMu,
+                              potKind: focusPot,
+                            });
                           }}
                         />
                       </div>
                       <div className="preflop-chart-pane preflop-chart-pane--played">
                         <header>
                           <strong>Из раздач</strong>
-                          <span>raise / call / fold · клик = реплей</span>
+                          <span>raise / call / fold · клик = выбрать</span>
                         </header>
                         <DeviationErrorMatrix
                           cells={activePlayedChart?.cells ?? []}
@@ -1836,42 +1842,56 @@ export default function StrategyAnalysisPanel({
                           countNoun="разд."
                           ariaLabel="Диапазон из раздач"
                           onSelectHand={(code) => {
-                            openComboReplay(
-                              code,
-                              {
-                                spotKey:
-                                  activePlayedChart?.spot_key || activeChart.spot_key,
-                                heroPosition:
-                                  activePlayedChart?.hero_position ||
-                                  activeChart.hero_position,
-                                villainPosition:
-                                  activePlayedChart?.villain_position ??
-                                  activeChart.villain_position,
-                                matchup: focusMu,
-                                potKind: focusPot,
-                              },
-                              activePlayedChart?.cells ?? [],
-                            );
+                            selectCombo(code, {
+                              spotKey:
+                                activePlayedChart?.spot_key || activeChart.spot_key,
+                              heroPosition:
+                                activePlayedChart?.hero_position ||
+                                activeChart.hero_position,
+                              villainPosition:
+                                activePlayedChart?.villain_position ??
+                                activeChart.villain_position,
+                              matchup: focusMu,
+                              potKind: focusPot,
+                            });
                           }}
                         />
                       </div>
                     </div>
-                    {filteredDevs.length > 0 ? (
-                      <div className="preflop-errors-actions" style={{ marginTop: "0.75rem" }}>
-                        <button
-                          type="button"
-                          className="preflop-filter-clear"
-                          onClick={() => openErrorReplay()}
+                    {(() => {
+                      const code = selectedHand || errorFilter.handCode || null;
+                      const playCells =
+                        activePlayedChart?.cells ?? activeChart.cells;
+                      const combo = code
+                        ? resolveComboHandIds(code, errorFilter, playCells)
+                        : null;
+                      const count = combo?.ids.length || filteredDevs.length;
+                      if (count <= 0) {
+                        return (
+                          <p className="muted analysis-chart-hint">
+                            Кликни комбо в диапазоне — появится кнопка реплея.
+                          </p>
+                        );
+                      }
+                      return (
+                        <div
+                          className="preflop-errors-actions"
+                          style={{ marginTop: "0.75rem" }}
                         >
-                          Реплей ошибок ·{" "}
-                          <span className="err-count">{filteredDevs.length}</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <p className="muted analysis-chart-hint">
-                        По этой ветке ошибок нет — клик по комбо в «Из раздач» откроет реплей.
-                      </p>
-                    )}
+                          <button
+                            type="button"
+                            className="preflop-filter-clear"
+                            onClick={() =>
+                              openSelectedComboReplay(playCells)
+                            }
+                          >
+                            Реплей
+                            {code ? ` · ${code}` : " ошибок"} ·{" "}
+                            <span className="err-count">{count}</span>
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </>
                 ) : (
                   <p className="muted">Выбери ветку слева.</p>
@@ -1995,15 +2015,29 @@ export default function StrategyAnalysisPanel({
             стратегию с ошибками.
           </p>
           <div className="preflop-errors-actions">
-            {filteredDevs.length > 0 ? (
-              <button
-                type="button"
-                className="preflop-filter-clear"
-                onClick={() => openErrorReplay()}
-              >
-                Реплей · <span className="err-count">{filteredDevs.length}</span>
-              </button>
-            ) : null}
+            {(() => {
+              const code = selectedHand || errorFilter.handCode || null;
+              const playCells =
+                liveDevs.chart_plays?.flatMap((c) => c.cells) ??
+                liveDevs.chart_errors?.flatMap((c) => c.cells) ??
+                [];
+              const combo = code
+                ? resolveComboHandIds(code, errorFilter, playCells)
+                : null;
+              const count = combo?.ids.length || filteredDevs.length;
+              if (count <= 0) return null;
+              return (
+                <button
+                  type="button"
+                  className="preflop-filter-clear"
+                  onClick={() => openSelectedComboReplay(playCells)}
+                >
+                  Реплей
+                  {code ? ` · ${code}` : ""} ·{" "}
+                  <span className="err-count">{count}</span>
+                </button>
+              );
+            })()}
             {handFilterActive ? (
               <button
                 type="button"
@@ -2131,17 +2165,13 @@ export default function StrategyAnalysisPanel({
                             errorFilter.potKind ||
                             activeChart.pot_kind ||
                             spotPotKind(activeChart.spot_key);
-                          openComboReplay(
-                            code,
-                            {
-                              spotKey: activeChart.spot_key,
-                              heroPosition: activeChart.hero_position,
-                              villainPosition: activeChart.villain_position,
-                              matchup: mu,
-                              potKind: pot,
-                            },
-                            activePlayedChart?.cells ?? activeChart.cells,
-                          );
+                          selectCombo(code, {
+                            spotKey: activeChart.spot_key,
+                            heroPosition: activeChart.hero_position,
+                            villainPosition: activeChart.villain_position,
+                            matchup: mu,
+                            potKind: pot,
+                          });
                         }}
                       />
                     )}
@@ -2149,7 +2179,7 @@ export default function StrategyAnalysisPanel({
                   <div className="preflop-chart-pane">
                     <header>
                       <strong>Ошибки</strong>
-                      <span>raise / call / fold · клик = реплей</span>
+                      <span>raise / call / fold · клик = выбрать</span>
                     </header>
                     <DeviationErrorMatrix
                       cells={activeChart.cells}
@@ -2168,24 +2198,20 @@ export default function StrategyAnalysisPanel({
                           errorFilter.potKind ||
                           activeChart.pot_kind ||
                           spotPotKind(activeChart.spot_key);
-                        openComboReplay(
-                          code,
-                          {
-                            spotKey: activeChart.spot_key,
-                            heroPosition: activeChart.hero_position,
-                            villainPosition: activeChart.villain_position,
-                            matchup: mu,
-                            potKind: pot,
-                          },
-                          activeChart.cells,
-                        );
+                        selectCombo(code, {
+                          spotKey: activeChart.spot_key,
+                          heroPosition: activeChart.hero_position,
+                          villainPosition: activeChart.villain_position,
+                          matchup: mu,
+                          potKind: pot,
+                        });
                       }}
                     />
                   </div>
                   <div className="preflop-chart-pane preflop-chart-pane--played">
                     <header>
                       <strong>Из раздач</strong>
-                      <span>raise / call / fold · клик = реплей</span>
+                      <span>raise / call / fold · клик = выбрать</span>
                     </header>
                     <DeviationErrorMatrix
                       cells={activePlayedChart?.cells ?? []}
@@ -2208,26 +2234,54 @@ export default function StrategyAnalysisPanel({
                           activePlayedChart?.pot_kind ||
                           activeChart.pot_kind ||
                           spotPotKind(activeChart.spot_key);
-                        openComboReplay(
-                          code,
-                          {
-                            spotKey:
-                              activePlayedChart?.spot_key || activeChart.spot_key,
-                            heroPosition:
-                              activePlayedChart?.hero_position ||
-                              activeChart.hero_position,
-                            villainPosition:
-                              activePlayedChart?.villain_position ??
-                              activeChart.villain_position,
-                            matchup: mu,
-                            potKind: pot,
-                          },
-                          activePlayedChart?.cells ?? [],
-                        );
+                        selectCombo(code, {
+                          spotKey:
+                            activePlayedChart?.spot_key || activeChart.spot_key,
+                          heroPosition:
+                            activePlayedChart?.hero_position ||
+                            activeChart.hero_position,
+                          villainPosition:
+                            activePlayedChart?.villain_position ??
+                            activeChart.villain_position,
+                          matchup: mu,
+                          potKind: pot,
+                        });
                       }}
                     />
                   </div>
                 </div>
+                {(() => {
+                  const code = selectedHand || errorFilter.handCode || null;
+                  const playCells =
+                    activePlayedChart?.cells ?? activeChart.cells;
+                  const combo = code
+                    ? resolveComboHandIds(code, errorFilter, playCells)
+                    : null;
+                  const count = combo?.ids.length || filteredDevs.length;
+                  if (count <= 0) {
+                    return (
+                      <p className="muted analysis-chart-hint">
+                        Кликни комбо в диапазоне — появится кнопка реплея.
+                      </p>
+                    );
+                  }
+                  return (
+                    <div
+                      className="preflop-errors-actions"
+                      style={{ marginTop: "0.75rem" }}
+                    >
+                      <button
+                        type="button"
+                        className="preflop-filter-clear"
+                        onClick={() => openSelectedComboReplay(playCells)}
+                      >
+                        Реплей
+                        {code ? ` · ${code}` : ""} ·{" "}
+                        <span className="err-count">{count}</span>
+                      </button>
+                    </div>
+                  );
+                })()}
               </>
             ) : (
               <p className="muted">Выбери чарт слева.</p>
