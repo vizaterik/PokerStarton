@@ -234,13 +234,14 @@ export default function SessionUploadPanel({
             if (!snap.response?.career_report) clearResultsCache();
             void warmHandDbAndResultsCache();
             const n = fin.hands.toLocaleString("ru-RU");
-            if (snap.handsSaved > 0 && snap.duplicatesSkipped > 0) {
-              uploadNote = `Сессия разобрана · ${n} рук · в базу профиля добавлено ${snap.handsSaved.toLocaleString("ru-RU")}, уже были ${snap.duplicatesSkipped.toLocaleString("ru-RU")}`;
-            } else if (snap.handsSaved > 0) {
-              uploadNote = `Сессия разобрана · ${n} рук · в базе профиля ${snap.handsSaved.toLocaleString("ru-RU")}`;
+            const added = result.total_hands > 0 ? result.total_hands : snap.handsSaved;
+            if (added > 0 && (dups > 0 || snap.duplicatesSkipped > 0)) {
+              uploadNote = `Сессия в базе · +${added.toLocaleString("ru-RU")} новых · всего в отчёте ${n} рук (стек сессий)`;
+            } else if (added > 0) {
+              uploadNote = `Сессия в базе · +${added.toLocaleString("ru-RU")} · всего в отчёте ${n} рук`;
             } else {
               // Upload OK, но новых строк нет — раздачи уже лежали в профиле.
-              uploadNote = `Сессия разобрана · ${n} рук · эти раздачи уже есть в базе профиля`;
+              uploadNote = `Дубли пропущены · отчёт по всей базе · ${n} рук`;
             }
             if (!strategyHasPlayCharts(strategyId)) {
               uploadNote = `${uploadNote}. ${STRATEGY_CHARTS_GAP_HINT}`;

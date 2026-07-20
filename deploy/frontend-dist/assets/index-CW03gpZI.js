@@ -21447,9 +21447,9 @@ function DatabasesPanel() {
   ] });
 }
 const TABS = [
+  { id: "profile", label: "Профиль" },
   { id: "account", label: "Аккаунт" },
-  { id: "databases", label: "Базы" }
-  // { id: "subscription", label: "Подписка" },
+  { id: "report", label: "Отчёт" }
 ];
 const STREET_RU$2 = {
   preflop: "Префлоп",
@@ -21471,7 +21471,7 @@ function ProfilePage() {
   const [user, setUser] = reactExports.useState(null);
   const [stats, setStats] = reactExports.useState(null);
   const [statsError, setStatsError] = reactExports.useState(null);
-  const [tab, setTab] = reactExports.useState("account");
+  const [tab, setTab] = reactExports.useState("profile");
   const [statsPanel, setStatsPanel] = reactExports.useState(null);
   const [comments, setComments] = reactExports.useState(null);
   const [commentsError, setCommentsError] = reactExports.useState(null);
@@ -21527,14 +21527,11 @@ function ProfilePage() {
     return /* @__PURE__ */ jsxRuntimeExports.jsx("section", { className: "page", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Загрузка профиля…" }) });
   }
   const registeredAt = (stats == null ? void 0 : stats.registered_at) || user.created_at;
+  const activeLead = tab === "profile" ? `Публичная часть профиля в ${BRAND}: ник, рейтинг и активность.` : tab === "account" ? "Безопасность, почта, базы данных и управление аккаунтом." : "Отчёт по профиту по всем раздачам активной базы.";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "page profile-page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("header", { className: "profile-page-head", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { children: "Настройки" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "lead", children: [
-        "Профиль и базы данных в ",
-        BRAND,
-        "."
-      ] })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "lead", children: activeLead })
     ] }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "profile-tabs", role: "tablist", "aria-label": "Разделы профиля", children: TABS.map((t) => /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
@@ -21549,22 +21546,15 @@ function ProfilePage() {
       t.id
     )) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-tab-panel", role: "tabpanel", children: [
-      tab === "account" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-card profile-tab-card", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Аккаунт" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted profile-tab-lead", children: "Основные данные профиля." }),
+      tab === "profile" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-card profile-tab-card", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Профиль" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted profile-tab-lead", children: "То, что видно другим: ник, рейтинг и публичная активность." }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-fields", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "profile-field-label", children: "Ник" }),
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field-value", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: user.display_name || "—" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "muted", style: { fontSize: "0.82rem" }, children: "нельзя изменить" })
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "profile-field-label", children: "Email" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field-value", children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: user.email }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `badge ${user.email_verified ? "" : "warn"}`, children: user.email_verified ? "подтверждён" : "не подтверждён" })
             ] })
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field", children: [
@@ -21665,25 +21655,58 @@ function ProfilePage() {
               formatHandLabel$1(c.hero_hand)
             ] })
           ] }, c.id)) }) : null
-        ] }) : null,
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-actions", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cta-secondary danger-btn", onClick: logout, children: "Выйти из аккаунта" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "button",
-            {
-              type: "button",
-              className: "cta danger-solid",
-              onClick: () => {
-                setDeleteConfirm("");
-                setDeleteError(null);
-                setDeleteOpen(true);
-              },
-              children: "Удалить аккаунт"
-            }
-          )
-        ] })
+        ] }) : null
       ] }) : null,
-      tab === "databases" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "profile-tab-card-wrap", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DatabasesPanel, {}) }) : null
+      tab === "account" ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-account-stack", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-card profile-tab-card", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Аккаунт" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted profile-tab-lead", children: "Почта, безопасность и управление доступом." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-fields", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "profile-field-label", children: "Email" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field-value", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: user.email }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `badge ${user.email_verified ? "" : "warn"}`, children: user.email_verified ? "подтверждён" : "не подтверждён" })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "profile-field-label", children: "Безопасность" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field-value", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Пароль" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "muted", style: { fontSize: "0.82rem" }, children: "смена пароля — через вход / восстановление" })
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "profile-field-label", children: "Сессия" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-field-value", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: user.display_name || user.email }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "muted", style: { fontSize: "0.82rem" }, children: [
+                  "текущий вход в ",
+                  BRAND
+                ] })
+              ] })
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "profile-actions", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "cta-secondary danger-btn", onClick: logout, children: "Выйти из аккаунта" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: "cta danger-solid",
+                onClick: () => {
+                  setDeleteConfirm("");
+                  setDeleteError(null);
+                  setDeleteOpen(true);
+                },
+                children: "Удалить аккаунт"
+              }
+            )
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "profile-tab-card-wrap", children: /* @__PURE__ */ jsxRuntimeExports.jsx(DatabasesPanel, {}) })
+      ] }) : null,
+      tab === "report" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "profile-tab-card-wrap profile-report-wrap", children: /* @__PURE__ */ jsxRuntimeExports.jsx(ResultsPage, { embedded: true, view: "full" }) }) : null
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       ConfirmDialog,
@@ -24004,19 +24027,6 @@ function toRow(strategyId, sessionId, h) {
     played_at: h.played_at,
     flags: h.flags ?? null
   };
-}
-async function clearStrategyHands(strategyId) {
-  const db = await openLocalDb();
-  const rows = await listHandsForStrategy(strategyId);
-  if (!rows.length) return 0;
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction([STORE_HANDS], "readwrite");
-    const store = tx.objectStore(STORE_HANDS);
-    for (const r of rows) store.delete(r.key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error("clear failed"));
-  });
-  return rows.length;
 }
 async function insertHandBatch(strategyId, sessionId, hands) {
   const db = await openLocalDb();
@@ -31153,7 +31163,6 @@ function yieldTick() {
 }
 async function importFilesOnMainThread(strategyId, files, onProgress) {
   await openLocalDb();
-  await clearStrategyHands(strategyId);
   const sessionId = `local-${Date.now().toString(36)}`;
   let totalEstimate = 0;
   for (const f of files) totalEstimate += Math.max(1, estimateHandCount(f.text));
@@ -31210,7 +31219,7 @@ function getWorker() {
   if (!worker) {
     worker = new Worker(new URL(
       /* @vite-ignore */
-      "/assets/hhWorker-Cr-AA1Z4.js",
+      "/assets/hhWorker-DHFzMEas.js",
       import.meta.url
     ), { type: "module" });
   }
@@ -32775,7 +32784,7 @@ async function finalizeLocalAnalysis(strategyId, onProgress) {
     done: 0,
     total: 1,
     phase: "hud",
-    message: "Собираем HUD и график…",
+    message: "Собираем HUD и график по всей базе…",
     pct: 85
   });
   const hands = await listHandsForStrategy(strategyId);
@@ -33282,12 +33291,13 @@ function SessionUploadPanel({
             if (!((_b = snap.response) == null ? void 0 : _b.career_report)) clearResultsCache();
             void warmHandDbAndResultsCache();
             const n = fin.hands.toLocaleString("ru-RU");
-            if (snap.handsSaved > 0 && snap.duplicatesSkipped > 0) {
-              uploadNote = `Сессия разобрана · ${n} рук · в базу профиля добавлено ${snap.handsSaved.toLocaleString("ru-RU")}, уже были ${snap.duplicatesSkipped.toLocaleString("ru-RU")}`;
-            } else if (snap.handsSaved > 0) {
-              uploadNote = `Сессия разобрана · ${n} рук · в базе профиля ${snap.handsSaved.toLocaleString("ru-RU")}`;
+            const added = result.total_hands > 0 ? result.total_hands : snap.handsSaved;
+            if (added > 0 && (dups > 0 || snap.duplicatesSkipped > 0)) {
+              uploadNote = `Сессия в базе · +${added.toLocaleString("ru-RU")} новых · всего в отчёте ${n} рук (стек сессий)`;
+            } else if (added > 0) {
+              uploadNote = `Сессия в базе · +${added.toLocaleString("ru-RU")} · всего в отчёте ${n} рук`;
             } else {
-              uploadNote = `Сессия разобрана · ${n} рук · эти раздачи уже есть в базе профиля`;
+              uploadNote = `Дубли пропущены · отчёт по всей базе · ${n} рук`;
             }
             if (!strategyHasPlayCharts(strategyId)) {
               uploadNote = `${uploadNote}. ${STRATEGY_CHARTS_GAP_HINT}`;
@@ -36206,7 +36216,8 @@ function StrategyAnalysisPanel({
           /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "preflop-chart-list", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("h3", { className: "analysis-subhead", children: [
               "Ветки · ",
-              scoreRows.length
+              scoreRows.length,
+              scoreRows.length > 10 ? /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: "branch-list-scroll-hint", children: " · скролл" }) : null
             ] }),
             /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "preflop-chart-list-flat", children: scoreRows.map((row) => {
               const active = Boolean(focusMu2) && Boolean(focusPot2) && matchupsCompatible(row.matchup, focusMu2) && (row.pot_kind === focusPot2 || potLookupKinds(row.pot_kind).includes(focusPot2));
@@ -36414,7 +36425,8 @@ function StrategyAnalysisPanel({
         /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "preflop-chart-list", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("h3", { className: "analysis-subhead", children: [
             "Ветки · ",
-            chartRows.length
+            chartRows.length,
+            chartRows.length > 10 ? /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: "branch-list-scroll-hint", children: " · скролл" }) : null
           ] }),
           chartRows.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Нет веток стратегии для сравнения." }) : /* @__PURE__ */ jsxRuntimeExports.jsx("ul", { className: "preflop-chart-list-flat", children: chartRows.map((row) => {
             const active = Boolean(focusMu) && Boolean(focusPot) && matchupsCompatible(row.matchup, focusMu) && (row.pot_kind === focusPot || potLookupKinds(row.pot_kind).includes(focusPot));
@@ -36847,12 +36859,12 @@ const SCOPE_TABS = [
   {
     id: "session",
     label: "Анализ сессии",
-    lead: "Загрузите актуальную историю — раздачи попадут в общую базу, отчёт пересчитается сразу."
+    lead: "Загрузите сессию — она добавится в общую базу (дубли пропускаются), отчёт пересчитается по всем накопленным раздачам."
   },
   {
     id: "database",
     label: "Анализ базы",
-    lead: "Общий отчёт по всем раздачам стратегии. Обновляется вместе с загрузкой сессии."
+    lead: "Стек всех загруженных сессий: график, HUD и стратегии по всей накопленной базе."
   }
 ];
 function AnalysisPage() {

@@ -13,17 +13,17 @@ import {
 import ConfirmDialog from "../components/ConfirmDialog";
 import DatabasesPanel from "../components/DatabasesPanel";
 import EngagementIcons, { HeartIcon } from "../components/EngagementIcons";
-// import SubscriptionPanel from "../components/SubscriptionPanel";
 import { BRAND } from "../lib/brand";
 import { logout } from "../lib/auth";
+import ResultsPage from "./ResultsPage";
 
-type ProfileTab = "account" | "databases"; // | "subscription";
+type ProfileTab = "profile" | "account" | "report";
 type StatsPanel = "hands" | "comments" | null;
 
 const TABS: { id: ProfileTab; label: string }[] = [
+  { id: "profile", label: "Профиль" },
   { id: "account", label: "Аккаунт" },
-  { id: "databases", label: "Базы" },
-  // { id: "subscription", label: "Подписка" },
+  { id: "report", label: "Отчёт" },
 ];
 
 const STREET_RU: Record<string, string> = {
@@ -49,7 +49,7 @@ export default function ProfilePage() {
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
-  const [tab, setTab] = useState<ProfileTab>("account");
+  const [tab, setTab] = useState<ProfileTab>("profile");
   const [statsPanel, setStatsPanel] = useState<StatsPanel>(null);
   const [comments, setComments] = useState<ProfileComment[] | null>(null);
   const [commentsError, setCommentsError] = useState<string | null>(null);
@@ -118,13 +118,19 @@ export default function ProfilePage() {
   }
 
   const registeredAt = stats?.registered_at || user.created_at;
+  const activeLead =
+    tab === "profile"
+      ? `Публичная часть профиля в ${BRAND}: ник, рейтинг и активность.`
+      : tab === "account"
+        ? "Безопасность, почта, базы данных и управление аккаунтом."
+        : "Отчёт по профиту по всем раздачам активной базы.";
 
   return (
     <section className="page profile-page">
       <header className="profile-page-head">
         <div>
           <h1>Настройки</h1>
-          <p className="lead">Профиль и базы данных в {BRAND}.</p>
+          <p className="lead">{activeLead}</p>
         </div>
       </header>
 
@@ -144,10 +150,12 @@ export default function ProfilePage() {
       </nav>
 
       <div className="profile-tab-panel" role="tabpanel">
-        {tab === "account" ? (
+        {tab === "profile" ? (
           <div className="profile-card profile-tab-card">
-            <h2>Аккаунт</h2>
-            <p className="muted profile-tab-lead">Основные данные профиля.</p>
+            <h2>Профиль</h2>
+            <p className="muted profile-tab-lead">
+              То, что видно другим: ник, рейтинг и публичная активность.
+            </p>
 
             <div className="profile-fields">
               <div className="profile-field">
@@ -156,16 +164,6 @@ export default function ProfilePage() {
                   <strong>{user.display_name || "—"}</strong>
                   <span className="muted" style={{ fontSize: "0.82rem" }}>
                     нельзя изменить
-                  </span>
-                </div>
-              </div>
-
-              <div className="profile-field">
-                <span className="profile-field-label">Email</span>
-                <div className="profile-field-value">
-                  <strong>{user.email}</strong>
-                  <span className={`badge ${user.email_verified ? "" : "warn"}`}>
-                    {user.email_verified ? "подтверждён" : "не подтверждён"}
                   </span>
                 </div>
               </div>
@@ -318,39 +316,78 @@ export default function ProfilePage() {
                 ) : null}
               </div>
             ) : null}
+          </div>
+        ) : null}
 
-            <div className="profile-actions">
-              <button type="button" className="cta-secondary danger-btn" onClick={logout}>
-                Выйти из аккаунта
-              </button>
-              <button
-                type="button"
-                className="cta danger-solid"
-                onClick={() => {
-                  setDeleteConfirm("");
-                  setDeleteError(null);
-                  setDeleteOpen(true);
-                }}
-              >
-                Удалить аккаунт
-              </button>
+        {tab === "account" ? (
+          <div className="profile-account-stack">
+            <div className="profile-card profile-tab-card">
+              <h2>Аккаунт</h2>
+              <p className="muted profile-tab-lead">
+                Почта, безопасность и управление доступом.
+              </p>
+
+              <div className="profile-fields">
+                <div className="profile-field">
+                  <span className="profile-field-label">Email</span>
+                  <div className="profile-field-value">
+                    <strong>{user.email}</strong>
+                    <span className={`badge ${user.email_verified ? "" : "warn"}`}>
+                      {user.email_verified ? "подтверждён" : "не подтверждён"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="profile-field">
+                  <span className="profile-field-label">Безопасность</span>
+                  <div className="profile-field-value">
+                    <strong>Пароль</strong>
+                    <span className="muted" style={{ fontSize: "0.82rem" }}>
+                      смена пароля — через вход / восстановление
+                    </span>
+                  </div>
+                </div>
+
+                <div className="profile-field">
+                  <span className="profile-field-label">Сессия</span>
+                  <div className="profile-field-value">
+                    <strong>{user.display_name || user.email}</strong>
+                    <span className="muted" style={{ fontSize: "0.82rem" }}>
+                      текущий вход в {BRAND}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="profile-actions">
+                <button type="button" className="cta-secondary danger-btn" onClick={logout}>
+                  Выйти из аккаунта
+                </button>
+                <button
+                  type="button"
+                  className="cta danger-solid"
+                  onClick={() => {
+                    setDeleteConfirm("");
+                    setDeleteError(null);
+                    setDeleteOpen(true);
+                  }}
+                >
+                  Удалить аккаунт
+                </button>
+              </div>
+            </div>
+
+            <div className="profile-tab-card-wrap">
+              <DatabasesPanel />
             </div>
           </div>
         ) : null}
 
-        {tab === "databases" ? (
-          <div className="profile-tab-card-wrap">
-            <DatabasesPanel />
+        {tab === "report" ? (
+          <div className="profile-tab-card-wrap profile-report-wrap">
+            <ResultsPage embedded view="full" />
           </div>
         ) : null}
-
-        {/* Подписка временно скрыта — лимиты отключены на бэкенде
-        {tab === "subscription" ? (
-          <div className="profile-tab-card-wrap">
-            <SubscriptionPanel />
-          </div>
-        ) : null}
-        */}
       </div>
 
       <ConfirmDialog

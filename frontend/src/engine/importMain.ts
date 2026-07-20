@@ -4,7 +4,6 @@
 
 import { estimateHandCount, parseHandHistory, splitHandBlocks } from "./parseHh";
 import {
-  clearStrategyHands,
   flushLocalDb,
   insertHandBatch,
   openLocalDb,
@@ -21,7 +20,7 @@ export async function importFilesOnMainThread(
   onProgress?: (p: ProgressPayload) => void,
 ): Promise<LocalImportResult> {
   await openLocalDb();
-  await clearStrategyHands(strategyId);
+  // Stack sessions into the strategy DB (dupes skipped by hand id).
   const sessionId = `local-${Date.now().toString(36)}`;
 
   let totalEstimate = 0;

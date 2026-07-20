@@ -678,6 +678,16 @@
   width: min(100%, 72rem);
 }
 
+.profile-account-stack {
+  display: grid;
+  gap: 1.25rem;
+  width: min(100%, 72rem);
+}
+
+.profile-report-wrap {
+  max-width: none;
+}
+
 .profile-tab-card-wrap .profile-card,
 .profile-tab-card-wrap .databases-panel,
 .profile-tab-card-wrap .profile-sub-card {
@@ -9253,12 +9263,35 @@ body.confirm-open #root {
   }
 }
 
+.preflop-chart-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(32rem, 70vh);
+}
+
+.preflop-chart-list .analysis-subhead {
+  flex-shrink: 0;
+}
+
+.branch-list-scroll-hint {
+  font-style: normal;
+  font-weight: 600;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 .preflop-chart-list ul {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   gap: 0.35rem;
+  /* ~10 rows visible, then scroll */
+  max-height: calc(10 * 2.7rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.15rem;
 }
 
 .preflop-chart-list button {
@@ -9429,6 +9462,10 @@ body.confirm-open #root {
   padding: 0;
   display: grid;
   gap: 0.35rem;
+  max-height: calc(10 * 2.7rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.15rem;
 }
 
 .preflop-chart-list-flat button {

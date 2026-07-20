@@ -2,7 +2,6 @@
 
 import { estimateHandCount, parseHandHistory, splitHandBlocks } from "./parseHh";
 import {
-  clearStrategyHands,
   flushLocalDb,
   insertHandBatch,
   openLocalDb,
@@ -40,8 +39,7 @@ async function runImport(
   files: Array<{ name: string; text: string }>,
 ) {
   await openLocalDb();
-  // Fresh import for this strategy — avoid stacking old + new hand counts.
-  await clearStrategyHands(strategyId);
+  // Stack sessions: new hands append; duplicates skip by external_hand_id.
   const sessionId = `local-${Date.now().toString(36)}`;
 
   let totalEstimate = 0;

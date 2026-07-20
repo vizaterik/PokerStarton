@@ -652,19 +652,6 @@ function toRow(strategyId, sessionId, h) {
     flags: h.flags ?? null
   };
 }
-async function clearStrategyHands(strategyId) {
-  const db = await openLocalDb();
-  const rows = await listHandsForStrategy(strategyId);
-  if (!rows.length) return 0;
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction([STORE_HANDS], "readwrite");
-    const store = tx.objectStore(STORE_HANDS);
-    for (const r of rows) store.delete(r.key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error ?? new Error("clear failed"));
-  });
-  return rows.length;
-}
 async function insertHandBatch(strategyId, sessionId, hands) {
   const db = await openLocalDb();
   let inserted = 0;
@@ -691,16 +678,6 @@ async function insertHandBatch(strategyId, sessionId, hands) {
   }
   return { inserted, duplicates };
 }
-async function listHandsForStrategy(strategyId) {
-  const db = await openLocalDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction([STORE_HANDS], "readonly");
-    const idx = tx.objectStore(STORE_HANDS).index("by_strategy");
-    const req = idx.getAll(strategyId);
-    req.onsuccess = () => resolve(req.result || []);
-    req.onerror = () => reject(req.error ?? new Error("list hands failed"));
-  });
-}
 async function flushLocalDb() {
 }
 const ctx = self;
@@ -712,7 +689,6 @@ function yieldTick() {
 }
 async function runImport(requestId, strategyId, files) {
   await openLocalDb();
-  await clearStrategyHands(strategyId);
   const sessionId = `local-${Date.now().toString(36)}`;
   let totalEstimate = 0;
   for (const f of files) totalEstimate += Math.max(1, estimateHandCount(f.text));

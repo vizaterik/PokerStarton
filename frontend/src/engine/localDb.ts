@@ -143,7 +143,7 @@ function toRow(strategyId: string, sessionId: string, h: ParsedHand): HandRow {
   };
 }
 
-/** Wipe all local hands for a strategy before a fresh Analysis import. */
+/** Explicit wipe of local hands for a strategy (not used on normal session import). */
 export async function clearStrategyHands(strategyId: string): Promise<number> {
   const db = await openLocalDb();
   const rows = await listHandsForStrategy(strategyId);

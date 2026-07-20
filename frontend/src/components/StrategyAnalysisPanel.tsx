@@ -2077,7 +2077,12 @@ export default function StrategyAnalysisPanel({
           ) : (
             <div className="preflop-errors-layout branches-compare-layout">
               <aside className="preflop-chart-list">
-                <h3 className="analysis-subhead">Ветки · {scoreRows.length}</h3>
+                <h3 className="analysis-subhead">
+                  Ветки · {scoreRows.length}
+                  {scoreRows.length > 10 ? (
+                    <em className="branch-list-scroll-hint"> · скролл</em>
+                  ) : null}
+                </h3>
                 <ul className="preflop-chart-list-flat">
                   {scoreRows.map((row) => {
                     const active =
@@ -2327,7 +2332,12 @@ export default function StrategyAnalysisPanel({
 
         <div className="preflop-errors-layout">
           <aside className="preflop-chart-list">
-            <h3 className="analysis-subhead">Ветки · {chartRows.length}</h3>
+            <h3 className="analysis-subhead">
+              Ветки · {chartRows.length}
+              {chartRows.length > 10 ? (
+                <em className="branch-list-scroll-hint"> · скролл</em>
+              ) : null}
+            </h3>
             {chartRows.length === 0 ? (
               <p className="muted">Нет веток стратегии для сравнения.</p>
             ) : (

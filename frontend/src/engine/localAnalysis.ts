@@ -1183,10 +1183,11 @@ export async function finalizeLocalAnalysis(
     done: 0,
     total: 1,
     phase: "hud",
-    message: "Собираем HUD и график…",
+    message: "Собираем HUD и график по всей базе…",
     pct: 85,
   });
 
+  // All stacked sessions for this strategy (import appends; does not wipe).
   const hands = await listHandsForStrategy(strategyId);
   const analysis = buildAnalysis(strategyId, hands);
 
