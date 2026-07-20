@@ -7,11 +7,6 @@ export type AmountUnit = "money" | "bb";
 type Props = {
   hand: ReplayHand;
   actionIndex: number;
-  /**
-   * When true: highlight who acts next (action not revealed yet).
-   * When false: show the last revealed action badge (no next-turn ring).
-   */
-  pendingTurn?: boolean;
   amountUnit?: AmountUnit;
   /** Cap displayed seat stacks at this many BB (e.g. 100 for cash trainer). */
   maxStackBb?: number | null;
@@ -162,17 +157,27 @@ function isAtHandEnd(hand: ReplayHand, actionIndex: number) {
   return actionIndex >= hand.actions.length - 1;
 }
 
+function boardCardsForStreet(hand: ReplayHand, street: string): string[] {
+  const st = (street || "preflop").toLowerCase();
+  if (st === "preflop") return [];
+  if (st === "flop") return hand.board.slice(0, 3);
+  if (st === "turn") return hand.board.slice(0, 4);
+  return hand.board.slice(0, 5);
+}
+
 function boardForStep(hand: ReplayHand, actionIndex: number): string[] {
+  if (isAtHandEnd(hand, actionIndex) && actionIndex >= 0) {
+    return hand.board.slice(0, 5);
+  }
+  // Prefer street of the player about to act so flop appears when turn moves there.
+  const next = hand.actions[actionIndex + 1];
+  if (next) return boardCardsForStreet(hand, next.street);
   if (actionIndex < 0) return [];
-  if (isAtHandEnd(hand, actionIndex)) return hand.board.slice(0, 5);
   let street = "preflop";
   for (let i = 0; i <= actionIndex && i < hand.actions.length; i += 1) {
     street = hand.actions[i].street;
   }
-  if (street === "preflop") return [];
-  if (street === "flop") return hand.board.slice(0, 3);
-  if (street === "turn") return hand.board.slice(0, 4);
-  return hand.board.slice(0, 5);
+  return boardCardsForStreet(hand, street);
 }
 
 function holeCards(hand: ReplayHand): string[] {
@@ -285,32 +290,21 @@ function streetBetsAndPot(hand: ReplayHand, actionIndex: number) {
 export default function PokerTable({
   hand,
   actionIndex,
-  pendingTurn = false,
   amountUnit = "money",
   maxStackBb = null,
 }: Props) {
   const layout = useMemo(() => seatLayout(hand.seats), [hand.seats]);
-  const atEnd = isAtHandEnd(hand, actionIndex) && !pendingTurn;
+  const atEnd = isAtHandEnd(hand, actionIndex);
+  const board = boardForStep(hand, actionIndex);
   const holes = useMemo(() => holeCards(hand), [hand]);
   const shown = useMemo(() => parseShownCards(hand.raw_text || ""), [hand.raw_text]);
-  // actionIndex = last revealed action; pendingTurn → highlight next actor first.
+  // One step = apply action + highlight who acts next (no empty intermediate).
   const last = actionIndex >= 0 ? hand.actions[actionIndex] : null;
   const next =
     actionIndex + 1 >= 0 && actionIndex + 1 < hand.actions.length
       ? hand.actions[actionIndex + 1]
       : null;
-  const board = (() => {
-    if (pendingTurn && next) {
-      const st = (next.street || "preflop").toLowerCase();
-      if (st === "preflop") return [] as string[];
-      if (st === "flop") return hand.board.slice(0, 3);
-      if (st === "turn") return hand.board.slice(0, 4);
-      return hand.board.slice(0, 5);
-    }
-    return boardForStep(hand, actionIndex);
-  })();
-  const toActKey =
-    pendingTurn && next && !atEnd ? next.player_name.toLowerCase() : null;
+  const toActKey = !atEnd && next ? next.player_name.toLowerCase() : null;
   const bb = hand.big_blind;
   const unit: AmountUnit =
     amountUnit === "bb" && bb != null && bb > 0 ? "bb" : "money";
@@ -328,9 +322,11 @@ export default function PokerTable({
     }
   }
 
-  const streetForLabel =
-    pendingTurn && next ? (next.street || street) : street;
-  const streetLabel = atEnd ? "showdown" : streetForLabel;
+  const streetLabel = atEnd
+    ? "showdown"
+    : next
+      ? next.street || street
+      : street;
 
   const seatCount = layout.length;
 
@@ -388,9 +384,7 @@ export default function PokerTable({
           const isFolded = folded.has(key);
           const isActor = !atEnd && toActKey != null && toActKey === key;
           const justActed =
-            !pendingTurn &&
-            last != null &&
-            last.player_name.toLowerCase() === key;
+            last != null && last.player_name.toLowerCase() === key;
           const isHero = seat.is_hero;
           const isPlaceholder = /^seat\s+\d+$/i.test(seat.name);
           const shownCards = atEnd && !isFolded ? shown.get(key) : undefined;
