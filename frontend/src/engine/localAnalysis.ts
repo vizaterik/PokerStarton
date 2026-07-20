@@ -959,6 +959,15 @@ export async function buildLocalChartDeviations(
   }
   await yieldToUi();
 
+  // Sync constructor BEFORE cache check — otherwise edited charts still look "fresh".
+  onProgress?.("Сверяем ветки конструктора…");
+  await yieldToUi();
+  try {
+    await ensureConstructorChartsSynced(strategyId);
+  } catch {
+    /* offline — score whatever painted spots remain */
+  }
+
   // Fast path: reuse cached strategy compare when hands + charts fingerprint match.
   const chartsRev = readChartsRevision(strategyId);
   const cached = peekAnalysisCache(strategyId);
@@ -973,6 +982,7 @@ export async function buildLocalChartDeviations(
     (cachedBranches.length > 0 || (cached.deviations.deviations?.length ?? 0) > 0) &&
     cached.handTotal === total &&
     cached.chartsRev === chartsRev &&
+    chartsRev != null &&
     total > 0
   ) {
     onProgress?.("Готово (кэш)");
@@ -981,15 +991,6 @@ export async function buildLocalChartDeviations(
       spots: cached.spots ?? [],
       hands: total,
     };
-  }
-
-  // Constructor tree is source of truth — sync only when fingerprint changed.
-  onProgress?.("Сверяем ветки конструктора…");
-  await yieldToUi();
-  try {
-    await ensureConstructorChartsSynced(strategyId);
-  } catch {
-    /* offline — score whatever painted spots remain */
   }
 
   let spots: StrategySpot[] = [];

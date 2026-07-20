@@ -147,16 +147,18 @@ export function clearAnalysisCache(strategyId?: string) {
 }
 
 /**
- * Charts changed in the constructor — keep HUD/session, only stamp chartsRev
- * so «Моя стратегия» rebuilds. Never wipe the loaded session report.
+ * Charts changed in the constructor — keep HUD/session, invalidate compare stamp.
+ * Important: do NOT write the new chartsRev onto the cache (that made stale
+ * deviations look fresh). Storage already has the new rev via setChartsRevision;
+ * clearing the cache stamp forces «Моя стратегия» to rebuild.
  */
-export function markAnalysisChartsStale(strategyId: string, chartsRev: string) {
+export function markAnalysisChartsStale(strategyId: string, _chartsRev: string) {
   const cached = peekAnalysisCache(strategyId);
   if (!cached) return;
-  if (cached.chartsRev === chartsRev) return;
+  if (cached.chartsRev == null) return;
   writeAnalysisCache(strategyId, {
     ...cached,
-    chartsRev,
+    chartsRev: null,
     strategyUpdatedAt: cached.strategyUpdatedAt ?? null,
   });
 }

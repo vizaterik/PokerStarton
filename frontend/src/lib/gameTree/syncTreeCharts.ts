@@ -249,8 +249,9 @@ export async function syncTreeChartsToDb(
   const prevFp = lastSyncFp.get(strategyId);
   lastSyncFp.set(strategyId, fp);
   setChartsRevision(strategyId, fp);
-  // Keep HUD / loaded session — only mark strategy-compare stale when charts changed.
-  if (prevFp !== fp) {
+  // Keep HUD / loaded session — only mark strategy-compare stale when charts
+  // actually changed in this session (not on first sync after reload).
+  if (prevFp != null && prevFp !== fp) {
     markAnalysisChartsStale(strategyId, fp);
   }
 }

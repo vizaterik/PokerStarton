@@ -165,6 +165,53 @@ function branchKey(
   return `${pot}|${mu}|${b.spot_key}|${b.hero_position}|${b.villain_position ?? ""}`;
 }
 
+/** Matchup first, pot tags nested underneath (Raise / 3-bet / …). */
+function groupBranchesByMatchup(rows: PreflopBranchAccuracy[]) {
+  const order: string[] = [];
+  const groups = new Map<string, PreflopBranchAccuracy[]>();
+  for (const row of rows) {
+    const mu = analysisMatchup(
+      row.spot_key,
+      row.hero_position,
+      row.villain_position,
+      row.matchup || row.spot_label,
+    );
+    const key = normalizeMatchupTag(mu) || mu;
+    if (!groups.has(key)) {
+      groups.set(key, []);
+      order.push(key);
+    }
+    groups.get(key)!.push(row);
+  }
+  for (const list of groups.values()) {
+    list.sort((a, b) => {
+      const pa = a.pot_kind || spotPotKind(a.spot_key);
+      const pb = b.pot_kind || spotPotKind(b.spot_key);
+      return pa.localeCompare(pb) || (b.decisions ?? 0) - (a.decisions ?? 0);
+    });
+  }
+  return order.map((key) => {
+    const items = groups.get(key)!;
+    const label =
+      items[0] &&
+      analysisMatchup(
+        items[0].spot_key,
+        items[0].hero_position,
+        items[0].villain_position,
+        items[0].matchup || items[0].spot_label,
+      );
+    const decisions = items.reduce((n, r) => n + (r.decisions ?? 0), 0);
+    const correct = items.reduce((n, r) => n + (r.correct ?? 0), 0);
+    return {
+      key,
+      matchup: label || key,
+      items,
+      decisions,
+      correct_pct: decisions ? Math.round((1000 * correct) / decisions) / 10 : 100,
+    };
+  });
+}
+
 function chartKey(c: Pick<ChartErrorSpot, "spot_key" | "hero_position" | "villain_position">) {
   return `${c.spot_key}|${c.hero_position}|${c.villain_position ?? ""}`;
 }
@@ -826,14 +873,41 @@ export default function StrategyAnalysisPanel({
 
   const activeChart = useMemo(() => {
     if (!liveDevs?.chart_errors?.length) return null;
+    const charts = liveDevs.chart_errors;
     if (selectedChartKey) {
-      const hit = liveDevs.chart_errors.find(
-        (c) => chartKey(c) === selectedChartKey || c.label === selectedChartKey,
-      );
+      const hit = charts.find((c) => {
+        const mu =
+          c.label ||
+          analysisMatchup(c.spot_key, c.hero_position, c.villain_position, c.label);
+        const pot = c.pot_kind || spotPotKind(c.spot_key);
+        const full = `${pot}|${mu}|${chartKey(c)}`;
+        const short = `${pot}|${mu}`;
+        return (
+          chartKey(c) === selectedChartKey ||
+          c.label === selectedChartKey ||
+          full === selectedChartKey ||
+          short === selectedChartKey ||
+          (matchupTagsEqual(mu, selectedChartKey) &&
+            (!errorFilter.potKind || pot === errorFilter.potKind))
+        );
+      });
       if (hit) return hit;
     }
-    return liveDevs.chart_errors[0];
-  }, [liveDevs, selectedChartKey]);
+    if (errorFilter.matchup) {
+      const byFilter = charts.find((c) => {
+        const mu =
+          c.label ||
+          analysisMatchup(c.spot_key, c.hero_position, c.villain_position, c.label);
+        const pot = c.pot_kind || spotPotKind(c.spot_key);
+        return (
+          matchupTagsEqual(mu, errorFilter.matchup!) &&
+          (!errorFilter.potKind || pot === errorFilter.potKind)
+        );
+      });
+      if (byFilter) return byFilter;
+    }
+    return charts[0];
+  }, [liveDevs, selectedChartKey, errorFilter.matchup, errorFilter.potKind]);
 
   // Load strategy spots when viewing Errors (for side-by-side chart).
   useEffect(() => {
@@ -1006,9 +1080,23 @@ export default function StrategyAnalysisPanel({
   function goErrors(filter: ErrorFilter, chart?: ChartErrorSpot | null) {
     setErrorFilter(filter);
     setSelectedHand(filter.handCode ?? null);
-    if (chart) setSelectedChartKey(chart.label || chartKey(chart));
-    else if (filter.matchup) setSelectedChartKey(filter.matchup);
-    else if (filter.spotKey && filter.heroPosition) {
+    if (chart) {
+      const pot = chart.pot_kind || filter.potKind || spotPotKind(chart.spot_key);
+      const mu =
+        chart.label ||
+        filter.matchup ||
+        analysisMatchup(
+          chart.spot_key,
+          chart.hero_position,
+          chart.villain_position,
+          chart.label,
+        );
+      setSelectedChartKey(`${pot}|${mu}|${chartKey(chart)}`);
+    } else if (filter.matchup && filter.potKind) {
+      setSelectedChartKey(`${filter.potKind}|${filter.matchup}`);
+    } else if (filter.matchup) {
+      setSelectedChartKey(filter.matchup);
+    } else if (filter.spotKey && filter.heroPosition) {
       setSelectedChartKey(
         `${filter.spotKey}|${filter.heroPosition}|${filter.villainPosition ?? ""}`,
       );
@@ -1359,55 +1447,60 @@ export default function StrategyAnalysisPanel({
               {rows.length > 0 ? (
                 <>
                   <p className="muted analysis-chart-hint" style={{ marginTop: "1.25rem" }}>
-                    Точность по чартам (клик → ошибки ветки).
+                    Матчапы стратегии — внутри теги пота. Клик по тегу открывает диапазон.
                   </p>
-                  <div className="analysis-table-wrap">
-                    <table className="analysis-table">
-                      <thead>
-                        <tr>
-                          <th>Матчап</th>
-                          <th>Реш.</th>
-                          <th>Точность</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((row) => {
-                          const mu = analysisMatchup(
-                            row.spot_key,
-                            row.hero_position,
-                            row.villain_position,
-                            row.matchup || row.spot_label,
-                          );
-                          const potKind = row.pot_kind || spotPotKind(row.spot_key);
-                          return (
-                          <tr
-                            key={branchKey(row)}
-                            className="clickable-row"
-                            onClick={() =>
-                              goErrors({
-                                matchup: mu,
-                                potKind,
-                              })
-                            }
-                          >
-                            <td>
-                              <span className="err-chart-tags">
-                                <strong className="err-chart-matchup">{mu}</strong>
-                                <em className={`pot-tag pot-${potKind}`}>
-                                  {row.pot_tag || potKindTag(potKind)}
-                                </em>
-                              </span>
-                            </td>
-                            <td>{row.decisions}</td>
-                            <td className={row.correct_pct >= 80 ? "pos" : "neg"}>
-                              {row.correct_pct.toFixed(1)}%
-                            </td>
-                          </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                  <ul className="branch-matchup-list">
+                    {groupBranchesByMatchup(rows).map((group) => (
+                      <li key={group.key} className="branch-matchup-group">
+                        <div className="branch-matchup-head">
+                          <strong className="err-chart-matchup">{group.matchup}</strong>
+                          <span className="branch-matchup-meta">
+                            <em>{group.decisions} реш.</em>
+                            <em className={group.correct_pct >= 80 ? "pos" : "neg"}>
+                              {group.correct_pct.toFixed(1)}%
+                            </em>
+                          </span>
+                        </div>
+                        <ul className="branch-pot-tag-list">
+                          {group.items.map((row) => {
+                            const mu = analysisMatchup(
+                              row.spot_key,
+                              row.hero_position,
+                              row.villain_position,
+                              row.matchup || row.spot_label,
+                            );
+                            const potKind = row.pot_kind || spotPotKind(row.spot_key);
+                            return (
+                              <li key={branchKey(row)}>
+                                <button
+                                  type="button"
+                                  className="branch-pot-tag-btn"
+                                  onClick={() =>
+                                    goErrors({
+                                      matchup: mu,
+                                      potKind,
+                                    })
+                                  }
+                                >
+                                  <em className={`pot-tag pot-${potKind}`}>
+                                    {row.pot_tag || potKindTag(potKind)}
+                                  </em>
+                                  <span className="branch-pot-tag-meta">
+                                    <em>{row.decisions} реш.</em>
+                                    <strong
+                                      className={row.correct_pct >= 80 ? "pos" : "neg"}
+                                    >
+                                      {row.correct_pct.toFixed(1)}%
+                                    </strong>
+                                  </span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </li>
+                    ))}
+                  </ul>
                 </>
               ) : null}
             </>
@@ -1523,62 +1616,104 @@ export default function StrategyAnalysisPanel({
             {charts.length === 0 ? (
               <p className="muted">Нет ошибок для матрицы.</p>
             ) : (
-              <ul>
-                {charts.map((c) => {
-                  const mu = c.label || analysisMatchup(
-                    c.spot_key,
-                    c.hero_position,
-                    c.villain_position,
-                    c.label,
-                  );
-                  const potKind = c.pot_kind || spotPotKind(c.spot_key);
-                  const key = `${potKind}|${mu}|${chartKey(c)}`;
-                  const branch = paintedTreeBranches.find(
-                    (b) =>
-                      matchupTagsEqual(b.label, mu) &&
-                      (!c.pot_kind || b.potKind === c.pot_kind),
-                  );
-                  const errCount = (liveDevs.deviations ?? []).filter((d) => {
-                    if (branch) {
-                      return spotCoveredByBranches(
-                        {
-                          spot_key: d.spot_key || "",
-                          hero_position: d.hero_position || "",
-                          villain_position: d.villain_position,
-                        },
-                        [branch],
+              <ul className="err-chart-matchup-list">
+                {(() => {
+                  const order: string[] = [];
+                  const byMu = new Map<string, typeof charts>();
+                  for (const c of charts) {
+                    const mu =
+                      c.label ||
+                      analysisMatchup(
+                        c.spot_key,
+                        c.hero_position,
+                        c.villain_position,
+                        c.label,
                       );
+                    const nk = normalizeMatchupTag(mu) || mu;
+                    if (!byMu.has(nk)) {
+                      byMu.set(nk, []);
+                      order.push(nk);
                     }
+                    byMu.get(nk)!.push(c);
+                  }
+                  return order.map((nk) => {
+                    const group = byMu.get(nk)!;
+                    const muLabel =
+                      group[0].label ||
+                      analysisMatchup(
+                        group[0].spot_key,
+                        group[0].hero_position,
+                        group[0].villain_position,
+                        group[0].label,
+                      );
                     return (
-                      d.spot_key === c.spot_key &&
-                      d.hero_position === c.hero_position &&
-                      (d.villain_position ?? null) === (c.villain_position ?? null)
+                      <li key={nk} className="err-chart-matchup-group">
+                        <strong className="err-chart-matchup">{muLabel}</strong>
+                        <ul>
+                          {group.map((c) => {
+                            const mu =
+                              c.label ||
+                              analysisMatchup(
+                                c.spot_key,
+                                c.hero_position,
+                                c.villain_position,
+                                c.label,
+                              );
+                            const potKind = c.pot_kind || spotPotKind(c.spot_key);
+                            const key = `${potKind}|${mu}|${chartKey(c)}`;
+                            const branch = paintedTreeBranches.find(
+                              (b) =>
+                                matchupTagsEqual(b.label, mu) &&
+                                b.potKind === potKind,
+                            );
+                            const errCount = (liveDevs.deviations ?? []).filter((d) => {
+                              if (branch) {
+                                return spotCoveredByBranches(
+                                  {
+                                    spot_key: d.spot_key || "",
+                                    hero_position: d.hero_position || "",
+                                    villain_position: d.villain_position,
+                                  },
+                                  [branch],
+                                );
+                              }
+                              return (
+                                d.spot_key === c.spot_key &&
+                                d.hero_position === c.hero_position &&
+                                (d.villain_position ?? null) ===
+                                  (c.villain_position ?? null)
+                              );
+                            }).length;
+                            const active =
+                              selectedChartKey === key ||
+                              selectedChartKey === `${potKind}|${mu}` ||
+                              selectedChartKey === chartKey(c);
+                            return (
+                              <li key={key}>
+                                <button
+                                  type="button"
+                                  className={active ? "is-active" : ""}
+                                  onClick={() => {
+                                    setSelectedChartKey(key);
+                                    setErrorFilter({ matchup: mu, potKind });
+                                    setSelectedHand(null);
+                                  }}
+                                >
+                                  <em className={`pot-tag pot-${potKind}`}>
+                                    {potKindTag(potKind)}
+                                  </em>
+                                  {errCount > 0 ? (
+                                    <em className="err-count">{errCount}</em>
+                                  ) : null}
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </li>
                     );
-                  }).length;
-                  return (
-                    <li key={key}>
-                      <button
-                        type="button"
-                        className={
-                          selectedChartKey === key || selectedChartKey === chartKey(c)
-                            ? "is-active"
-                            : ""
-                        }
-                        onClick={() => {
-                          setSelectedChartKey(key);
-                          setErrorFilter({ matchup: mu, potKind });
-                          setSelectedHand(null);
-                        }}
-                      >
-                        <span className="err-chart-tags">
-                          <strong className="err-chart-matchup">{mu}</strong>
-                          <em className={`pot-tag pot-${potKind}`}>{potKindTag(potKind)}</em>
-                        </span>
-                        {errCount > 0 ? <em className="err-count">{errCount}</em> : null}
-                      </button>
-                    </li>
-                  );
-                })}
+                  });
+                })()}
               </ul>
             )}
           </aside>
