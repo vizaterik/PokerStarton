@@ -1,6 +1,6 @@
 /**
- * Build full StrategyAnalysis + StrategyDeviationsResponse from local hands
- * using the same formulas as the server (HUD + chart compare).
+ * Build StrategyAnalysis (+ optional deviations) from local hands.
+ * Upload finalize is HUD-only; chart compare helpers remain for cache compatibility.
  */
 
 import {
@@ -1041,8 +1041,7 @@ export async function buildLocalChartDeviations(
 }
 
 /**
- * F5 / reopen: rebuild HUD from IndexedDB only. No constructor sync, no
- * strategy compare — that runs when the user opens «Моя стратегия».
+ * F5 / reopen: rebuild HUD from IndexedDB only. No constructor sync.
  */
 export async function restoreLocalSessionReport(
   strategyId: string,
@@ -1118,42 +1117,8 @@ export async function finalizeLocalAnalysis(
   const hands = await listHandsForStrategy(strategyId);
   const analysis = buildAnalysis(strategyId, hands);
 
-  onProgress?.({
-    done: 0,
-    total: 1,
-    phase: "deviations",
-    message: "Сверяем ветки конструктора…",
-    pct: 88,
-  });
-  try {
-    await ensureConstructorChartsSynced(strategyId);
-  } catch {
-    /* offline */
-  }
-
-  onProgress?.({
-    done: 0,
-    total: 1,
-    phase: "deviations",
-    message: "Проверяем стратегию…",
-    pct: 90,
-  });
-
-  let spots: StrategySpot[] = [];
-  try {
-    spots = await listSpots(strategyId);
-  } catch {
-    spots = [];
-  }
-
-  const deviations = await buildDeviations(strategyId, hands, spots, onProgress);
-
-  // Patch compliance onto curve from deviation totals
-  if (analysis.curve.length && deviations.decisions) {
-    const rate =
-      Math.round((10000 * (deviations.correct || 0)) / deviations.decisions) / 100;
-    for (const pt of analysis.curve) pt.compliance_rate = rate;
-  }
+  // HUD-only upload report — keep empty deviations stub so cache shape stays valid.
+  const deviations = emptyDeviations(strategyId);
 
   let strategyUpdatedAt: string | null = null;
   try {
@@ -1166,7 +1131,7 @@ export async function finalizeLocalAnalysis(
     fingerprint: `local:${strategyId}:${hands.length}:${Date.now()}`,
     analysis,
     deviations,
-    spots,
+    spots: [],
     missing: [],
     handTotal: hands.length,
     chartsRev: readChartsRevision(strategyId),
