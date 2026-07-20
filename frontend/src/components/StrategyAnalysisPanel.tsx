@@ -918,7 +918,7 @@ export default function StrategyAnalysisPanel({
         row.pot_kind || spotPotKind(row.spot_key),
       ),
     );
-    const chart_errors = (devs.chart_errors ?? []).filter((c) =>
+    const coverChart = (c: ChartErrorSpot) =>
       covers(
         {
           spot_key: c.spot_key,
@@ -926,8 +926,9 @@ export default function StrategyAnalysisPanel({
           villain_position: c.villain_position,
         },
         c.pot_kind || spotPotKind(c.spot_key),
-      ),
-    );
+      );
+    const chart_errors = (devs.chart_errors ?? []).filter(coverChart);
+    const chart_plays = (devs.chart_plays ?? []).filter(coverChart);
     const deviations = (devs.deviations ?? []).filter((d) =>
       covers(
         {
@@ -942,6 +943,7 @@ export default function StrategyAnalysisPanel({
       ...devs,
       by_branch,
       chart_errors,
+      chart_plays,
       deviations,
       // Overview KPI must match Errors tab (not stale cache from deleted branches).
       total: deviations.length,
@@ -1081,90 +1083,98 @@ export default function StrategyAnalysisPanel({
     selectBranchFocus,
   ]);
 
-  const activeChart = useMemo((): ChartErrorSpot | null => {
-    const charts = liveDevs?.chart_errors ?? [];
-    const filterMu = errorFilter.matchup;
-    const filterPot = errorFilter.potKind;
+  const pickFocusedChart = useCallback(
+    (charts: ChartErrorSpot[], allowEmptyStub: boolean): ChartErrorSpot | null => {
+      const potsCompatible = (a: string, b: string) =>
+        a === b || potLookupKinds(a).includes(b) || potLookupKinds(b).includes(a);
+      const filterMu = errorFilter.matchup;
+      const filterPot = errorFilter.potKind;
 
-    const matchesFocus = (c: ChartErrorSpot) => {
-      const mu =
-        c.label ||
-        analysisMatchup(c.spot_key, c.hero_position, c.villain_position, c.label);
-      const pot = c.pot_kind || spotPotKind(c.spot_key);
-      if (filterPot && pot !== filterPot) return false;
-      if (filterMu && !matchupsCompatible(mu, filterMu)) return false;
-      return Boolean(filterMu || filterPot);
-    };
-
-    if (selectedChartKey) {
-      const sel = parseSelectedChartKey(selectedChartKey);
-      const hit = charts.find((c) => {
+      const matchesFocus = (c: ChartErrorSpot) => {
         const mu =
           c.label ||
           analysisMatchup(c.spot_key, c.hero_position, c.villain_position, c.label);
         const pot = c.pot_kind || spotPotKind(c.spot_key);
-        const full = `${pot}|${mu}|${chartKey(c)}`;
-        const short = `${pot}|${mu}`;
-        const potOk =
-          !sel.pot ||
-          pot === sel.pot ||
-          potLookupKinds(sel.pot).includes(pot) ||
-          potLookupKinds(pot).includes(sel.pot);
-        return (
-          chartKey(c) === selectedChartKey ||
-          full === selectedChartKey ||
-          short === selectedChartKey ||
-          (sel.matchup &&
-            matchupsCompatible(mu, sel.matchup) &&
-            potOk &&
-            (!filterPot || pot === filterPot || potLookupKinds(filterPot).includes(pot))) ||
-          (matchupsCompatible(mu, selectedChartKey) &&
-            (!filterPot || pot === filterPot))
-        );
-      });
-      if (hit) return hit;
-    }
-
-    if (filterMu && filterPot) {
-      const byFilter = charts.find(matchesFocus);
-      if (byFilter) return byFilter;
-      // Chart exists in constructor / filter — show strategy even with 0 error cells.
-      // Never fall back to an unrelated chart.
-      const defaultSpot =
-        filterPot === "3bp"
-          ? "vs_3bet"
-          : filterPot === "4bp" || filterPot === "allin"
-            ? "vs_4bet"
-            : filterPot === "limp"
-              ? "iso"
-              : "vs_open";
-      return {
-        spot_key: errorFilter.spotKey || defaultSpot,
-        hero_position: errorFilter.heroPosition || "",
-        villain_position: errorFilter.villainPosition ?? null,
-        label: filterMu,
-        pot_kind: filterPot,
-        spot_id: null,
-        cells: [],
+        if (filterPot && !potsCompatible(pot, filterPot)) return false;
+        if (filterMu && !matchupsCompatible(mu, filterMu)) return false;
+        return Boolean(filterMu || filterPot);
       };
-    }
 
-    if (filterMu) {
-      const byFilter = charts.find(matchesFocus);
-      if (byFilter) return byFilter;
-    }
+      if (selectedChartKey) {
+        const sel = parseSelectedChartKey(selectedChartKey);
+        const hit = charts.find((c) => {
+          const mu =
+            c.label ||
+            analysisMatchup(c.spot_key, c.hero_position, c.villain_position, c.label);
+          const pot = c.pot_kind || spotPotKind(c.spot_key);
+          const full = `${pot}|${mu}|${chartKey(c)}`;
+          const short = `${pot}|${mu}`;
+          const potOk = !sel.pot || potsCompatible(pot, sel.pot);
+          return (
+            chartKey(c) === selectedChartKey ||
+            full === selectedChartKey ||
+            short === selectedChartKey ||
+            (sel.matchup &&
+              matchupsCompatible(mu, sel.matchup) &&
+              potOk &&
+              (!filterPot || potsCompatible(pot, filterPot))) ||
+            (matchupsCompatible(mu, selectedChartKey) &&
+              (!filterPot || potsCompatible(pot, filterPot)))
+          );
+        });
+        if (hit) return hit;
+      }
 
-    // Unfocused Errors tab: first chart, or nothing.
-    return charts[0] ?? null;
-  }, [
-    liveDevs,
-    selectedChartKey,
-    errorFilter.matchup,
-    errorFilter.potKind,
-    errorFilter.spotKey,
-    errorFilter.heroPosition,
-    errorFilter.villainPosition,
-  ]);
+      if (filterMu && filterPot) {
+        const byFilter = charts.find(matchesFocus);
+        if (byFilter) return byFilter;
+        if (!allowEmptyStub) return null;
+        // Chart exists in constructor / filter — show strategy even with 0 error cells.
+        const defaultSpot =
+          filterPot === "3bp"
+            ? "vs_3bet"
+            : filterPot === "4bp" || filterPot === "allin"
+              ? "vs_4bet"
+              : filterPot === "limp"
+                ? "iso"
+                : "vs_open";
+        return {
+          spot_key: errorFilter.spotKey || defaultSpot,
+          hero_position: errorFilter.heroPosition || "",
+          villain_position: errorFilter.villainPosition ?? null,
+          label: filterMu,
+          pot_kind: filterPot,
+          spot_id: null,
+          cells: [],
+        };
+      }
+
+      if (filterMu) {
+        const byFilter = charts.find(matchesFocus);
+        if (byFilter) return byFilter;
+      }
+
+      return charts[0] ?? null;
+    },
+    [
+      selectedChartKey,
+      errorFilter.matchup,
+      errorFilter.potKind,
+      errorFilter.spotKey,
+      errorFilter.heroPosition,
+      errorFilter.villainPosition,
+    ],
+  );
+
+  const activeChart = useMemo(
+    () => pickFocusedChart(liveDevs?.chart_errors ?? [], true),
+    [liveDevs, pickFocusedChart],
+  );
+
+  const activePlayedChart = useMemo(
+    () => pickFocusedChart(liveDevs?.chart_plays ?? [], true),
+    [liveDevs, pickFocusedChart],
+  );
 
   // Load strategy spots when viewing Branches / Errors (side-by-side strategy chart).
   useEffect(() => {
@@ -1583,8 +1593,8 @@ export default function StrategyAnalysisPanel({
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Все ветки стратегии слева — клик переключает сравнение диапазонов: стратегия и
-            ошибки. Ситуации вне стратегии — ниже.
+            Все ветки стратегии слева — клик переключает сравнение: стратегия, ошибки и
+            диапазон из раздач. Ситуации вне стратегии — ниже.
           </p>
 
           {!paintedTreeBranches.length || scoreRows.length === 0 ? (
@@ -1722,6 +1732,35 @@ export default function StrategyAnalysisPanel({
                               spotKey: activeChart.spot_key,
                               heroPosition: activeChart.hero_position,
                               villainPosition: activeChart.villain_position,
+                              handCode: code,
+                              matchup: prev.matchup || focusMu,
+                              potKind: prev.potKind || focusPot,
+                            }));
+                          }}
+                        />
+                      </div>
+                      <div className="preflop-chart-pane preflop-chart-pane--played">
+                        <header>
+                          <strong>Из раздач</strong>
+                          <span>raise / call / fold · все решения</span>
+                        </header>
+                        <DeviationErrorMatrix
+                          cells={activePlayedChart?.cells ?? []}
+                          selectedHand={selectedHand}
+                          countNoun="разд."
+                          ariaLabel="Диапазон из раздач"
+                          onSelectHand={(code) => {
+                            setSelectedHand(code);
+                            setErrorFilter((prev) => ({
+                              ...prev,
+                              spotKey:
+                                activePlayedChart?.spot_key || activeChart.spot_key,
+                              heroPosition:
+                                activePlayedChart?.hero_position ||
+                                activeChart.hero_position,
+                              villainPosition:
+                                activePlayedChart?.villain_position ??
+                                activeChart.villain_position,
                               handCode: code,
                               matchup: prev.matchup || focusMu,
                               potKind: prev.potKind || focusPot,
@@ -2032,6 +2071,48 @@ export default function StrategyAnalysisPanel({
                             ),
                           potKind:
                             prev.potKind ||
+                            activeChart.pot_kind ||
+                            spotPotKind(activeChart.spot_key),
+                        }));
+                      }}
+                    />
+                  </div>
+                  <div className="preflop-chart-pane preflop-chart-pane--played">
+                    <header>
+                      <strong>Из раздач</strong>
+                      <span>raise / call / fold · все решения</span>
+                    </header>
+                    <DeviationErrorMatrix
+                      cells={activePlayedChart?.cells ?? []}
+                      selectedHand={selectedHand}
+                      countNoun="разд."
+                      ariaLabel="Диапазон из раздач"
+                      onSelectHand={(code) => {
+                        setSelectedHand(code);
+                        setErrorFilter((prev) => ({
+                          ...prev,
+                          spotKey:
+                            activePlayedChart?.spot_key || activeChart.spot_key,
+                          heroPosition:
+                            activePlayedChart?.hero_position ||
+                            activeChart.hero_position,
+                          villainPosition:
+                            activePlayedChart?.villain_position ??
+                            activeChart.villain_position,
+                          handCode: code,
+                          matchup:
+                            prev.matchup ||
+                            activePlayedChart?.label ||
+                            activeChart.label ||
+                            analysisMatchup(
+                              activeChart.spot_key,
+                              activeChart.hero_position,
+                              activeChart.villain_position,
+                              activeChart.label,
+                            ),
+                          potKind:
+                            prev.potKind ||
+                            activePlayedChart?.pot_kind ||
                             activeChart.pot_kind ||
                             spotPotKind(activeChart.spot_key),
                         }));

@@ -560,6 +560,7 @@ function emptyDeviations(strategyId: string): StrategyDeviationsResponse {
     by_position: [],
     by_branch: [],
     chart_errors: [],
+    chart_plays: [],
     deviations: [],
     leak_finder: {
       missed_profit_money: 0,
@@ -659,20 +660,17 @@ async function buildDeviations(
     }
   >();
   const branchStats = new Map<string, [number, number, number, number]>();
-  const chartMap = new Map<
-    string,
-    Map<
-      string,
-      {
-        errors: number;
-        raise: number;
-        call: number;
-        fold: number;
-        actual: string;
-        expected: string;
-      }
-    >
-  >();
+  type ChartCellAgg = {
+    errors: number;
+    raise: number;
+    call: number;
+    fold: number;
+    actual: string;
+    expected: string;
+  };
+  const chartMap = new Map<string, Map<string, ChartCellAgg>>();
+  /** All scored decisions (errors + correct) for «из раздач» matrix. */
+  const playMap = new Map<string, Map<string, ChartCellAgg>>();
   const chartSpotIds = new Map<string, string>();
 
   const emptyPos = () => ({
@@ -792,10 +790,25 @@ async function buildDeviations(
         if (!deviant) playCor += 1;
       }
 
+      chartSpotIds.set(branchKey, spot.id);
+      let pmap = playMap.get(branchKey);
+      if (!pmap) {
+        pmap = new Map();
+        playMap.set(branchKey, pmap);
+      }
+      let played = pmap.get(h.hero_hand_code);
+      if (!played) {
+        played = { errors: 0, raise: 0, call: 0, fold: 0, actual, expected };
+        pmap.set(h.hero_hand_code, played);
+      }
+      played.errors += 1;
+      if (actual === "raise" || actual === "call" || actual === "fold") played[actual] += 1;
+      played.actual = actual;
+      played.expected = expected;
+
       if (!deviant) continue;
 
       deviantTotal += 1;
-      chartSpotIds.set(branchKey, spot.id);
       let cmap = chartMap.get(branchKey);
       if (!cmap) {
         cmap = new Map();
@@ -918,26 +931,32 @@ async function buildDeviations(
     };
   });
 
-  let rawChartErrors: ChartErrorSpot[] = [...chartMap.entries()].map(([key, cmap]) => {
-    const [spot_key, hero_position, villain_position] = key.split("|");
-    const vill = villain_position || null;
-    return {
-      spot_key,
-      hero_position,
-      villain_position: vill,
-      label: treeMatchupLabel(spot_key, hero_position, vill),
-      spot_id: chartSpotIds.get(key) ?? null,
-      cells: [...cmap.entries()].map(([hand_code, e]) => ({
-        hand_code,
-        errors: e.errors,
-        raise_count: e.raise,
-        call_count: e.call,
-        fold_count: e.fold,
-        actual_action: e.actual,
-        expected_action: e.expected,
-      })),
-    };
-  });
+  const toChartSpots = (
+    map: Map<string, Map<string, ChartCellAgg>>,
+  ): ChartErrorSpot[] =>
+    [...map.entries()].map(([key, cmap]) => {
+      const [spot_key, hero_position, villain_position] = key.split("|");
+      const vill = villain_position || null;
+      return {
+        spot_key,
+        hero_position,
+        villain_position: vill,
+        label: treeMatchupLabel(spot_key, hero_position, vill),
+        spot_id: chartSpotIds.get(key) ?? null,
+        cells: [...cmap.entries()].map(([hand_code, e]) => ({
+          hand_code,
+          errors: e.errors,
+          raise_count: e.raise,
+          call_count: e.call,
+          fold_count: e.fold,
+          actual_action: e.actual,
+          expected_action: e.expected,
+        })),
+      };
+    });
+
+  let rawChartErrors: ChartErrorSpot[] = toChartSpots(chartMap);
+  let rawChartPlays: ChartErrorSpot[] = toChartSpots(playMap);
 
   // Report accuracy only for branches that exist in the strategy (constructor).
   // HH-only lines are not scored here — UI offers «Добавить в стратегию».
@@ -997,23 +1016,23 @@ async function buildDeviations(
       (a, b) => (b.decisions ?? 0) - (a.decisions ?? 0),
     );
 
-    const grouped = groupChartErrorsByTreeBranches(
-      rawChartErrors,
-      treeBranches,
-      coverOpts,
-    );
-    rawChartErrors = grouped.map((g) => ({
-      ...g.primary,
-      label: g.matchup,
-      pot_kind: g.potKind,
-      cells: g.cells,
-    }));
+    const mapGrouped = (raw: ChartErrorSpot[]) =>
+      groupChartErrorsByTreeBranches(raw, treeBranches, coverOpts).map((g) => ({
+        ...g.primary,
+        label: g.matchup,
+        pot_kind: g.potKind,
+        cells: g.cells,
+      }));
+    rawChartErrors = mapGrouped(rawChartErrors);
+    rawChartPlays = mapGrouped(rawChartPlays);
   } else {
     by_branch = [];
     rawChartErrors = [];
+    rawChartPlays = [];
   }
 
   const chart_errors = rawChartErrors;
+  const chart_plays = rawChartPlays;
 
   const opens: PreflopOpenBreakdown = {
     decisions: openDec,
@@ -1052,6 +1071,7 @@ async function buildDeviations(
     by_position,
     by_branch,
     chart_errors,
+    chart_plays,
     deviations,
     leak_finder: {
       missed_profit_money: Math.round(missedEvTotal * 100) / 100,
@@ -1213,6 +1233,7 @@ export async function restoreLocalSessionReport(
       by_position: [],
       by_branch: [],
       chart_errors: [],
+      chart_plays: [],
       deviations: [],
       leak_finder: {
         missed_profit_money: 0,

@@ -5,6 +5,9 @@ type Props = {
   cells: ChartErrorCell[];
   selectedHand?: string | null;
   onSelectHand?: (handCode: string) => void;
+  /** Tooltip noun — «ошибка» or «разд.» for played range. */
+  countNoun?: string;
+  ariaLabel?: string;
 };
 
 function actionCounts(cell: ChartErrorCell) {
@@ -27,11 +30,13 @@ export default function DeviationErrorMatrix({
   cells,
   selectedHand = null,
   onSelectHand,
+  countNoun = "ошибка",
+  ariaLabel = "Матрица ошибок",
 }: Props) {
   const byCode = new Map(cells.map((c) => [c.hand_code, c]));
 
   return (
-    <div className="dev-error-matrix" aria-label="Матрица ошибок">
+    <div className="dev-error-matrix" aria-label={ariaLabel}>
       <div className="dev-error-matrix-corner" />
       {RANKS.map((rank) => (
         <div key={`c-${rank}`} className="dev-error-matrix-label">
@@ -62,7 +67,7 @@ export default function DeviationErrorMatrix({
                 }`}
                 title={
                   hit
-                    ? `${code}: ${count}× ошибка${parts.length ? ` (${parts.join(" · ")})` : ""}`
+                    ? `${code}: ${count}× ${countNoun}${parts.length ? ` (${parts.join(" · ")})` : ""}`
                     : `${code}: —`
                 }
                 onClick={() => onSelectHand?.(code)}

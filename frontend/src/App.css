@@ -9323,6 +9323,11 @@ body.confirm-open #root {
   overflow: auto;
 }
 
+/* Third range (played hands) sits on its own row under Strategy | Errors. */
+.preflop-chart-pane--played {
+  flex: 1 1 100%;
+}
+
 .preflop-chart-pane header {
   display: flex;
   flex-wrap: wrap;

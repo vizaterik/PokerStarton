@@ -203,10 +203,12 @@ export function loadBranchPaintMatrix(
       pot === "limp"
         ? ["limp", "srp"]
         : pot === "allin"
-          ? ["allin", "4bp"]
+          ? ["allin", "4bp", "3bp"]
           : pot === "4bp"
             ? ["4bp", "allin"]
-            : [pot];
+            : pot === "3bp"
+              ? ["3bp", "allin"]
+              : [pot];
     const branch = collectAnalysisBranches(doc.root).find((b) => {
       if (!potAliases.includes(b.potKind)) return false;
       const have = normalizeMatchupTag(b.label);

@@ -801,6 +801,8 @@ export type StrategyDeviationsResponse = {
   /** HU after flop pots: pot + matchup like BBvsSB */
   hu_pot_branches?: BranchProfitRow[];
   chart_errors?: ChartErrorSpot[];
+  /** All scored hero combos per branch (not only mistakes) — «из раздач». */
+  chart_plays?: ChartErrorSpot[];
   deviations: StrategyDeviation[];
   leak_finder?: LeakFinderReport;
 };
