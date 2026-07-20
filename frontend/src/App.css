@@ -10982,19 +10982,46 @@ body.confirm-open #root {
   font-size: 0.82rem;
 }
 
+.pr-share-toast-wrap {
+  display: flex;
+  justify-content: flex-start;
+  padding: 0.45rem 1.1rem 0;
+}
+
 .pr-share-url {
-  margin: 0.55rem 1.1rem 0;
-  padding: 0.55rem 0.75rem;
-  border-radius: 0.55rem;
-  border: 1px solid rgba(52, 211, 153, 0.35);
-  background: rgba(16, 185, 129, 0.1);
-  font-size: 0.78rem;
-  word-break: break-all;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  max-width: min(100%, 42rem);
+  width: fit-content;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  background: rgba(16, 185, 129, 0.14);
+  font-size: 0.74rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pr-share-url.is-copied {
+  border-color: rgba(52, 211, 153, 0.65);
+  background: rgba(16, 185, 129, 0.22);
+}
+
+.pr-share-copied {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: #6ee7b7;
 }
 
 .pr-share-url a {
-  color: #6ee7b7;
+  color: #a7f3d0;
   text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .pr-share-url a:hover {

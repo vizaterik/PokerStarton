@@ -405,15 +405,18 @@ export default function HandReplayModal({
       });
       const path = share.path.startsWith("/") ? share.path : `/${share.path}`;
       const url = `${window.location.origin}${path}`;
-      setShareUrl(url);
       const copied = await copyText(url);
+      setShareUrl(url);
       if (!copied) {
-        setShareError("Ссылка создана — скопируйте вручную ниже");
+        setShareError("Ссылка создана — скопируйте вручную");
         setShareState("ok");
         return;
       }
       setShareState("ok");
-      window.setTimeout(() => setShareState("idle"), 2500);
+      window.setTimeout(() => {
+        setShareState("idle");
+        setShareUrl(null);
+      }, 2800);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Не удалось создать ссылку";
       setShareError(msg);
@@ -504,11 +507,19 @@ export default function HandReplayModal({
         {error && <p className="pr-error">{error}</p>}
         {shareError && <p className="pr-error">{shareError}</p>}
         {shareUrl && (
-          <p className="pr-share-url">
-            <a href={shareUrl} target="_blank" rel="noreferrer">
-              {shareUrl}
-            </a>
-          </p>
+          <div className="pr-share-toast-wrap">
+            <p
+              className={`pr-share-url${shareState === "ok" ? " is-copied" : ""}`}
+              title={shareUrl}
+            >
+              {shareState === "ok" ? (
+                <span className="pr-share-copied">Скопировано</span>
+              ) : null}
+              <a href={shareUrl} target="_blank" rel="noreferrer">
+                {shareUrl}
+              </a>
+            </p>
+          </div>
         )}
         {loading && <p className="pr-muted">Loading hands…</p>}
         {!loading && data && data.hands.length === 0 && (
