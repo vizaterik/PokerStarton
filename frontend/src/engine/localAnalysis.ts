@@ -29,7 +29,11 @@ import {
   treeMatchupLabel,
 } from "../lib/branchLabel";
 import { readChartsRevision } from "../lib/chartsRevision";
-import { collectAnalysisBranches, potKindTag } from "../lib/gameTree/branches";
+import {
+  collectAnalysisBranches,
+  potKindTag,
+  type BranchPotKind,
+} from "../lib/gameTree/branches";
 import { loadTree } from "../lib/gameTree/persist";
 import { ensureConstructorChartsSynced } from "../lib/gameTree/syncTreeCharts";
 import {
@@ -844,7 +848,10 @@ async function buildDeviations(
           ),
       );
       const mu = branch?.label || row.matchup || "—";
-      const potKind = branch?.potKind ?? row.pot_kind ?? spotPotKind(row.spot_key);
+      const potKind: BranchPotKind =
+        branch?.potKind ??
+        (row.pot_kind as BranchPotKind | undefined) ??
+        spotPotKind(row.spot_key);
       const accKey = constructorTagKey(potKind, mu);
       const prev = branchAcc.get(accKey);
       if (!prev) {
