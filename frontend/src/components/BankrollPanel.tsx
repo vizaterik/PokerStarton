@@ -22,6 +22,27 @@ import StakeAdvice from "./StakeAdvice";
 
 export type BankrollSection = "overview" | "update" | "strategy";
 
+/** MTT / Spins bankroll modes — soon; Cash only for now. */
+const LOCKED_GAME_MODES = new Set<BrmGameMode>(["mtt", "spins"]);
+
+function FormatLockIcon() {
+  return (
+    <svg
+      className="brm-mode-lock-icon"
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      aria-hidden
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2Zm-7-2a2 2 0 1 1 4 0v2h-4V6Zm7 14H7V10h10v10Zm-5-3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"
+      />
+    </svg>
+  );
+}
+
 type Props = {
   section?: BankrollSection;
 };
@@ -46,7 +67,8 @@ export default function BankrollPanel({ section = "overview" }: Props) {
       );
   }, []);
 
-  const gameMode = resolveBrmGameMode(data?.settings.game_mode);
+  const savedGameMode = resolveBrmGameMode(data?.settings.game_mode);
+  const gameMode = LOCKED_GAME_MODES.has(savedGameMode) ? "cash" : savedGameMode;
   const strategyId = resolveBrmStrategyId(data?.settings.risk_profile ?? "standard");
   const goalStake = data?.settings.goal_stake ?? null;
 
@@ -98,7 +120,7 @@ export default function BankrollPanel({ section = "overview" }: Props) {
   }
 
   async function onSelectMode(mode: BrmGameMode) {
-    if (mode === gameMode) return;
+    if (LOCKED_GAME_MODES.has(mode) || mode === gameMode) return;
     await persistPrefs({ game_mode: mode });
   }
 
@@ -290,19 +312,31 @@ export default function BankrollPanel({ section = "overview" }: Props) {
             <div className="brm-controls-row">
               <span className="brm-controls-label">Режим</span>
               <div className="brm-seg" role="tablist" aria-label="Режим игры">
-                {BRM_GAME_MODE_OPTIONS.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={gameMode === m.id}
-                    className={gameMode === m.id ? "is-active" : ""}
-                    disabled={busy}
-                    onClick={() => void onSelectMode(m.id)}
-                  >
-                    {m.title}
-                  </button>
-                ))}
+                {BRM_GAME_MODE_OPTIONS.map((m) => {
+                  const locked = LOCKED_GAME_MODES.has(m.id);
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={!locked && gameMode === m.id}
+                      className={[
+                        !locked && gameMode === m.id ? "is-active" : "",
+                        locked ? "is-locked" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
+                      disabled={busy || locked}
+                      title={locked ? "Скоро: пока доступен только кэш" : undefined}
+                      onClick={() => void onSelectMode(m.id)}
+                    >
+                      <span className="brm-mode-label">
+                        {m.title}
+                        {locked ? <FormatLockIcon /> : null}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

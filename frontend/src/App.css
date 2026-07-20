@@ -7483,6 +7483,30 @@ body.confirm-open #root {
   cursor: not-allowed;
 }
 
+.brm-seg button.is-locked,
+.brm-seg button.is-locked:hover {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--muted);
+  background-color: rgba(0, 0, 0, 0.18);
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.brm-mode-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.brm-mode-lock-icon {
+  flex-shrink: 0;
+  opacity: 0.8;
+  color: var(--muted);
+}
+
 .brm-focus {
   display: grid;
   gap: 0.85rem;
