@@ -284,6 +284,9 @@ export default function HandReplayModal({
   useEffect(() => {
     setActionIdx(-1);
     setCopyState("idle");
+    setShareUrl(null);
+    setShareError(null);
+    setShareState("idle");
   }, [handIdx]);
 
   useEffect(() => {
