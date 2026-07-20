@@ -50,7 +50,7 @@ export default function StrategyEditorPage() {
 
   return (
     <section className="page editor-page gto-editor-page">
-      <GtoTreeEditor strategy={strategy} />
+      <GtoTreeEditor key={strategy.id} strategy={strategy} />
     </section>
   );
 }

@@ -19,17 +19,19 @@ export function branchStats(node: GameTreeNode, raiseLabel = "RAISE"): BranchSta
   let foldW = 0;
   let callW = 0;
   let raiseW = 0;
-  let totalW = 0;
+  let listedW = 0;
 
   for (const [hand, mix] of Object.entries(node.ranges)) {
     const w = comboWeight(hand);
-    totalW += w;
+    listedW += w;
     foldW += w * mixWeight(mix, "FOLD");
     callW += w * mixWeight(mix, "CALL");
     raiseW += w * mixWeight(mix, "RAISE");
   }
+  // Sparse ranges: missing hands are pure fold.
+  foldW += Math.max(0, 1326 - listedW);
 
-  const denom = totalW > 0 ? totalW : 1326;
+  const denom = 1326;
   const pct = (x: number) => Math.round((1000 * x) / denom) / 10;
   const combos = (x: number) => Math.round(x * 10) / 10;
 

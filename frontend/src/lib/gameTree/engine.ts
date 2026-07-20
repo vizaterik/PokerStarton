@@ -1,6 +1,7 @@
 import { produce } from "immer";
-import { buildEmptyMatrix, HandCode, RANKS } from "../handMatrix";
+import { HandCode, RANKS } from "../handMatrix";
 import { isHandReachable, REACH_EPS } from "./combos";
+import { isPureFold } from "./rangesSparse";
 import { nextSeat, seatLabel, seatsFor } from "./seats";
 import { standardRaiseSize } from "./standardSizings";
 import {
@@ -25,13 +26,12 @@ function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+/**
+ * Sparse empty ranges — pure fold is implied for missing hands.
+ * Keeps trees small; UI/matrix treat missing as fold.
+ */
 export function emptyRanges(): Record<HandCode, HandMix> {
-  const out: Record<HandCode, HandMix> = {};
-  const blank = buildEmptyMatrix();
-  for (const code of Object.keys(blank)) {
-    out[code] = { FOLD: 1, CALL: 0, RAISE: 0 };
-  }
-  return out;
+  return {};
 }
 
 /**
@@ -510,8 +510,8 @@ export function paintHand(
   return produce(doc, (draft) => {
     const node = findNode(draft.root, nodeId);
     if (!node || node.awaitingFlop) return;
-    if (erase) {
-      node.ranges[hand] = { FOLD: 1, CALL: 0, RAISE: 0 };
+    if (erase || action === "FOLD") {
+      delete node.ranges[hand];
       draft.updatedAt = new Date().toISOString();
       return;
     }
@@ -519,9 +519,9 @@ export function paintHand(
     const w = Math.min(1, Math.max(0, weight));
     const mix: HandMix = { FOLD: 0, CALL: 0, RAISE: 0 };
     mix[action] = w;
-    if (action !== "FOLD" && w < 1) mix.FOLD = 1 - w;
-    else if (action === "FOLD") mix.FOLD = 1;
-    node.ranges[hand] = mix;
+    if (w < 1) mix.FOLD = 1 - w;
+    if (isPureFold(mix)) delete node.ranges[hand];
+    else node.ranges[hand] = mix;
     draft.updatedAt = new Date().toISOString();
   });
 }
@@ -553,11 +553,15 @@ export function paintHands(
     const w = Math.min(1, Math.max(0, weight));
     for (const hand of hands) {
       if (!handPaintableOnNode(draft.root, node, hand)) continue;
+      if (action === "FOLD") {
+        delete node.ranges[hand];
+        continue;
+      }
       const mix: HandMix = { FOLD: 0, CALL: 0, RAISE: 0 };
       mix[action] = w;
-      if (action !== "FOLD" && w < 1) mix.FOLD = 1 - w;
-      else if (action === "FOLD") mix.FOLD = 1;
-      node.ranges[hand] = mix;
+      if (w < 1) mix.FOLD = 1 - w;
+      if (isPureFold(mix)) delete node.ranges[hand];
+      else node.ranges[hand] = mix;
     }
     draft.updatedAt = new Date().toISOString();
   });

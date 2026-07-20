@@ -24,8 +24,9 @@ import {
   collectEditorBranches,
   type BranchPotKind,
 } from "./branches";
-import { findNode, pathToNode } from "./engine";
-import { loadTree, normalizeTree, saveTree } from "./persist";
+import { findNode } from "./engine";
+import { computeJobsFingerprint } from "./gameTreeClient";
+import { loadTree, normalizeTree, putTreeCache, saveTree } from "./persist";
 import { deriveContext } from "./turnEngine";
 import type { GameTreeDocument, GameTreeNode, HandMix } from "./types";
 import { normalizeMatchupTag } from "../spotCoverage";
@@ -85,47 +86,45 @@ type ChartJob = {
   matrix: Record<HandCode, CellFreq>;
 };
 
+/** DFS with path — avoids O(N²) pathToNode per node. */
 function collectJobs(root: GameTreeNode): ChartJob[] {
   const best = new Map<string, ChartJob>();
 
-  function visit(node: GameTreeNode) {
-    if (node.street !== "preflop" || node.awaitingFlop) {
-      for (const ch of node.children) visit(ch);
-      return;
-    }
-    const path = pathToNode(root, node.id);
-    if (!path) {
-      for (const ch of node.children) visit(ch);
-      return;
-    }
-    const ctx = deriveContext(path);
-    const spotKey = spotKeyForContext(ctx);
-    if (spotKey) {
-      const matrix = rangesToMatrix(node.ranges);
-      if (isPainted(matrix)) {
-        const hero = toChartPos(node.activePlayer);
-        const villain =
-          spotKey !== "rfi" && spotKey !== "iso" && ctx.lastAggressor
-            ? toChartPos(ctx.lastAggressor)
-            : null;
-        const key = `${spotKey}|${hero}|${villain ?? ""}`;
-        const play = Object.values(matrix).reduce(
-          (n, c) => n + c.raise_freq + c.call_freq,
-          0,
-        );
-        const prev = best.get(key);
-        const prevPlay = prev
-          ? Object.values(prev.matrix).reduce((n, c) => n + c.raise_freq + c.call_freq, 0)
-          : -1;
-        if (play >= prevPlay) {
-          best.set(key, { spotKey, hero, villain, matrix });
+  function visit(node: GameTreeNode, path: GameTreeNode[]) {
+    const nextPath = [...path, node];
+    if (node.street === "preflop" && !node.awaitingFlop) {
+      const ctx = deriveContext(nextPath);
+      const spotKey = spotKeyForContext(ctx);
+      if (spotKey) {
+        const matrix = rangesToMatrix(node.ranges);
+        if (isPainted(matrix)) {
+          const hero = toChartPos(node.activePlayer);
+          const villain =
+            spotKey !== "rfi" && spotKey !== "iso" && ctx.lastAggressor
+              ? toChartPos(ctx.lastAggressor)
+              : null;
+          const key = `${spotKey}|${hero}|${villain ?? ""}`;
+          const play = Object.values(matrix).reduce(
+            (n, c) => n + c.raise_freq + c.call_freq,
+            0,
+          );
+          const prev = best.get(key);
+          const prevPlay = prev
+            ? Object.values(prev.matrix).reduce(
+                (n, c) => n + c.raise_freq + c.call_freq,
+                0,
+              )
+            : -1;
+          if (play >= prevPlay) {
+            best.set(key, { spotKey, hero, villain, matrix });
+          }
         }
       }
     }
-    for (const ch of node.children) visit(ch);
+    for (const ch of node.children) visit(ch, nextPath);
   }
 
-  visit(root);
+  visit(root, []);
   return [...best.values()];
 }
 
@@ -148,6 +147,8 @@ function jobsFingerprint(jobs: ChartJob[]): string {
 }
 
 const lastSyncFp = new Map<string, string>();
+/** Skip collectJobs when doc.updatedAt unchanged since last sync attempt. */
+const lastSyncUpdatedAt = new Map<string, string>();
 
 /**
  * Pick local vs remote constructor tree.
@@ -189,6 +190,7 @@ export async function resolveConstructorTree(
   } catch {
     /* offline — keep local */
   }
+  putTreeCache(doc);
   saveTree(doc);
   return doc;
 }
@@ -260,21 +262,16 @@ export async function ensureConstructorChartsSynced(
   return doc;
 }
 
-/** Debounced in the editor — sync painted tree ranges into DB strategy cells. */
-export async function syncTreeChartsToDb(
+async function applyJobsToDb(
   strategyId: string,
   doc: GameTreeDocument,
-  opts?: { force?: boolean },
+  jobs: ChartJob[],
+  fp: string,
 ) {
-  const jobs = collectJobs(doc.root);
-  const fp = jobsFingerprint(jobs) || "empty";
-  if (!opts?.force && lastSyncFp.get(strategyId) === fp) return;
-
   let spots = await listSpots(strategyId);
   let sortOrder = spots.length;
   const keepIds = new Set<string>();
 
-  // Empty tree must not wipe existing DB charts (stale resolve / empty remote).
   const editorBranchCount = collectEditorBranches(doc.root).length;
   if (jobs.length === 0 && editorBranchCount === 0 && spots.length > 0) {
     lastSyncFp.set(strategyId, fp);
@@ -303,7 +300,6 @@ export async function syncTreeChartsToDb(
     keepIds.add(spot.id);
   }
 
-  // Delete every spot not painted in the constructor (presets / old ensures / orphans).
   for (const spot of spots) {
     if (keepIds.has(spot.id)) continue;
     try {
@@ -316,9 +312,46 @@ export async function syncTreeChartsToDb(
   const prevFp = lastSyncFp.get(strategyId);
   lastSyncFp.set(strategyId, fp);
   setChartsRevision(strategyId, fp);
-  // Keep HUD / loaded session — only mark strategy-compare stale when charts
-  // actually changed in this session (not on first sync after reload).
   if (prevFp != null && prevFp !== fp) {
     markAnalysisChartsStale(strategyId, fp);
   }
+}
+
+/** Debounced in the editor — sync painted tree ranges into DB strategy cells. */
+export async function syncTreeChartsToDb(
+  strategyId: string,
+  doc: GameTreeDocument,
+  opts?: { force?: boolean },
+) {
+  // Cheap gate: same doc clock → skip all job collection.
+  if (
+    !opts?.force &&
+    lastSyncUpdatedAt.get(strategyId) === doc.updatedAt &&
+    lastSyncFp.has(strategyId)
+  ) {
+    return;
+  }
+
+  let jobs: ChartJob[];
+  let fp: string;
+  try {
+    const computed = await computeJobsFingerprint(doc);
+    fp = computed.fingerprint || "empty";
+    if (!opts?.force && lastSyncFp.get(strategyId) === fp) {
+      lastSyncUpdatedAt.set(strategyId, doc.updatedAt);
+      return;
+    }
+    jobs = computed.jobs as ChartJob[];
+  } catch {
+    // Worker unavailable — fall back to main-thread collect (optimized DFS).
+    jobs = collectJobs(doc.root);
+    fp = jobsFingerprint(jobs) || "empty";
+    if (!opts?.force && lastSyncFp.get(strategyId) === fp) {
+      lastSyncUpdatedAt.set(strategyId, doc.updatedAt);
+      return;
+    }
+  }
+
+  lastSyncUpdatedAt.set(strategyId, doc.updatedAt);
+  await applyJobsToDb(strategyId, doc, jobs, fp);
 }

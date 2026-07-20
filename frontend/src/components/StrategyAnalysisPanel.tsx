@@ -457,7 +457,7 @@ export default function StrategyAnalysisPanel({
   const [strategyChart, setStrategyChart] = useState<Record<string, CellFreq>>({});
   const [strategyChartLoading, setStrategyChartLoading] = useState(false);
   const [spotsHint, setSpotsHint] = useState<string | null>(null);
-  const [missingSpots, setMissingSpots] = useState<EnsuredSpotInfo[]>([]);
+  const [, setMissingSpots] = useState<EnsuredSpotInfo[]>([]);
   const [missingLoading, setMissingLoading] = useState(false);
   const [addingSpots, setAddingSpots] = useState(false);
   /** Key of the single branch currently being added, or "all". */
@@ -907,7 +907,7 @@ export default function StrategyAnalysisPanel({
         if (!isStale()) {
           setLoading(true);
           setDevsLoading(true);
-          if (!peek) {
+          if (!peekAnalysisHud(strategyId)) {
             setData(null);
             setDevs(null);
           }
@@ -1011,18 +1011,32 @@ export default function StrategyAnalysisPanel({
   useEffect(() => {
     if (!strategyId || analysisSuspended || tab !== "preflop") return;
     let cancelled = false;
-    void resolveConstructorTree(strategyId)
-      .then(() => {
-        if (cancelled) return;
-        setTreeTick((n) => n + 1);
-        const rev = readChartsRevision(strategyId);
-        if (rev) lastChartsRevRef.current = rev;
-      })
-      .catch(() => {
-        if (!cancelled) setTreeTick((n) => n + 1);
-      });
+    let idleId = 0;
+    const run = () => {
+      void resolveConstructorTree(strategyId)
+        .then(() => {
+          if (cancelled) return;
+          setTreeTick((n) => n + 1);
+          const rev = readChartsRevision(strategyId);
+          if (rev) lastChartsRevRef.current = rev;
+        })
+        .catch(() => {
+          if (!cancelled) setTreeTick((n) => n + 1);
+        });
+    };
+    // Don't block Strategies tab paint — hydrate constructor on idle.
+    if (typeof window.requestIdleCallback === "function") {
+      idleId = window.requestIdleCallback(run, { timeout: 1500 });
+    } else {
+      idleId = window.setTimeout(run, 0) as unknown as number;
+    }
     return () => {
       cancelled = true;
+      if (typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleId);
+      } else {
+        window.clearTimeout(idleId);
+      }
     };
   }, [strategyId, analysisSuspended, refreshKey, strategyRevision, tab]);
 

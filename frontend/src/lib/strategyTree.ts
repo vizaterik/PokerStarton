@@ -53,6 +53,8 @@ export function raiseChild(node: EditorNode): EditorNode | null {
       return { root: node.root, spotKey: "vs_3bet", villain: null, depth: node.depth + 1 };
     case "vs_4bet":
       return null;
+    default:
+      return null;
   }
 }
 

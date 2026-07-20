@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { StrategyDetail } from "../../api/client";
 import { getStrategyTree, putStrategyTree } from "../../api/client";
@@ -27,7 +27,14 @@ import {
 import { branchStats } from "../../lib/gameTree/combos";
 import { clearAnalysisCache } from "../../lib/analysisCache";
 import { peekEditorFocus, takeEditorFocus } from "../../lib/gameTree/editorFocus";
-import { loadTree, normalizeTree, saveTree } from "../../lib/gameTree/persist";
+import {
+  flushTreeSave,
+  loadTree,
+  loadTreeAsync,
+  normalizeTree,
+  putTreeCache,
+  saveTree,
+} from "../../lib/gameTree/persist";
 import { seatLabel } from "../../lib/gameTree/seats";
 import { branchRangeSpots } from "../../lib/gameTree/rangeSpots";
 import { buildSeatWindows, historyChainText, resumeNodeAfterSeat } from "../../lib/gameTree/seatView";
@@ -101,9 +108,15 @@ export default function GtoTreeEditor({ strategy }: Props) {
     [pushFold],
   );
 
-  const [doc, setDoc] = useState<GameTreeDocument>(() => loadTree(strategyId));
+  // One parse only — memory cache makes subsequent loadTree free.
+  const [doc, setDoc] = useState<GameTreeDocument>(() => {
+    const boot = loadTree(strategyId);
+    return boot;
+  });
   const [activeId, setActiveId] = useState(() => loadTree(strategyId).root.id);
-  const [paintNodeId, setPaintNodeId] = useState(() => loadTree(strategyId).root.id);
+  const [paintNodeId, setPaintNodeId] = useState(
+    () => loadTree(strategyId).root.id,
+  );
   const [paintAction, setPaintAction] = useState<PaintAction>("RAISE");
   const [weight, setWeight] = useState(100);
   const [selectedHand, setSelectedHand] = useState<string | null>(null);
@@ -113,15 +126,17 @@ export default function GtoTreeEditor({ strategy }: Props) {
     () => loadTree(strategyId).stylePresetId ?? null,
   );
   const [hydrated, setHydrated] = useState(false);
+  /** Branch list updates in a transition so paint stays snappy. */
+  const [branchList, setBranchList] = useState<SavedBranch[]>([]);
 
-  // Hydrate from server (source of truth) + local cache; never wipe painted branches.
+  // Hydrate from server (source of truth) + local/IDB cache; never wipe painted branches.
   useEffect(() => {
     let cancelled = false;
     const ts = treeTableSize(strategy.table_size ?? "6-max");
     const sd = treeStackDepth(strategy.stack_depth ?? "100bb");
 
     async function hydrate() {
-      const local = loadTree(strategyId);
+      const local = await loadTreeAsync(strategyId);
       let next = alignDocMeta(local, ts, sd);
       const pendingFocus = peekEditorFocus(strategyId);
       const keepSeededLocal =
@@ -154,7 +169,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
       }
 
       if (cancelled) return;
-      saveTree(next);
+      putTreeCache(next);
       setDoc(next);
       setActiveStyleId(next.stylePresetId ?? null);
       const focus = takeEditorFocus(strategyId);
@@ -186,6 +201,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
     void hydrate();
     return () => {
       cancelled = true;
+      flushTreeSave(strategyId);
     };
   }, [strategyId, strategy.table_size, strategy.stack_depth, pushFold]);
 
@@ -198,23 +214,45 @@ export default function GtoTreeEditor({ strategy }: Props) {
       void putStrategyTree(strategyId, doc as unknown as Record<string, unknown>).catch(
         () => undefined,
       );
-    }, 600);
+    }, 900);
     return () => {
       window.clearTimeout(flashT);
       window.clearTimeout(saveT);
     };
   }, [doc, strategyId, hydrated]);
 
-  // Keep DB charts (Trainer / Preflop analysis) in sync with tree paints.
+  // Keep DB charts in sync on idle — worker computes jobs so paint stays free.
   useEffect(() => {
     if (!hydrated) return;
-    const t = window.setTimeout(() => {
+    let idleId = 0;
+    let timeoutId = 0;
+    const run = () => {
       void syncTreeChartsToDb(strategyId, doc).catch(() => {
         /* offline / validation — tree still saved locally + on strategy */
       });
-    }, 700);
-    return () => window.clearTimeout(t);
+    };
+    const schedule = () => {
+      if (typeof window.requestIdleCallback === "function") {
+        idleId = window.requestIdleCallback(run, { timeout: 2000 });
+      } else {
+        timeoutId = window.setTimeout(run, 1200);
+      }
+    };
+    timeoutId = window.setTimeout(schedule, 1000);
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (idleId && typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(idleId);
+      }
+    };
   }, [doc, strategyId, hydrated]);
+
+  // Branch sidebar — deferred so brush strokes don't wait on collectEditorBranches.
+  useEffect(() => {
+    startTransition(() => {
+      setBranchList(collectEditorBranches(doc.root));
+    });
+  }, [doc.root]);
 
   const active = findNode(doc.root, activeId) ?? doc.root;
   const rawPaint = findNode(doc.root, paintNodeId) ?? active;
@@ -253,7 +291,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
     return chip?.potTag ?? null;
   }, [awaitingFlop, path.length, history]);
 
-  const branches = useMemo(() => collectEditorBranches(doc.root), [doc.root]);
+  const branches = branchList;
   const currentBranchId = useMemo(
     () => resolveActiveBranchId(branches, activeId, doc.root),
     [branches, activeId, doc.root],
@@ -362,6 +400,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
   }, [pushFold, rangeSpotViews, activeRangeSpot, doc.root]);
 
   function onPaint(hand: string, erase = false) {
+    // Keep brush on urgent path; branch list / sync catch up in transitions.
     setDoc((prev) =>
       paintHand(prev, paintNode.id, hand, paintAction, weight / 100, erase),
     );
