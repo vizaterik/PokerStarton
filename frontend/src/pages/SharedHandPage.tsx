@@ -51,13 +51,13 @@ export default function SharedHandPage() {
         playedStreets={playedStreets}
         unlockedStreets={unlockedStreets}
       >
-        {(likeControl) => (
+        {({ likeBar }) => (
           <HandReplayModal
             open
             pageMode
             publicToken={token}
             label="Shared hand"
-            topbarExtra={likeControl}
+            bannerExtra={likeBar}
             onStreetProgress={onStreetProgress}
             onClose={() => undefined}
           />

@@ -100,8 +100,10 @@ type Props = {
   huPot?: HuPotReplayQuery | null;
   /** Embed as page (no close / no share create) */
   pageMode?: boolean;
-  /** Extra controls in the topbar (e.g. like on public share) */
+  /** Extra controls in the topbar */
   topbarExtra?: ReactNode;
+  /** Banner under the topbar (e.g. prominent like) */
+  bannerExtra?: ReactNode;
   /** Public share: report which streets are unlocked for comments */
   onStreetProgress?: (info: {
     currentStreet: ShareStreet;
@@ -135,6 +137,7 @@ export default function HandReplayModal({
   huPot = null,
   pageMode = false,
   topbarExtra = null,
+  bannerExtra = null,
   onStreetProgress,
   onClose,
 }: Props) {
@@ -495,6 +498,8 @@ export default function HandReplayModal({
             ) : null}
           </div>
         </header>
+
+        {bannerExtra ? <div className="pr-banner-extra">{bannerExtra}</div> : null}
 
         {error && <p className="pr-error">{error}</p>}
         {shareError && <p className="pr-error">{shareError}</p>}

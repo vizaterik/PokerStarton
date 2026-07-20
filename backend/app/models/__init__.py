@@ -5,7 +5,11 @@ from app.models.bankroll import BankrollEntry, BankrollSettings
 from app.models.hand import Deviation, Hand, HandAction, HandUpload, PlaySession
 from app.models.hand_database import HandDatabase
 from app.models.hand_share import HandShare
-from app.models.hand_share_social import HandShareComment, HandShareLike
+from app.models.hand_share_social import (
+    HandShareComment,
+    HandShareCommentLike,
+    HandShareLike,
+)
 from app.models.page_view import PageView
 from app.models.player_stats import HudAggregationCredit, PlayerStatsAggregated
 from app.models.strategy import Strategy, StrategyCell, StrategySpot
@@ -23,6 +27,7 @@ __all__ = [
     "Deviation",
     "HandShare",
     "HandShareComment",
+    "HandShareCommentLike",
     "HandShareLike",
     "HandDatabase",
     "AnalysisSnapshot",

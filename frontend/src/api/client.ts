@@ -1040,6 +1040,8 @@ export type HandShareComment = {
   body: string;
   author_name: string;
   is_mine: boolean;
+  likes_count: number;
+  liked_by_me: boolean;
   created_at: string | null;
 };
 
@@ -1069,6 +1071,13 @@ export function postHandShareComment(token: string, street: ShareStreet, body: s
 export function toggleHandShareLike(token: string) {
   return request<{ likes_count: number; liked_by_me: boolean }>(
     `/api/public/hands/${encodeURIComponent(token)}/like`,
+    { method: "POST" },
+  );
+}
+
+export function toggleHandShareCommentLike(token: string, commentId: string) {
+  return request<{ comment_id: string; likes_count: number; liked_by_me: boolean }>(
+    `/api/public/hands/${encodeURIComponent(token)}/comments/${encodeURIComponent(commentId)}/like`,
     { method: "POST" },
   );
 }

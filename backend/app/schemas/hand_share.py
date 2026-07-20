@@ -23,6 +23,8 @@ class HandShareCommentRead(BaseModel):
     body: str
     author_name: str
     is_mine: bool = False
+    likes_count: int = 0
+    liked_by_me: bool = False
     created_at: datetime | None = None
 
 
@@ -34,6 +36,12 @@ class HandShareSocialRead(BaseModel):
 
 
 class HandShareLikeRead(BaseModel):
+    likes_count: int
+    liked_by_me: bool
+
+
+class HandShareCommentLikeRead(BaseModel):
+    comment_id: UUID
     likes_count: int
     liked_by_me: bool
 

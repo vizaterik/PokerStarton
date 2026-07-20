@@ -4,22 +4,23 @@ import {
   fetchHandShareSocial,
   isLoggedIn,
   postHandShareComment,
+  toggleHandShareCommentLike,
   toggleHandShareLike,
   type HandShareSocial,
   type ShareStreet,
 } from "../api/client";
 import { SHARE_STREET_LABELS } from "../lib/shareStreets";
 
+type Slot = {
+  likeBar: ReactNode;
+};
+
 type Props = {
   token: string;
-  /** Streets that exist in this hand */
   playedStreets: ShareStreet[];
-  /** Streets unlocked by replay progress (≤ current street) */
   unlockedStreets: ShareStreet[];
-  /** Active street in the replayer */
   currentStreet: ShareStreet;
-  /** Replay UI; receives like control for the topbar */
-  children: (likeControl: ReactNode) => ReactNode;
+  children: (slot: Slot) => ReactNode;
 };
 
 export default function SharedHandSocial({
@@ -40,6 +41,7 @@ export default function SharedHandSocial({
   });
   const [savingStreet, setSavingStreet] = useState<ShareStreet | null>(null);
   const [likeBusy, setLikeBusy] = useState(false);
+  const [commentLikeBusy, setCommentLikeBusy] = useState<string | null>(null);
   const loggedIn = isLoggedIn();
 
   const visibleStreets = useMemo(() => {
@@ -88,6 +90,30 @@ export default function SharedHandSocial({
     }
   }
 
+  async function onCommentLike(commentId: string) {
+    if (!loggedIn) return;
+    setCommentLikeBusy(commentId);
+    setError(null);
+    try {
+      const res = await toggleHandShareCommentLike(token, commentId);
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          comments: prev.comments.map((c) =>
+            c.id === res.comment_id
+              ? { ...c, likes_count: res.likes_count, liked_by_me: res.liked_by_me }
+              : c,
+          ),
+        };
+      });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Не удалось лайкнуть комментарий");
+    } finally {
+      setCommentLikeBusy(null);
+    }
+  }
+
   async function onSaveComment(street: ShareStreet) {
     if (!loggedIn) return;
     const body = (drafts[street] || "").trim();
@@ -118,21 +144,34 @@ export default function SharedHandSocial({
 
   const lockedAhead = playedStreets.filter((s) => !visibleStreets.includes(s));
 
-  const likeControl = (
-    <button
-      type="button"
-      className={`share-like-btn${data?.liked_by_me ? " is-liked" : ""}`}
-      disabled={!loggedIn || likeBusy || loading}
-      onClick={() => void onLike()}
-      title={loggedIn ? "Лайкнуть раздачу" : "Войдите, чтобы лайкнуть"}
-    >
-      ♥ {data?.likes_count ?? 0}
-    </button>
+  const likeBar = (
+    <div className="share-like-bar">
+      <button
+        type="button"
+        className={`share-like-btn share-like-btn-lg${data?.liked_by_me ? " is-liked" : ""}`}
+        disabled={!loggedIn || likeBusy || loading}
+        onClick={() => void onLike()}
+        title={loggedIn ? "Лайкнуть раздачу" : "Войдите, чтобы лайкнуть"}
+      >
+        <span className="share-like-heart" aria-hidden>
+          ♥
+        </span>
+        <span className="share-like-meta">
+          <strong>{data?.likes_count ?? 0}</strong>
+          <em>{data?.liked_by_me ? "Нравится" : "Нравится раздача"}</em>
+        </span>
+      </button>
+      {!loggedIn && (
+        <p className="share-social-hint share-like-login">
+          <Link to="/login">Войдите</Link>, чтобы лайкнуть
+        </p>
+      )}
+    </div>
   );
 
   return (
     <>
-      {children(likeControl)}
+      {children({ likeBar })}
 
       <div className="share-social-wrap">
         <section className="share-social" aria-label="Комментарии">
@@ -148,8 +187,7 @@ export default function SharedHandSocial({
 
           {!loggedIn && (
             <p className="share-social-hint">
-              <Link to="/login">Войдите</Link>, чтобы лайкнуть и оставить по одному
-              комментарию на улицу.
+              <Link to="/login">Войдите</Link>, чтобы лайкать и комментировать.
             </p>
           )}
           {error && <p className="share-social-error">{error}</p>}
@@ -192,7 +230,22 @@ export default function SharedHandSocial({
                     <ul className="share-comment-list">
                       {list.map((c) => (
                         <li key={c.id} className={c.is_mine ? "is-mine" : undefined}>
-                          <strong>{c.author_name}</strong>
+                          <div className="share-comment-head">
+                            <strong>{c.author_name}</strong>
+                            <button
+                              type="button"
+                              className={`share-comment-like${c.liked_by_me ? " is-liked" : ""}`}
+                              disabled={!loggedIn || commentLikeBusy === c.id}
+                              onClick={() => void onCommentLike(c.id)}
+                              title={
+                                loggedIn
+                                  ? "Лайкнуть комментарий"
+                                  : "Войдите, чтобы лайкнуть"
+                              }
+                            >
+                              ♥ {c.likes_count ?? 0}
+                            </button>
+                          </div>
                           <span>{c.body}</span>
                         </li>
                       ))}

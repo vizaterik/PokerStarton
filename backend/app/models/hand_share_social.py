@@ -57,3 +57,27 @@ class HandShareLike(Base):
 
     share: Mapped[HandShare] = relationship()
     user: Mapped[User] = relationship()
+
+
+class HandShareCommentLike(Base):
+    """One like per registered user on a share comment."""
+
+    __tablename__ = "hand_share_comment_likes"
+    __table_args__ = (
+        UniqueConstraint("comment_id", "user_id", name="uq_share_comment_like_user"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    comment_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid,
+        ForeignKey("hand_share_comments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    comment: Mapped[HandShareComment] = relationship()
+    user: Mapped[User] = relationship()

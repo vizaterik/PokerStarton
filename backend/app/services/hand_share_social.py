@@ -6,10 +6,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.hand_share import HandShare
-from app.models.hand_share_social import HandShareComment, HandShareLike
+from app.models.hand_share_social import (
+    HandShareComment,
+    HandShareCommentLike,
+    HandShareLike,
+)
 from app.models.user import User
 from app.schemas.hand_share import (
     HandShareCommentCreate,
+    HandShareCommentLikeRead,
     HandShareCommentRead,
     HandShareLikeRead,
     HandShareSocialRead,
@@ -38,6 +43,33 @@ def _author_name(user: User | None) -> str:
     if email and "@" in email:
         return email.split("@", 1)[0][:40]
     return "Игрок"
+
+
+def _comment_like_stats(
+    db: Session,
+    comment_ids: list[UUID],
+    viewer: User | None,
+) -> tuple[dict[UUID, int], set[UUID]]:
+    if not comment_ids:
+        return {}, set()
+    counts: dict[UUID, int] = {cid: 0 for cid in comment_ids}
+    for comment_id, n in db.execute(
+        select(HandShareCommentLike.comment_id, func.count())
+        .where(HandShareCommentLike.comment_id.in_(comment_ids))
+        .group_by(HandShareCommentLike.comment_id)
+    ):
+        counts[comment_id] = int(n)
+    liked: set[UUID] = set()
+    if viewer is not None:
+        liked = set(
+            db.scalars(
+                select(HandShareCommentLike.comment_id).where(
+                    HandShareCommentLike.comment_id.in_(comment_ids),
+                    HandShareCommentLike.user_id == viewer.id,
+                )
+            )
+        )
+    return counts, liked
 
 
 def get_social(
@@ -77,6 +109,8 @@ def get_social(
         for u in db.scalars(select(User).where(User.id.in_(user_ids))):
             users[u.id] = u
 
+    like_counts, liked_ids = _comment_like_stats(db, [r.id for r in rows], viewer)
+
     comments: list[HandShareCommentRead] = []
     my_by_street: dict[str, str] = {}
     for row in rows:
@@ -91,6 +125,8 @@ def get_social(
                 body=row.body,
                 author_name=_author_name(users.get(row.user_id)),
                 is_mine=is_mine,
+                likes_count=like_counts.get(row.id, 0),
+                liked_by_me=row.id in liked_ids,
                 created_at=row.created_at,
             )
         )
@@ -163,3 +199,47 @@ def toggle_like(db: Session, token: str, user: User) -> HandShareLikeRead:
         or 0
     )
     return HandShareLikeRead(likes_count=likes_count, liked_by_me=liked)
+
+
+def toggle_comment_like(
+    db: Session,
+    token: str,
+    comment_id: UUID,
+    user: User,
+) -> HandShareCommentLikeRead:
+    share = _share_by_token(db, token)
+    comment = db.scalar(
+        select(HandShareComment).where(
+            HandShareComment.id == comment_id,
+            HandShareComment.share_id == share.id,
+        )
+    )
+    if comment is None:
+        raise LookupError("Комментарий не найден")
+
+    existing = db.scalar(
+        select(HandShareCommentLike).where(
+            HandShareCommentLike.comment_id == comment.id,
+            HandShareCommentLike.user_id == user.id,
+        )
+    )
+    if existing is not None:
+        db.delete(existing)
+        liked = False
+    else:
+        db.add(HandShareCommentLike(comment_id=comment.id, user_id=user.id))
+        liked = True
+    db.commit()
+    likes_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(HandShareCommentLike)
+            .where(HandShareCommentLike.comment_id == comment.id)
+        )
+        or 0
+    )
+    return HandShareCommentLikeRead(
+        comment_id=comment.id,
+        likes_count=likes_count,
+        liked_by_me=liked,
+    )

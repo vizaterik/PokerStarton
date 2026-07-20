@@ -9,6 +9,7 @@ from app.models.user import User
 from app.schemas.analysis import ReplayHand
 from app.schemas.hand_share import (
     HandShareCommentCreate,
+    HandShareCommentLikeRead,
     HandShareLikeRead,
     HandShareRead,
     HandShareSocialRead,
@@ -90,5 +91,21 @@ def toggle_public_hand_like(
 ) -> HandShareLikeRead:
     try:
         return social_svc.toggle_like(db, token, current_user)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/public/hands/{token}/comments/{comment_id}/like",
+    response_model=HandShareCommentLikeRead,
+)
+def toggle_public_comment_like(
+    token: str,
+    comment_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> HandShareCommentLikeRead:
+    try:
+        return social_svc.toggle_comment_like(db, token, comment_id, current_user)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
