@@ -77,3 +77,21 @@ class DeleteAccountResponse(BaseModel):
     message: str
     uploads_archived: int = 0
     sessions_archived: int = 0
+
+
+class ProfileTopHandRead(BaseModel):
+    token: str
+    path: str
+    likes_count: int
+    hero_hand: str | None = None
+    hero_position: str | None = None
+    played_at: datetime | None = None
+    hero_net: float | None = None
+
+
+class ProfileStatsRead(BaseModel):
+    registered_at: datetime
+    rating: int
+    likes_received: int
+    shares_count: int
+    top_hands: list[ProfileTopHandRead] = Field(default_factory=list)

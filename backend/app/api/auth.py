@@ -23,6 +23,7 @@ from app.schemas.auth import (
     GoogleLoginRequest,
     LoginRequest,
     NicknameRequest,
+    ProfileStatsRead,
     RefreshRequest,
     RegisterResponse,
     ResendCodeRequest,
@@ -31,6 +32,7 @@ from app.schemas.auth import (
     UserRead,
     VerifyEmailRequest,
 )
+from app.services.profile_social import get_profile_stats
 from app.services.account_delete import (
     ARCHIVE_EMAIL,
     delete_user_account,
@@ -340,6 +342,16 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResp
 @router.get("/me", response_model=UserRead)
 def me(current_user: User = Depends(get_current_user)) -> UserRead:
     return _user_read(current_user)
+
+
+@router.get("/me/stats", response_model=ProfileStatsRead)
+def me_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProfileStatsRead:
+    """Registration, social rating and top liked shared hands."""
+    return get_profile_stats(db, current_user)
+
 
 @router.delete("/account", response_model=DeleteAccountResponse)
 def delete_account(

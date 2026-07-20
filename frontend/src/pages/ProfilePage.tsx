@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { deleteAccount, getMe, isLoggedIn, User } from "../api/client";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  deleteAccount,
+  getMe,
+  getProfileStats,
+  isLoggedIn,
+  type ProfileStats,
+  type User,
+} from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DatabasesPanel from "../components/DatabasesPanel";
 // import SubscriptionPanel from "../components/SubscriptionPanel";
@@ -15,9 +22,22 @@ const TABS: { id: ProfileTab; label: string }[] = [
   // { id: "subscription", label: "Подписка" },
 ];
 
+function formatHandLabel(hand: string | null | undefined) {
+  if (!hand || hand.length < 4) return "Раздача";
+  return `${hand.slice(0, 2)} ${hand.slice(2, 4)}`;
+}
+
+function formatNet(net: number | null | undefined) {
+  if (net == null || !Number.isFinite(net)) return null;
+  const sign = net > 0 ? "+" : "";
+  return `${sign}${net.toFixed(2)}`;
+}
+
 export default function ProfilePage() {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
+  const [stats, setStats] = useState<ProfileStats | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
   const [tab, setTab] = useState<ProfileTab>("account");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -32,6 +52,11 @@ export default function ProfilePage() {
     void getMe()
       .then(setUser)
       .catch(() => navigate("/login", { replace: true }));
+    void getProfileStats()
+      .then(setStats)
+      .catch((err: unknown) => {
+        setStatsError(err instanceof Error ? err.message : "Не удалось загрузить статистику");
+      });
   }, [navigate]);
 
   async function onDeleteAccount() {
@@ -57,6 +82,8 @@ export default function ProfilePage() {
       </section>
     );
   }
+
+  const registeredAt = stats?.registered_at || user.created_at;
 
   return (
     <section className="page profile-page">
@@ -110,15 +137,70 @@ export default function ProfilePage() {
               </div>
 
               <div className="profile-field">
-                <span className="profile-field-label">Аккаунт</span>
+                <span className="profile-field-label">Регистрация</span>
                 <div className="profile-field-value">
                   <strong>
-                    {user.created_at
-                      ? `с ${new Date(user.created_at).toLocaleDateString("ru-RU")}`
-                      : BRAND}
+                    {registeredAt
+                      ? new Date(registeredAt).toLocaleDateString("ru-RU", {
+                          day: "2-digit",
+                          month: "long",
+                          year: "numeric",
+                        })
+                      : "—"}
                   </strong>
                 </div>
               </div>
+
+              <div className="profile-field">
+                <span className="profile-field-label">Рейтинг</span>
+                <div className="profile-field-value">
+                  <strong className="profile-rating">
+                    {stats ? stats.rating : "…"}
+                  </strong>
+                  {stats ? (
+                    <span className="muted" style={{ fontSize: "0.82rem" }}>
+                      ♥ {stats.likes_received} · {stats.shares_count} шаров
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="profile-top-hands">
+              <h3>Лучшие раздачи</h3>
+              <p className="muted profile-tab-lead">Топ по лайкам среди ваших шаров.</p>
+              {statsError ? <p className="error">{statsError}</p> : null}
+              {!stats && !statsError ? (
+                <p className="muted">Загрузка…</p>
+              ) : null}
+              {stats && stats.top_hands.length === 0 ? (
+                <p className="muted">Пока нет лайкнутых раздач — поделитесь рукой в реплее.</p>
+              ) : null}
+              {stats && stats.top_hands.length > 0 ? (
+                <ol className="profile-top-hands-list">
+                  {stats.top_hands.map((h, i) => {
+                    const net = formatNet(h.hero_net);
+                    return (
+                      <li key={h.token}>
+                        <span className="profile-top-rank">{i + 1}</span>
+                        <div className="profile-top-meta">
+                          <Link to={h.path} className="profile-top-link">
+                            {formatHandLabel(h.hero_hand)}
+                            {h.hero_position ? ` · ${h.hero_position}` : ""}
+                          </Link>
+                          <span className="muted">
+                            {h.played_at
+                              ? new Date(h.played_at).toLocaleDateString("ru-RU")
+                              : "—"}
+                            {net ? ` · ${net}` : ""}
+                          </span>
+                        </div>
+                        <span className="profile-top-likes">♥ {h.likes_count}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              ) : null}
             </div>
 
             <div className="profile-actions">

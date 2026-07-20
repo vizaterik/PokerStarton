@@ -934,6 +934,71 @@
   flex-wrap: wrap;
 }
 
+.profile-rating {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.profile-top-hands {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.profile-top-hands h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.profile-top-hands-list {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.profile-top-hands-list li {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.55rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.profile-top-rank {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--muted);
+  text-align: center;
+}
+
+.profile-top-meta {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.profile-top-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.profile-top-link:hover {
+  text-decoration: underline;
+}
+
+.profile-top-likes {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #fca5a5;
+  white-space: nowrap;
+}
+
 .profile-field-value .linkish,
 .profile-inline-form .linkish,
 button.linkish {

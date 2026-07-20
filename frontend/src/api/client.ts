@@ -335,6 +335,28 @@ export async function getMe() {
   return user;
 }
 
+export type ProfileTopHand = {
+  token: string;
+  path: string;
+  likes_count: number;
+  hero_hand: string | null;
+  hero_position: string | null;
+  played_at: string | null;
+  hero_net: number | null;
+};
+
+export type ProfileStats = {
+  registered_at: string;
+  rating: number;
+  likes_received: number;
+  shares_count: number;
+  top_hands: ProfileTopHand[];
+};
+
+export function getProfileStats() {
+  return request<ProfileStats>("/api/auth/me/stats");
+}
+
 export type SupportTicketPayload = {
   site_nick: string;
   email: string;
