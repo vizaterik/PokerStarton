@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { ReplayAction, ReplayHand, ReplaySeat } from "../api/client";
 import PlayingCard, { CardBack } from "./PlayingCard";
 
@@ -315,12 +315,35 @@ export default function PokerTable({
     [hand, actionIndex],
   );
 
+  // When the next action is on a new street (board dealt), street bets go to pot.
+  const nextStreet = (next?.street || street || "preflop").toLowerCase();
+  const bettingStreet = (street || "preflop").toLowerCase();
+  const chipsToPot =
+    !atEnd && next != null && nextStreet !== bettingStreet && streetBets.size > 0;
+
+  const [collectBurst, setCollectBurst] = useState<{
+    key: string;
+    bets: Map<string, number>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!chipsToPot) return;
+    const token = `${actionIndex}:${nextStreet}`;
+    setCollectBurst({ key: token, bets: new Map(streetBets) });
+    const t = window.setTimeout(() => {
+      setCollectBurst((cur) => (cur?.key === token ? null : cur));
+    }, 520);
+    return () => window.clearTimeout(t);
+  }, [chipsToPot, actionIndex, nextStreet, streetBets]);
+
   const folded = new Set<string>();
   for (let i = 0; i <= actionIndex && i < hand.actions.length; i += 1) {
     if (hand.actions[i].action === "fold") {
       folded.add(hand.actions[i].player_name.toLowerCase());
     }
   }
+  const justFoldedKey =
+    last?.action === "fold" ? last.player_name.toLowerCase() : null;
 
   const streetLabel = atEnd
     ? "showdown"
@@ -329,6 +352,8 @@ export default function PokerTable({
       : street;
 
   const seatCount = layout.length;
+  const visibleBets = atEnd || chipsToPot ? new Map<string, number>() : streetBets;
+  const animBets = collectBurst?.bets ?? null;
 
   return (
     <div
@@ -340,7 +365,7 @@ export default function PokerTable({
         <div className="pr-table-felt-line" aria-hidden />
 
         <div className="pr-center">
-          <div className="pr-pot">
+          <div className={`pr-pot${chipsToPot || collectBurst ? " is-collecting" : ""}`}>
             <span>
               Банк : <strong>{amt(pot)}</strong>
             </span>
@@ -362,19 +387,29 @@ export default function PokerTable({
 
         {layout.map(({ seat, slot }) => {
           const key = seat.name.toLowerCase();
-          const bet = atEnd ? 0 : streetBets.get(key) || 0;
-          if (bet <= 0) return null;
+          const bet = visibleBets.get(key) || 0;
+          const collectAmt = animBets?.get(key) || 0;
+          if (bet <= 0 && collectAmt <= 0) return null;
+          const showCollect = collectAmt > 0 && bet <= 0;
+          const amount = showCollect ? collectAmt : bet;
           return (
             <div
-              key={`bet-${seat.seat}`}
-              className="pr-street-bet"
-              style={{ left: `${slot.bx}%`, top: `${slot.by}%` }}
+              key={`bet-${seat.seat}-${showCollect ? collectBurst?.key : "live"}`}
+              className={`pr-street-bet${showCollect ? " is-to-pot" : ""}`}
+              style={
+                {
+                  left: `${slot.bx}%`,
+                  top: `${slot.by}%`,
+                  ["--bx"]: slot.bx,
+                  ["--by"]: slot.by,
+                } as CSSProperties
+              }
             >
               <span className="pr-chip" aria-hidden>
                 <span className="pr-chip-ring" />
                 <span className="pr-chip-core" />
               </span>
-              <span>{amt(bet)}</span>
+              <span>{amt(amount)}</span>
             </div>
           );
         })}
@@ -382,6 +417,7 @@ export default function PokerTable({
         {layout.map(({ seat, slot }) => {
           const key = seat.name.toLowerCase();
           const isFolded = folded.has(key);
+          const isJustFolded = justFoldedKey === key;
           const isActor = !atEnd && toActKey != null && toActKey === key;
           const justActed =
             last != null && last.player_name.toLowerCase() === key;
@@ -421,6 +457,7 @@ export default function PokerTable({
                   "pr-seat",
                   isHero ? "is-hero" : "",
                   isFolded ? "is-folded" : "",
+                  isJustFolded ? "is-folding" : "",
                   isPlaceholder ? "is-placeholder" : "",
                   isActor ? "is-turn" : "",
                   atEnd && revealed ? "is-showdown" : "",
@@ -429,8 +466,16 @@ export default function PokerTable({
                   .filter(Boolean)
                   .join(" ")}
               >
-                <div className="pr-seat-cards">
-                  {!isPlaceholder ? (
+                <div
+                  className="pr-seat-cards"
+                  style={
+                    {
+                      ["--mx"]: 50 - slot.x,
+                      ["--my"]: 48 - slot.y,
+                    } as CSSProperties
+                  }
+                >
+                  {!isPlaceholder && !isFolded ? (
                     revealed ? (
                       <>
                         <PlayingCard code={revealed[0]} size={cardSize} />
@@ -442,6 +487,15 @@ export default function PokerTable({
                         <CardBack size={cardSize} />
                       </>
                     )
+                  ) : null}
+                  {!isPlaceholder && isFolded ? (
+                    <div
+                      className={`pr-muck-cards${isJustFolded ? " is-animating" : ""}`}
+                      aria-hidden
+                    >
+                      <CardBack size={cardSize} />
+                      <CardBack size={cardSize} />
+                    </div>
                   ) : null}
                 </div>
 
