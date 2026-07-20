@@ -2064,7 +2064,7 @@ export default function StrategyAnalysisPanel({
                           />
                         )}
                       </div>
-                      <div className="preflop-chart-pane">
+                      <div className="preflop-chart-pane preflop-chart-pane--full">
                         <header>
                           <strong>VPIP</strong>
                           <span>raise / call / fold · клик = выбрать</span>
@@ -2372,7 +2372,7 @@ export default function StrategyAnalysisPanel({
                       }}
                     />
                   </div>
-                  <div className="preflop-chart-pane">
+                  <div className="preflop-chart-pane preflop-chart-pane--full">
                     <header>
                       <strong>VPIP</strong>
                       <span>raise / call / fold · клик = выбрать</span>

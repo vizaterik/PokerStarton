@@ -9389,12 +9389,12 @@ body.confirm-open #root {
 
 .preflop-chart-compare {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
   align-items: stretch;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
   .preflop-chart-compare {
     grid-template-columns: 1fr;
   }
@@ -9406,12 +9406,17 @@ body.confirm-open #root {
   align-items: stretch;
   min-width: 0;
   width: 100%;
-  min-height: 28rem;
+  min-height: 26rem;
   padding: 0.65rem;
   border-radius: 0.6rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(0, 0, 0, 0.18);
-  overflow: auto;
+  overflow: visible;
+}
+
+.preflop-chart-pane--full {
+  grid-column: 1 / -1;
+  min-height: 0;
 }
 
 .preflop-chart-pane > .muted,
@@ -9428,6 +9433,12 @@ body.confirm-open #root {
 .preflop-chart-pane .range-matrix,
 .preflop-chart-pane .dev-error-matrix {
   margin-inline: auto;
+  max-width: none;
+  overflow: visible;
+}
+
+.preflop-chart-pane--full .dev-error-matrix {
+  --cell: 2rem;
 }
 
 .preflop-chart-pane header {
