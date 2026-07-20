@@ -12,7 +12,6 @@ import AcademyPage from "./pages/AcademyPage";
 import AdminPage from "./pages/AdminPage";
 import CareerPage from "./pages/CareerPage";
 import FeedPage from "./pages/FeedPage";
-import FeedPostPage from "./pages/FeedPostPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import LogoutPage from "./pages/LogoutPage";
@@ -141,7 +140,6 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/logout" element={<LogoutPage />} />
           <Route path="/feed" element={<FeedPage />} />
-          <Route path="/feed/:postId" element={<FeedPostPage />} />
 
           <Route element={<GuestOnly />}>
             <Route path="/login" element={<LoginPage />} />

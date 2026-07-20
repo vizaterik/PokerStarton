@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,7 +11,6 @@ from app.core.config import settings
 from app.db.ensure_schema import ensure_postgres_schema
 from app.db.migrate_sqlite import ensure_sqlite_schema
 from app.db.session import engine
-from app.services.feed_worker import feed_auto_loop
 import app.models  # noqa: F401
 
 
@@ -38,17 +36,7 @@ async def lifespan(_: FastAPI):
         ensure_sqlite_schema(engine)
     else:
         ensure_postgres_schema(engine)
-    stop = asyncio.Event()
-    worker = asyncio.create_task(feed_auto_loop(stop))
-    try:
-        yield
-    finally:
-        stop.set()
-        worker.cancel()
-        try:
-            await worker
-        except asyncio.CancelledError:
-            pass
+    yield
 
 
 app = FastAPI(title="PokerStraton", version="0.1.0", lifespan=lifespan)
