@@ -130,8 +130,46 @@ function spotToPresetLine(
   return null;
 }
 
-/** Same focus as onOpenBranch: flop tip + first paintable range spot. */
-function focusForTip(doc: GameTreeDocument, tipId: string): SeedFocus | null {
+/**
+ * Prefer the HH hero's decision node on the line so "Add to Strategy" opens
+ * the matrix the user must paint (not the opener's RFI by default).
+ */
+function pickHeroPaintNodeId(
+  spots: ReturnType<typeof branchRangeSpots>,
+  hero: Seat | null,
+  spotKey: string,
+): string | null {
+  if (!hero || !spots.length) return null;
+  const heroSpots = spots.filter((s) => s.seat === hero);
+  if (!heroSpots.length) return null;
+  const key = spotKey.trim().toLowerCase();
+  if (key === "rfi" || key === "iso") {
+    return (
+      heroSpots.find((s) => s.lineAction === "RAISE")?.nodeId ??
+      heroSpots[0].nodeId
+    );
+  }
+  if (key === "squeeze") {
+    return (
+      heroSpots.find((s) => s.lineAction === "RAISE")?.nodeId ??
+      heroSpots.find((s) => s.lineAction === "CALL")?.nodeId ??
+      heroSpots[0].nodeId
+    );
+  }
+  // vs_open / vs_3bet / vs_4bet — facing decision (call continuum) first.
+  return (
+    heroSpots.find((s) => s.lineAction === "CALL")?.nodeId ??
+    heroSpots.find((s) => s.lineAction === "RAISE")?.nodeId ??
+    heroSpots[0].nodeId
+  );
+}
+
+/** Flop tip + paint node for this spot (hero seat when possible). */
+function focusForSpot(
+  doc: GameTreeDocument,
+  tipId: string,
+  spot: SpotSeed,
+): SeedFocus | null {
   const tip = findNode(doc.root, tipId);
   if (!tip?.awaitingFlop) return null;
   const tipPath = pathToNode(doc.root, tipId) ?? [];
@@ -139,9 +177,12 @@ function focusForTip(doc: GameTreeDocument, tipId: string): SeedFocus | null {
     (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
   );
   if (spots.length === 0) return null;
+  const hero = chartPosToSeat(spot.hero_position, doc.tableSize);
+  const paintNodeId =
+    pickHeroPaintNodeId(spots, hero, spot.spot_key) ?? spots[0].nodeId;
   return {
     tipNodeId: tipId,
-    paintNodeId: spots[0].nodeId,
+    paintNodeId,
   };
 }
 
@@ -177,7 +218,7 @@ export function seedSpotIntoDoc(
   const { doc: built, tipId } = seedPresetLine(doc, line);
   if (!tipId || !lineLooksReady(built, tipId, line)) return null;
 
-  const focus = focusForTip(built, tipId);
+  const focus = focusForSpot(built, tipId, spot);
   if (!focus) return null;
 
   return {

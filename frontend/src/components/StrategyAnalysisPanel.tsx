@@ -330,12 +330,19 @@ export default function StrategyAnalysisPanel({
 
   const chartGenRef = useRef(0);
   const hasDevsRef = useRef(false);
+  const lastBuiltChartsBumpRef = useRef(0);
   const [chartProgress, setChartProgress] = useState<string | null>(null);
   hasDevsRef.current = !!devs;
 
-  /** Chart compare module — same pattern as Math tab (recalculate on each open). */
+  /**
+   * Strategy compare: on «Моя стратегия», and whenever constructor charts change
+   * (even if the user is still on HUD / overview — keep analysis reactive).
+   */
   useEffect(() => {
-    if (tab !== "preflop" || !strategyId || analysisSuspended) return;
+    if (!strategyId || analysisSuspended) return;
+    const chartsChanged = chartsBump !== lastBuiltChartsBumpRef.current;
+    if (tab !== "preflop" && !chartsChanged) return;
+
     const gen = ++chartGenRef.current;
     let cancelled = false;
     setDevError(null);
@@ -349,13 +356,16 @@ export default function StrategyAnalysisPanel({
     })
       .then((res) => {
         if (cancelled || chartGenRef.current !== gen) return;
+        lastBuiltChartsBumpRef.current = chartsBump;
         setDevs(res.deviations);
         setStrategySpots(res.spots);
         if (res.hands > 0) setHandTotal(res.hands);
-        const first = res.deviations.chart_errors?.[0];
-        setSelectedChartKey(first ? chartKey(first) : null);
-        setErrorFilter({});
-        setSelectedHand(null);
+        if (tab === "preflop") {
+          const first = res.deviations.chart_errors?.[0];
+          setSelectedChartKey(first ? chartKey(first) : null);
+          setErrorFilter({});
+          setSelectedHand(null);
+        }
       })
       .catch((err) => {
         if (cancelled || chartGenRef.current !== gen) return;
@@ -491,15 +501,28 @@ export default function StrategyAnalysisPanel({
       setAddingSpots(true);
       setAddingSpotKey(key);
       try {
-        await createSpot(strategyId, {
-          spot_key: spot.spot_key,
-          hero_position: spot.hero_position,
-          villain_position: spot.villain_position,
-          label: spot.label || undefined,
-        });
+        // Seed constructor branch first — editor focus + paint seat for this HH spot.
         const focus = seedSpotIntoTree(strategyId, spot);
+        if (!focus) {
+          setSpotsHint(
+            "Не удалось создать ветку в конструкторе для этого матчапа. Проверь позиции и размер стола.",
+          );
+          setAddingSpots(false);
+          setAddingSpotKey(null);
+          return;
+        }
+        try {
+          await createSpot(strategyId, {
+            spot_key: spot.spot_key,
+            hero_position: spot.hero_position,
+            villain_position: spot.villain_position,
+            label: spot.label || undefined,
+          });
+        } catch {
+          /* DB spot may already exist; tree seed is what opens the editor. */
+        }
         clearAnalysisCache(strategyId);
-        if (focus) stashEditorFocus(strategyId, focus);
+        stashEditorFocus(strategyId, focus);
         navigate(`/strategies/${strategyId}`);
       } catch (err: unknown) {
         setSpotsHint(
