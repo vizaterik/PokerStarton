@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     smtp_tls: bool = True
 
+    # AI feed (YouTube + OpenAI-compatible LLM)
+    youtube_api_key: str = ""
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o-mini"
+
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalize_db(cls, v: object) -> object:

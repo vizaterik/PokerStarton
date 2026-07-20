@@ -7,6 +7,7 @@ import {
   fetchResultsHuPotHands,
   fetchStatHands,
   fetchStrategyHuPotHands,
+  type ReplayHand,
   type ShareStreet,
   type StatHandsResponse,
 } from "../api/client";
@@ -96,6 +97,8 @@ type Props = {
   initialHandIndex?: number;
   /** Public share token — loads /api/public/hands/{token}/replay */
   publicToken?: string | null;
+  /** In-memory hand (AI feed / pasted HH) — skips network fetch */
+  embeddedHand?: ReplayHand | null;
   /** HU pot branch hands (pot_kind + matchup) */
   huPot?: HuPotReplayQuery | null;
   /** Embed as page (no close / no share create) */
@@ -134,6 +137,7 @@ export default function HandReplayModal({
   handIds = null,
   initialHandIndex = 0,
   publicToken = null,
+  embeddedHand = null,
   huPot = null,
   pageMode = false,
   topbarExtra = null,
@@ -156,9 +160,10 @@ export default function HandReplayModal({
   const handIdsKey = listIds.join(",");
   const singleHand =
     Boolean(publicToken) ||
+    Boolean(embeddedHand) ||
     (listIds.length === 0 && Boolean(handId)) ||
     listIds.length === 1;
-  const canShare = !publicToken && !pageMode;
+  const canShare = !publicToken && !pageMode && !embeddedHand;
 
   const setUnit = useCallback((unit: AmountUnit) => {
     setAmountUnit(unit);
@@ -200,7 +205,9 @@ export default function HandReplayModal({
     );
 
     let load: Promise<StatHandsResponse>;
-    if (huPot) {
+    if (embeddedHand) {
+      load = Promise.resolve(wrapHands([embeddedHand]));
+    } else if (huPot) {
       load =
         huPot.source === "results"
           ? fetchResultsHuPotHands({
@@ -249,6 +256,7 @@ export default function HandReplayModal({
     initialHandIndex,
     label,
     publicToken,
+    embeddedHand,
     huPot?.source,
     huPot?.potKind,
     huPot?.matchup,

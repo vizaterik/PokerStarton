@@ -1767,3 +1767,101 @@ export type AdminOverview = {
 export function getAdminOverview() {
   return request<AdminOverview>("/api/admin/overview");
 }
+
+export type FeedPostListItem = {
+  id: string;
+  status: "draft" | "published" | "rejected";
+  source_type: "youtube" | "hh" | "manual";
+  source_url: string | null;
+  source_title: string | null;
+  source_channel: string | null;
+  title: string;
+  analysis_preview: string;
+  hero_hand: string | null;
+  stakes_label: string | null;
+  tags: string[];
+  has_replay: boolean;
+  created_at: string | null;
+  published_at: string | null;
+};
+
+export type FeedPostDetail = FeedPostListItem & {
+  analysis_md: string;
+  hand_raw_text: string | null;
+  replay_snapshot: Record<string, unknown> | null;
+  raw_excerpt: string | null;
+};
+
+export type FeedSettings = {
+  auto_enabled: boolean;
+  auto_publish: boolean;
+  search_queries: string[];
+  max_posts_per_day: number;
+  min_views: number;
+  model_name: string;
+};
+
+export function listFeedPosts(limit = 30, offset = 0) {
+  const q = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return request<{ items: FeedPostListItem[]; total: number }>(
+    `/api/feed/posts?${q}`,
+  );
+}
+
+export function getFeedPost(postId: string) {
+  return request<FeedPostDetail>(`/api/feed/posts/${encodeURIComponent(postId)}`);
+}
+
+export function getAdminFeedSettings() {
+  return request<FeedSettings>("/api/admin/feed/settings");
+}
+
+export function updateAdminFeedSettings(payload: Partial<FeedSettings>) {
+  return request<FeedSettings>("/api/admin/feed/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listAdminFeedPosts(status?: string | null, limit = 50) {
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (status) q.set("status", status);
+  return request<{ items: FeedPostListItem[]; total: number }>(
+    `/api/admin/feed/posts?${q}`,
+  );
+}
+
+export function ingestAdminFeedPost(payload: {
+  youtube_url?: string;
+  raw_hh?: string;
+  publish?: boolean;
+}) {
+  return request<FeedPostDetail>("/api/admin/feed/ingest", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function publishAdminFeedPost(postId: string) {
+  return request<FeedPostDetail>(
+    `/api/admin/feed/posts/${encodeURIComponent(postId)}/publish`,
+    { method: "POST" },
+  );
+}
+
+export function rejectAdminFeedPost(postId: string) {
+  return request<FeedPostDetail>(
+    `/api/admin/feed/posts/${encodeURIComponent(postId)}/reject`,
+    { method: "POST" },
+  );
+}
+
+export function runAdminFeedAuto() {
+  return request<{ created: number; skipped: number; message: string }>(
+    "/api/admin/feed/run-auto",
+    { method: "POST" },
+  );
+}

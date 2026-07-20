@@ -5,6 +5,7 @@ from app.models.bankroll import BankrollEntry, BankrollSettings
 from app.models.hand import Deviation, Hand, HandAction, HandUpload, PlaySession
 from app.models.hand_database import HandDatabase
 from app.models.hand_share import HandShare
+from app.models.feed import FeedPost, FeedSettings
 from app.models.hand_share_social import (
     HandShareComment,
     HandShareCommentLike,
@@ -29,6 +30,8 @@ __all__ = [
     "HandShareComment",
     "HandShareCommentLike",
     "HandShareLike",
+    "FeedSettings",
+    "FeedPost",
     "HandDatabase",
     "AnalysisSnapshot",
     "BankrollSettings",

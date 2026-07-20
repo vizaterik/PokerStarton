@@ -6,6 +6,7 @@ from app.api import (
     billing,
     career,
     databases,
+    feed,
     hand_shares,
     hud,
     strategies,
@@ -24,5 +25,6 @@ api_router.include_router(career.router)
 api_router.include_router(databases.router)
 api_router.include_router(hud.router)
 api_router.include_router(hand_shares.router)
+api_router.include_router(feed.router)
 api_router.include_router(support.router)
 api_router.include_router(analytics.router)

@@ -129,8 +129,41 @@ export function isLocalHandId(id: string): boolean {
 
 export function buildReplayFromRow(row: HandRow): ReplayHand {
   const raw = (row.raw_text || "").trim();
+  return buildReplayFromRawText(raw, {
+    id: row.key,
+    external_hand_id: row.external_hand_id,
+    played_at: row.played_at,
+    table_name: row.table_name,
+    small_blind: row.small_blind,
+    big_blind: row.big_blind,
+    hero_name: row.hero_name,
+    hero_position: row.hero_position,
+    hero_hand: row.hero_hand,
+    hero_net: row.hero_net,
+    hero_net_bb: row.hero_net_bb,
+  });
+}
+
+/** Build a ReplayHand from raw HH text (feed posts, pasted hands). */
+export function buildReplayFromRawText(
+  rawText: string,
+  extras?: {
+    id?: string;
+    external_hand_id?: string | null;
+    played_at?: string | null;
+    table_name?: string | null;
+    small_blind?: number | null;
+    big_blind?: number | null;
+    hero_name?: string | null;
+    hero_position?: string | null;
+    hero_hand?: string | null;
+    hero_net?: number | null;
+    hero_net_bb?: number | null;
+  },
+): ReplayHand {
+  const raw = (rawText || "").trim();
   const parsed = raw ? parseHandHistory(raw)[0] : null;
-  const heroHand = parsed?.hero_hand ?? row.hero_hand ?? null;
+  const heroHand = parsed?.hero_hand ?? extras?.hero_hand ?? null;
   const actionsSrc = parsed?.actions ?? [];
   const actions: ReplayAction[] = [...actionsSrc]
     .sort((a, b) => a.action_order - b.action_order)
@@ -144,23 +177,24 @@ export function buildReplayFromRow(row: HandRow): ReplayHand {
     }));
 
   return {
-    id: row.key,
-    external_hand_id: row.external_hand_id,
-    played_at: row.played_at,
-    table_name: parsed?.table_name ?? row.table_name ?? null,
-    small_blind: parsed?.small_blind ?? row.small_blind ?? null,
-    big_blind: parsed?.big_blind ?? row.big_blind ?? null,
-    hero_name: parsed?.hero_name ?? row.hero_name ?? "Hero",
-    hero_position: parsed?.hero_position ?? row.hero_position,
+    id: extras?.id || parsed?.external_hand_id || "feed-hand",
+    external_hand_id:
+      extras?.external_hand_id || parsed?.external_hand_id || "feed",
+    played_at: extras?.played_at ?? parsed?.played_at ?? null,
+    table_name: parsed?.table_name ?? extras?.table_name ?? null,
+    small_blind: parsed?.small_blind ?? extras?.small_blind ?? null,
+    big_blind: parsed?.big_blind ?? extras?.big_blind ?? null,
+    hero_name: parsed?.hero_name ?? extras?.hero_name ?? "Hero",
+    hero_position: parsed?.hero_position ?? extras?.hero_position ?? null,
     hero_cards: heroCards(heroHand),
     board: parseBoard(raw),
-    hero_net: Math.round((row.hero_net ?? 0) * 10000) / 10000,
-    hero_net_bb: Math.round((row.hero_net_bb ?? 0) * 10000) / 10000,
+    hero_net: Math.round((extras?.hero_net ?? 0) * 10000) / 10000,
+    hero_net_bb: Math.round((extras?.hero_net_bb ?? 0) * 10000) / 10000,
     seats: parseSeats(
       raw,
-      parsed?.hero_name ?? row.hero_name,
+      parsed?.hero_name ?? extras?.hero_name,
       heroHand,
-      parsed?.hero_position ?? row.hero_position,
+      parsed?.hero_position ?? extras?.hero_position,
     ),
     actions,
     raw_text: raw,

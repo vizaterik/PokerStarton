@@ -15651,3 +15651,262 @@ button,
   color: var(--muted);
 }
 
+/* AI feed */
+.feed-page-head,
+.feed-post-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.feed-page-head h1,
+.feed-post-head h1 {
+  margin: 0 0 0.35rem;
+}
+
+.feed-count {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+}
+
+.feed-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.feed-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.feed-card:hover {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.feed-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.feed-card-top h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.feed-badge {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem;
+}
+
+.feed-preview {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.feed-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.feed-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.feed-tags span {
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  color: rgba(232, 234, 239, 0.7);
+}
+
+.feed-back {
+  margin: 0 0 0.85rem;
+}
+
+.feed-back a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.feed-source {
+  margin: 0.55rem 0 0;
+  font-size: 0.85rem;
+}
+
+.feed-source a {
+  color: #6ee7b7;
+}
+
+.feed-analysis {
+  margin: 1.25rem 0;
+  display: grid;
+  gap: 0.85rem;
+  max-width: 48rem;
+}
+
+.feed-md-block h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.feed-md-block p {
+  margin: 0 0 0.35rem;
+  line-height: 1.55;
+  color: rgba(232, 234, 239, 0.88);
+}
+
+.feed-replay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.admin-feed-panel {
+  margin-top: 1.5rem;
+}
+
+.admin-feed-settings,
+.admin-feed-ingest {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.admin-feed-settings label,
+.admin-feed-ingest label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.admin-feed-settings input,
+.admin-feed-ingest input,
+.admin-feed-settings textarea,
+.admin-feed-ingest textarea {
+  width: 100%;
+  padding: 0.5rem 0.65rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font: inherit;
+}
+
+.admin-feed-check {
+  display: flex !important;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.admin-feed-check input {
+  width: auto;
+}
+
+.admin-feed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.admin-feed-info {
+  color: #6ee7b7;
+  font-size: 0.9rem;
+}
+
+.admin-feed-post-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.admin-feed-post-list li {
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+}
+
+.admin-feed-status {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.admin-feed-status.is-draft {
+  color: #fbbf24;
+}
+
+.admin-feed-status.is-published {
+  color: #6ee7b7;
+}
+
+.admin-feed-status.is-rejected {
+  color: #f87171;
+}
+
+.admin-feed-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.admin-feed-row-actions a,
+.admin-feed-row-actions button {
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.admin-feed-row-actions button {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  border-radius: 0.4rem;
+  padding: 0.3rem 0.55rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+

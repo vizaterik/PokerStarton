@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
+import AdminFeedPanel from "../components/AdminFeedPanel";
 import { getAdminOverview, getMe, type AdminOverview, type TrafficWindow } from "../api/client";
 
 function WindowCard({ title, data }: { title: string; data: TrafficWindow }) {
@@ -171,6 +172,8 @@ export default function AdminPage() {
           </div>
         </>
       ) : null}
+
+      <AdminFeedPanel />
     </section>
   );
 }

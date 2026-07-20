@@ -11,6 +11,8 @@ import { getMe, isLoggedIn, startApiKeepAlive, stopApiKeepAlive, trackPageView }
 import AcademyPage from "./pages/AcademyPage";
 import AdminPage from "./pages/AdminPage";
 import CareerPage from "./pages/CareerPage";
+import FeedPage from "./pages/FeedPage";
+import FeedPostPage from "./pages/FeedPostPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import LogoutPage from "./pages/LogoutPage";
@@ -108,6 +110,9 @@ export default function App() {
                 <NavLink to="/career" className={navClass}>
                   Карьера
                 </NavLink>
+                <NavLink to="/feed" className={navClass}>
+                  Лента
+                </NavLink>
                 {isAdmin ? (
                   <NavLink to="/admin" className={navClass}>
                     Админ
@@ -117,6 +122,9 @@ export default function App() {
               </>
             ) : (
               <>
+                <NavLink to="/feed" className={navClass}>
+                  Лента
+                </NavLink>
                 <Link className="nav-ghost" to="/login" state={{ mode: "login" }}>
                   Вход
                 </Link>
@@ -132,6 +140,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/logout" element={<LogoutPage />} />
+          <Route path="/feed" element={<FeedPage />} />
+          <Route path="/feed/:postId" element={<FeedPostPage />} />
 
           <Route element={<GuestOnly />}>
             <Route path="/login" element={<LoginPage />} />
