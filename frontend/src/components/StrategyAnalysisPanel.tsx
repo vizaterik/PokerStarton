@@ -320,9 +320,9 @@ export default function StrategyAnalysisPanel({
     if (tab !== "preflop" || !strategyId || analysisSuspended) return;
     const gen = ++chartGenRef.current;
     let cancelled = false;
-    setDevsLoading(true);
     setDevError(null);
-    setDevs(null);
+    // Keep previous results visible; only show spinner if nothing to show yet.
+    setDevsLoading((prev) => prev || !devs);
     setChartProgress("Проверяем стратегию…");
 
     void buildLocalChartDeviations(strategyId, (message) => {
@@ -769,16 +769,15 @@ export default function StrategyAnalysisPanel({
         hero_position: string;
         villain_position?: string | null;
       },
-      label?: string | null,
+      potKind?: string | null,
     ) =>
-      paintedTreeBranches.some(
-        (b) =>
-          (label != null &&
-            label !== "" &&
-            matchupTagsEqual(b.label, label)) ||
+      paintedTreeBranches.some((b) => {
+        if (potKind && b.potKind !== potKind) return false;
+        return (
           spotCoveredByBranches(spot, [b], coverOpts) ||
-          coveredByConstructorTags(spot, [b]),
-      );
+          coveredByConstructorTags(spot, [b])
+        );
+      });
     const by_branch = (devs.by_branch ?? []).filter((row) =>
       covers(
         {
@@ -786,7 +785,7 @@ export default function StrategyAnalysisPanel({
           hero_position: row.hero_position,
           villain_position: row.villain_position,
         },
-        row.matchup || row.spot_label,
+        row.pot_kind || spotPotKind(row.spot_key),
       ),
     );
     const chart_errors = (devs.chart_errors ?? []).filter((c) =>
@@ -796,7 +795,7 @@ export default function StrategyAnalysisPanel({
           hero_position: c.hero_position,
           villain_position: c.villain_position,
         },
-        c.label,
+        c.pot_kind || spotPotKind(c.spot_key),
       ),
     );
     const deviations = (devs.deviations ?? []).filter((d) =>
@@ -1758,7 +1757,6 @@ export default function StrategyAnalysisPanel({
           aria-selected={tab === "preflop"}
           className={tab === "preflop" ? "active" : ""}
           onClick={() => {
-            setDevsLoading(true);
             setDevError(null);
             setTab("preflop");
           }}

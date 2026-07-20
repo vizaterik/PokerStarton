@@ -827,31 +827,26 @@ async function buildDeviations(
     by_branch = by_branch.filter((row) => rowCovered(row));
     const branchAcc = new Map<string, PreflopBranchAccuracy>();
     for (const row of by_branch) {
-      const branch = treeBranches.find(
-        (b) =>
-          spotCoveredByBranches(
-            {
-              spot_key: row.spot_key,
-              hero_position: row.hero_position,
-              villain_position: row.villain_position,
-            },
-            [b],
-            coverOpts,
-          ) ||
-          coveredByConstructorTags(
-            {
-              spot_key: row.spot_key,
-              hero_position: row.hero_position,
-              villain_position: row.villain_position,
-            },
-            [b],
-          ),
-      );
+      const spotLike = {
+        spot_key: row.spot_key,
+        hero_position: row.hero_position,
+        villain_position: row.villain_position,
+      };
+      const sessionPot = spotPotKind(row.spot_key);
+      // Prefer exact pot (srp≠3bp). Never let coveredByConstructorTags steal pot tag.
+      const branch =
+        treeBranches.find(
+          (b) =>
+            b.potKind === sessionPot &&
+            spotCoveredByBranches(spotLike, [b], coverOpts),
+        ) ||
+        treeBranches.find((b) => spotCoveredByBranches(spotLike, [b], coverOpts)) ||
+        treeBranches.find(
+          (b) =>
+            b.potKind === sessionPot && coveredByConstructorTags(spotLike, [b]),
+        );
       const mu = branch?.label || row.matchup || "—";
-      const potKind: BranchPotKind =
-        branch?.potKind ??
-        (row.pot_kind as BranchPotKind | undefined) ??
-        spotPotKind(row.spot_key);
+      const potKind: BranchPotKind = branch?.potKind ?? sessionPot;
       const accKey = constructorTagKey(potKind, mu);
       const prev = branchAcc.get(accKey);
       if (!prev) {
@@ -964,7 +959,31 @@ export async function buildLocalChartDeviations(
   }
   await yieldToUi();
 
-  // Constructor tree is source of truth — drop orphan/preset spots before scoring.
+  // Fast path: reuse cached strategy compare when hands + charts fingerprint match.
+  const chartsRev = readChartsRevision(strategyId);
+  const cached = peekAnalysisCache(strategyId);
+  const cachedBranches = cached?.deviations?.by_branch ?? [];
+  // Reject pre-fix caches that collapsed all pots into one Raise/3-bet row.
+  const potAwareCache =
+    cachedBranches.length === 0 ||
+    cachedBranches.some((b) => Boolean(b.pot_kind && b.pot_tag));
+  if (
+    cached?.deviations &&
+    potAwareCache &&
+    (cachedBranches.length > 0 || (cached.deviations.deviations?.length ?? 0) > 0) &&
+    cached.handTotal === total &&
+    cached.chartsRev === chartsRev &&
+    total > 0
+  ) {
+    onProgress?.("Готово (кэш)");
+    return {
+      deviations: cached.deviations,
+      spots: cached.spots ?? [],
+      hands: total,
+    };
+  }
+
+  // Constructor tree is source of truth — sync only when fingerprint changed.
   onProgress?.("Сверяем ветки конструктора…");
   await yieldToUi();
   try {

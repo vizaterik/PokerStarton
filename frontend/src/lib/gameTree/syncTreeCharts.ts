@@ -185,9 +185,11 @@ export async function resolveConstructorTree(
  */
 export async function ensureConstructorChartsSynced(
   strategyId: string,
+  opts?: { force?: boolean },
 ): Promise<GameTreeDocument> {
   const doc = await resolveConstructorTree(strategyId);
-  await syncTreeChartsToDb(strategyId, doc, { force: true });
+  // Default: skip upsert when constructor fingerprint unchanged (fast tab open).
+  await syncTreeChartsToDb(strategyId, doc, { force: opts?.force === true });
   return doc;
 }
 
