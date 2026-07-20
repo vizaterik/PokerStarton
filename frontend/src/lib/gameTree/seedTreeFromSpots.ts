@@ -43,22 +43,25 @@ export type SeedSpotResult = SeedFocus & {
 };
 
 function chartPosToSeat(pos: string, tableSize: TableSize): Seat | null {
-  const p = pos.trim().toUpperCase();
+  const p = pos.trim().toUpperCase().replace(/\s+/g, "");
   if (p === "BTN" || p === "SB" || p === "BB") return p;
-  if (tableSize === 2 || tableSize === 3) {
-    return null;
-  }
+  if (tableSize === 2 || tableSize === 3) return null;
   if (p === "UTG" || p === "CO") return p;
-  if (p === "MP" || p === "HJ" || p === "UTG1" || p === "UTG+1") {
-    if (tableSize === 6) return p === "UTG1" || p === "UTG+1" ? "UTG" : "HJ";
+  // 6-max middle seat is HJ in the tree; HH/charts often say MP.
+  if (p === "MP" || p === "HJ" || p === "MP1" || p === "MP+1") {
+    if (tableSize === 6) return "HJ";
     if (p === "HJ") return "HJ";
-    if (p === "UTG1" || p === "UTG+1") return "UTG1";
+    if (p === "MP1" || p === "MP+1") return tableSize === 9 ? "MP1" : "MP";
     return "MP";
   }
-  if (p === "MP1" || p === "UTG2" || p === "UTG+2") {
-    return tableSize === 9 ? "MP1" : "HJ";
+  if (p === "UTG1" || p === "UTG+1") {
+    return tableSize === 6 ? "UTG" : "UTG1";
   }
-  return null;
+  if (p === "UTG2" || p === "UTG+2") {
+    return tableSize === 9 ? "MP1" : tableSize === 8 ? "MP" : "HJ";
+  }
+  const order = seatsFor(tableSize);
+  return order.includes(p as Seat) ? (p as Seat) : null;
 }
 
 function countNodes(node: GameTreeNode): number {
@@ -95,14 +98,10 @@ function spotToPresetLine(
 ): PresetLine | null {
   const hero = chartPosToSeat(spot.hero_position, tableSize);
   if (!hero) return null;
-  const key = spot.spot_key.trim().toLowerCase();
+  const key = (spot.spot_key || "").trim().toLowerCase();
   const villain = spot.villain_position
     ? chartPosToSeat(spot.villain_position, tableSize)
     : null;
-
-  if (key === "rfi") {
-    return openLine(hero);
-  }
 
   if (key === "limp") {
     if (villain && villain !== hero) return limpLine(villain, hero);
@@ -114,7 +113,10 @@ function spotToPresetLine(
     return openLine(hero);
   }
 
-  if (!villain || villain === hero) return null;
+  // Solo seat (UTG / MP / CO…) → always open-raise, even if spot_key is odd/missing.
+  if (!villain || villain === hero) {
+    return openLine(hero);
+  }
 
   if (key === "vs_open") {
     const { earlier: opener, later: caller } = orderedPair(
@@ -282,12 +284,23 @@ export function seedSpotIntoDoc(
   if (!tipId || !lineLooksReady(built, tipId, line)) return null;
 
   const focus = focusForSpot(built, tipId, spot);
-  if (!focus) return null;
-
+  if (focus) {
+    return {
+      doc: built,
+      tipNodeId: focus.tipNodeId,
+      paintNodeId: focus.paintNodeId,
+    };
+  }
+  // Still usable: closed flop tip with a raise/call paint seat.
+  const tipPath = pathToNode(built.root, tipId) ?? [];
+  const spots = branchRangeSpots(tipPath, built.stackDepth).filter(
+    (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
+  );
+  if (!spots.length) return null;
   return {
     doc: built,
-    tipNodeId: focus.tipNodeId,
-    paintNodeId: focus.paintNodeId,
+    tipNodeId: tipId,
+    paintNodeId: spots[0].nodeId,
   };
 }
 
@@ -318,6 +331,26 @@ export function seedSpotIntoTree(
   void putStrategyTree(strategyId, next as unknown as Record<string, unknown>).catch(
     () => undefined,
   );
+  return { tipNodeId: result.tipNodeId, paintNodeId: result.paintNodeId };
+}
+
+/** Same as seedSpotIntoTree but waits for remote save (best-effort, 4s cap). */
+export async function seedSpotIntoTreeAsync(
+  strategyId: string,
+  spot: SpotSeed,
+): Promise<SeedFocus | null> {
+  const result = seedSpotIntoDoc(loadTree(strategyId), spot);
+  if (!result) return null;
+  const next = { ...result.doc, updatedAt: new Date().toISOString() };
+  saveTree(next);
+  try {
+    await Promise.race([
+      putStrategyTree(strategyId, next as unknown as Record<string, unknown>),
+      new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+    ]);
+  } catch {
+    /* local tree is enough for editor focus */
+  }
   return { tipNodeId: result.tipNodeId, paintNodeId: result.paintNodeId };
 }
 

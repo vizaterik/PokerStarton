@@ -245,10 +245,18 @@ export default function BranchPanel({
       const villN = spot.villain_position
         ? normalizeChartPos(spot.villain_position)
         : null;
-      const spotKey = spot.spot_key.trim().toLowerCase();
-      // Solo RFI: always open-raise preset (not HH replay).
+      const spotKey = (spot.spot_key || "").trim().toLowerCase();
+      const soloOpen = !villN || villN === heroN;
+      const seedSpot = {
+        spot_key: soloOpen && spotKey !== "limp" ? "rfi" : spotKey || "rfi",
+        hero_position: spot.hero_position || heroN,
+        villain_position: soloOpen ? null : spot.villain_position,
+      };
+      // Solo opens: always open-raise preset (not HH replay).
       let seeded =
-        spotKey === "rfi" ? seedSpotIntoDoc(doc, spot) : null;
+        soloOpen || spotKey === "rfi"
+          ? seedSpotIntoDoc(doc, seedSpot)
+          : null;
       if (!seeded) {
         const sample =
           hands.find((h) => {
@@ -265,7 +273,7 @@ export default function BranchPanel({
           ? seedPlayedLineIntoDoc(doc, buildPlayedLine(sample))
           : null;
       }
-      if (!seeded) seeded = seedSpotIntoDoc(doc, spot);
+      if (!seeded) seeded = seedSpotIntoDoc(doc, seedSpot);
       if (!seeded) {
         setHint(
           "Не удалось собрать готовую ветку — проверь позиции и размер стола.",
@@ -273,23 +281,27 @@ export default function BranchPanel({
         return;
       }
 
-      try {
-        await createSpot(strategyId, {
-          spot_key: spot.spot_key,
-          hero_position: spot.hero_position,
-          villain_position: spot.villain_position,
-          label: spot.label || undefined,
-        });
-      } catch {
-        /* DB spot may already exist; tree seed opens the editor. */
-      }
+      // DB spot is secondary — tree seed opens the editor.
+      void createSpot(strategyId, {
+        spot_key: seedSpot.spot_key,
+        hero_position: seedSpot.hero_position,
+        villain_position: seedSpot.villain_position,
+        label: spot.label || undefined,
+      }).catch(() => undefined);
 
       const next = { ...seeded.doc, updatedAt: new Date().toISOString() };
       saveTree(next);
-      void putStrategyTree(
-        strategyId,
-        next as unknown as Record<string, unknown>,
-      ).catch(() => undefined);
+      try {
+        await Promise.race([
+          putStrategyTree(
+            strategyId,
+            next as unknown as Record<string, unknown>,
+          ),
+          new Promise<void>((resolve) => setTimeout(resolve, 4000)),
+        ]);
+      } catch {
+        /* local tree is enough */
+      }
 
       onSpotAdded?.(next, {
         tipNodeId: seeded.tipNodeId,

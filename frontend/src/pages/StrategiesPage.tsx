@@ -33,6 +33,27 @@ const STAGE_LABEL: Record<string, string> = {
   final: "финал",
 };
 
+/** MTT / Spins — скоро; пока стратегию можно создать только для Cash. */
+const LOCKED_FORMATS = new Set<StrategyFormat>(["mtt", "spins"]);
+
+function FormatLockIcon() {
+  return (
+    <svg
+      className="strat-format-lock-icon"
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      aria-hidden
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M17 8h-1V6a4 4 0 0 0-8 0v2H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2Zm-7-2a2 2 0 1 1 4 0v2h-4V6Zm7 14H7V10h10v10Zm-5-3a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"
+      />
+    </svg>
+  );
+}
+
 type WizardStep = 1 | 2 | 3;
 
 export default function StrategiesPage() {
@@ -72,6 +93,12 @@ export default function StrategiesPage() {
 
   async function onCreate(e: FormEvent) {
     e.preventDefault();
+    if (!preset || LOCKED_FORMATS.has(preset.format)) {
+      setError("Пока можно создать только Cash-стратегию. МТТ и Spins скоро.");
+      setFormat("cash");
+      setStep(1);
+      return;
+    }
     if (!preset || !nameOk) {
       setError("Введите название стратегии (минимум 2 символа).");
       setStep(3);
@@ -161,19 +188,36 @@ export default function StrategiesPage() {
 
           {step === 1 ? (
             <div key="step-1" className="strat-wizard-body">
-              <p className="muted">Выберите формат игры и доступные позиции.</p>
+              <p className="muted">
+                Пока доступен только кэш. МТТ и Spins — в разработке.
+              </p>
               <div className="strat-format-grid">
-                {FORMAT_OPTIONS.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    className={`strat-format-card${format === f.id ? " is-active" : ""}`}
-                    onClick={() => setFormat(f.id)}
-                  >
-                    <strong>{f.title}</strong>
-                    <span>{f.lead}</span>
-                  </button>
-                ))}
+                {FORMAT_OPTIONS.map((f) => {
+                  const locked = LOCKED_FORMATS.has(f.id);
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      className={`strat-format-card${format === f.id ? " is-active" : ""}${locked ? " is-locked" : ""}`}
+                      disabled={locked}
+                      title={
+                        locked
+                          ? "Скоро: стратегию под этот формат пока нельзя создать"
+                          : undefined
+                      }
+                      onClick={() => {
+                        if (locked) return;
+                        setFormat(f.id);
+                      }}
+                    >
+                      <span className="strat-format-card-top">
+                        <strong>{f.title}</strong>
+                        {locked ? <FormatLockIcon /> : null}
+                      </span>
+                      <span>{locked ? "Скоро" : f.lead}</span>
+                    </button>
+                  );
+                })}
               </div>
               <div className="strat-wizard-actions">
                 <button type="button" className="cta" onClick={() => setStep(2)}>

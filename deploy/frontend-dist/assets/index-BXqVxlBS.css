@@ -966,6 +966,33 @@
   line-height: 1.25;
 }
 
+.strat-format-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.strat-format-lock-icon {
+  flex-shrink: 0;
+  opacity: 0.75;
+  color: var(--muted);
+}
+
+.strat-format-card.is-locked,
+.strat-format-card.is-locked:hover,
+.strat-format-card.is-locked:focus-visible {
+  cursor: not-allowed;
+  opacity: 0.55;
+  border-color: var(--line-soft);
+  background-color: rgba(255, 255, 255, 0.02);
+  box-shadow: none;
+}
+
+.strat-format-card.is-locked strong {
+  color: var(--muted);
+}
+
 .strat-format-card span,
 .strat-preset-card em {
   font-style: normal;

@@ -34,6 +34,7 @@ import {
 import {
   seedPlayedLineIntoTree,
   seedSpotIntoTree,
+  seedSpotIntoTreeAsync,
 } from "../lib/gameTree/seedTreeFromSpots";
 import { stashEditorFocus } from "../lib/gameTree/editorFocus";
 import {
@@ -674,19 +675,25 @@ export default function StrategyAnalysisPanel({
       const key = missingKey(spot);
       setAddingSpots(true);
       setAddingSpotKey(key);
+      setSpotsHint(null);
       try {
-        // Prefer real HH line so the editor opens on a closed branch ready to paint
-        // (RangeSpotsBar + matrix — no manual raise/fold windows).
         const hands = await listHandsForStrategy(strategyId);
-        const heroN = normalizeChartPos(spot.hero_position);
+        const heroN = normalizeChartPos(spot.hero_position || "");
         const villN = spot.villain_position
           ? normalizeChartPos(spot.villain_position)
           : null;
-        const spotKey = spot.spot_key.trim().toLowerCase();
-        // Solo RFI opens: always style open-raise → fold to flop (not HH replay).
+        const spotKey = (spot.spot_key || "").trim().toLowerCase();
+        // Solo opens (UTG / MP / …): open-raise preset, await tree save.
+        const soloOpen = !villN || villN === heroN;
+        const seedSpot = {
+          spot_key: soloOpen && spotKey !== "limp" ? "rfi" : spotKey || "rfi",
+          hero_position: spot.hero_position || heroN,
+          villain_position: soloOpen ? null : spot.villain_position,
+        };
+
         let focus =
-          spotKey === "rfi"
-            ? seedSpotIntoTree(strategyId, spot)
+          soloOpen || spotKey === "rfi"
+            ? await seedSpotIntoTreeAsync(strategyId, seedSpot)
             : null;
         if (!focus) {
           const sample =
@@ -704,25 +711,21 @@ export default function StrategyAnalysisPanel({
             }) ?? null;
           focus = sample ? seedPlayedLineIntoTree(strategyId, sample) : null;
         }
-        if (!focus) focus = seedSpotIntoTree(strategyId, spot);
+        if (!focus) focus = await seedSpotIntoTreeAsync(strategyId, seedSpot);
+        if (!focus) focus = seedSpotIntoTree(strategyId, seedSpot);
         if (!focus) {
           setSpotsHint(
             "Не удалось создать ветку в конструкторе для этого матчапа. Проверь позиции и размер стола.",
           );
-          setAddingSpots(false);
-          setAddingSpotKey(null);
           return;
         }
-        try {
-          await createSpot(strategyId, {
-            spot_key: spot.spot_key,
-            hero_position: spot.hero_position,
-            villain_position: spot.villain_position,
-            label: spot.label || undefined,
-          });
-        } catch {
-          /* DB spot may already exist; tree seed is what opens the editor. */
-        }
+        // DB spot is secondary — never block navigation on a slow/hung API.
+        void createSpot(strategyId, {
+          spot_key: seedSpot.spot_key,
+          hero_position: seedSpot.hero_position,
+          villain_position: seedSpot.villain_position,
+          label: spot.label || undefined,
+        }).catch(() => undefined);
         clearAnalysisCache(strategyId);
         stashEditorFocus(strategyId, focus);
         navigate(`/strategies/${strategyId}`);
@@ -730,6 +733,7 @@ export default function StrategyAnalysisPanel({
         setSpotsHint(
           err instanceof Error ? err.message : "Не удалось добавить ветку",
         );
+      } finally {
         setAddingSpots(false);
         setAddingSpotKey(null);
       }
@@ -2000,7 +2004,9 @@ export default function StrategyAnalysisPanel({
         <>
           <p className="muted analysis-chart-hint">
             Клик по ветке — диапазоны. «Реплей VPIP ветки» — все раздачи матчапа (raise/call/fold).
+            «+» — добавить open/ветку в конструктор для закраски.
           </p>
+          {spotsHint ? <p className="error">{spotsHint}</p> : null}
 
           {scoreRows.length === 0 ? (
             <p className="muted">
@@ -2264,7 +2270,7 @@ export default function StrategyAnalysisPanel({
       <>
         <div className="preflop-errors-toolbar">
           <p className="muted analysis-chart-hint">
-            Слева проанализированные впип-ветки. Справа два диапазона: Ошибки и VPIP.
+            Слева ветки стратегии. Справа два диапазона: Стратегия и Ошибки.
           </p>
           <div className="preflop-errors-actions">
             {(() => {
@@ -2400,6 +2406,42 @@ export default function StrategyAnalysisPanel({
                 <div className="preflop-chart-compare preflop-chart-compare--duo">
                   <div className="preflop-chart-pane">
                     <header>
+                      <strong>Стратегия</strong>
+                      <span>raise / call / fold</span>
+                    </header>
+                    {strategyChartLoading ? (
+                      <p className="muted">Загружаем чарт…</p>
+                    ) : (
+                      <StrategyChartPreview
+                        cells={strategyChart}
+                        selected={selectedHand}
+                        onSelectHand={(code) => {
+                          const mu =
+                            errorFilter.matchup ||
+                            activeChart.label ||
+                            analysisMatchup(
+                              activeChart.spot_key,
+                              activeChart.hero_position,
+                              activeChart.villain_position,
+                              activeChart.label,
+                            );
+                          const pot =
+                            errorFilter.potKind ||
+                            activeChart.pot_kind ||
+                            spotPotKind(activeChart.spot_key);
+                          selectCombo(code, {
+                            spotKey: activeChart.spot_key,
+                            heroPosition: activeChart.hero_position,
+                            villainPosition: activeChart.villain_position,
+                            matchup: mu,
+                            potKind: pot,
+                          });
+                        }}
+                      />
+                    )}
+                  </div>
+                  <div className="preflop-chart-pane">
+                    <header>
                       <strong>Ошибки</strong>
                       <span>raise / call / fold · клик = выбрать</span>
                     </header>
@@ -2430,95 +2472,34 @@ export default function StrategyAnalysisPanel({
                       }}
                     />
                   </div>
-                  <div className="preflop-chart-pane">
-                    <header>
-                      <strong>VPIP</strong>
-                      <span>raise / call / fold · клик = выбрать</span>
-                    </header>
-                    <DeviationErrorMatrix
-                      cells={activePlayedChart?.cells ?? []}
-                      selectedHand={selectedHand}
-                      countNoun="разд."
-                      ariaLabel="VPIP диапазон"
-                      onSelectHand={(code) => {
-                        const mu =
-                          errorFilter.matchup ||
-                          activePlayedChart?.label ||
-                          activeChart.label ||
-                          analysisMatchup(
-                            activeChart.spot_key,
-                            activeChart.hero_position,
-                            activeChart.villain_position,
-                            activeChart.label,
-                          );
-                        const pot =
-                          errorFilter.potKind ||
-                          activePlayedChart?.pot_kind ||
-                          activeChart.pot_kind ||
-                          spotPotKind(activeChart.spot_key);
-                        selectCombo(code, {
-                          spotKey:
-                            activePlayedChart?.spot_key || activeChart.spot_key,
-                          heroPosition:
-                            activePlayedChart?.hero_position ||
-                            activeChart.hero_position,
-                          villainPosition:
-                            activePlayedChart?.villain_position ??
-                            activeChart.villain_position,
-                          matchup: mu,
-                          potKind: pot,
-                        });
-                      }}
-                    />
-                  </div>
                 </div>
-                <div
-                  className="preflop-errors-actions"
-                  style={{ marginTop: "0.75rem" }}
-                >
-                  <button
-                    type="button"
-                    className="preflop-filter-clear"
-                    onClick={() => {
-                      const pot =
-                        errorFilter.potKind ||
-                        activeChart.pot_kind ||
-                        spotPotKind(activeChart.spot_key);
-                      const mu =
-                        errorFilter.matchup ||
-                        activeChart.label ||
-                        analysisMatchup(
-                          activeChart.spot_key,
-                          activeChart.hero_position,
-                          activeChart.villain_position,
-                          activeChart.label,
-                        );
-                      openBranchVpipReplay({
-                        spot_key: activeChart.spot_key,
-                        hero_position: activeChart.hero_position,
-                        villain_position: activeChart.villain_position,
-                        matchup: mu,
-                        pot_kind: pot,
-                        pot_tag: potKindTag(pot as BranchPotKind),
-                      });
-                    }}
+                {selectedHand || errorFilter.handCode || filteredDevs.length > 0 ? (
+                  <div
+                    className="preflop-errors-actions"
+                    style={{ marginTop: "0.75rem" }}
                   >
-                    Реплей VPIP ветки
-                  </button>
-                  {selectedHand || errorFilter.handCode ? (
                     <button
                       type="button"
                       className="preflop-filter-clear"
-                      onClick={() =>
-                        openSelectedComboReplay(
-                          activePlayedChart?.cells ?? activeChart.cells,
-                        )
-                      }
+                      onClick={() => openSelectedComboReplay(activeChart.cells)}
                     >
-                      Реплей · {selectedHand || errorFilter.handCode}
+                      Реплей
+                      {selectedHand || errorFilter.handCode
+                        ? ` · ${selectedHand || errorFilter.handCode}`
+                        : " · ошибки"}
+                      {" · "}
+                      <span className="err-count">
+                        {selectedHand || errorFilter.handCode
+                          ? resolveComboHandIds(
+                              selectedHand || errorFilter.handCode || "",
+                              errorFilter,
+                              activeChart.cells,
+                            ).ids.length || filteredDevs.length
+                          : filteredDevs.length}
+                      </span>
                     </button>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <p className="muted">Выбери чарт слева.</p>
