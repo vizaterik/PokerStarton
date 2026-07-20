@@ -508,13 +508,7 @@ export default function HandReplayModal({
         {shareError && <p className="pr-error">{shareError}</p>}
         {shareUrl && (
           <div className="pr-share-toast-wrap">
-            <p
-              className={`pr-share-url${shareState === "ok" ? " is-copied" : ""}`}
-              title={shareUrl}
-            >
-              {shareState === "ok" ? (
-                <span className="pr-share-copied">Скопировано</span>
-              ) : null}
+            <p className="pr-share-url" title={shareUrl}>
               <a href={shareUrl} target="_blank" rel="noreferrer">
                 {shareUrl}
               </a>
