@@ -10,10 +10,12 @@ from app.models.hand_share import HandShare
 from app.models.hand_share_social import HandShareComment, HandShareLike, HandShareView
 from app.models.user import User
 from app.parsers.pokerstars import extract_hu_postflop_branch
-from app.schemas.feed import PublicProfileRead, TopHandItem, TopHandsResponse
+from app.schemas.feed import PublicProfileHand, PublicProfileRead, TopHandItem, TopHandsResponse
+from app.services.profile_social import list_author_shared_hands
 from app.services.social_rating import (
     author_engagement_totals,
     author_rating,
+    author_shares_count,
     moscow_day_end,
     moscow_day_start,
 )
@@ -187,6 +189,7 @@ def get_public_profile(db: Session, display_name: str) -> PublicProfileRead:
         raise LookupError("Профиль не найден")
 
     views, likes, comments = author_engagement_totals(db, user.id)
+    hands = list_author_shared_hands(db, user.id, limit=20)
     return PublicProfileRead(
         display_name=user.display_name or nick,
         registered_at=user.created_at,
@@ -194,4 +197,17 @@ def get_public_profile(db: Session, display_name: str) -> PublicProfileRead:
         likes_received=likes,
         unique_views=views,
         comments_count=comments,
+        shares_count=author_shares_count(db, user.id),
+        top_hands=[
+            PublicProfileHand(
+                token=h.token,
+                path=h.path,
+                likes_count=h.likes_count,
+                comments_count=h.comments_count,
+                hero_hand=h.hero_hand,
+                hero_position=h.hero_position,
+                played_at=h.played_at,
+            )
+            for h in hands
+        ],
     )

@@ -339,6 +339,7 @@ export type ProfileTopHand = {
   token: string;
   path: string;
   likes_count: number;
+  comments_count: number;
   hero_hand: string | null;
   hero_position: string | null;
   played_at: string | null;
@@ -349,6 +350,8 @@ export type ProfileStats = {
   registered_at: string;
   rating: number;
   likes_received: number;
+  comments_count: number;
+  unique_views: number;
   shares_count: number;
   top_hands: ProfileTopHand[];
 };
@@ -1792,6 +1795,16 @@ export type TopHand = {
   matchup: string | null;
 };
 
+export type PublicProfileHand = {
+  token: string;
+  path: string;
+  likes_count: number;
+  comments_count: number;
+  hero_hand: string | null;
+  hero_position: string | null;
+  played_at: string | null;
+};
+
 export type PublicProfile = {
   display_name: string;
   registered_at: string | null;
@@ -1799,6 +1812,8 @@ export type PublicProfile = {
   likes_received: number;
   unique_views: number;
   comments_count: number;
+  shares_count: number;
+  top_hands: PublicProfileHand[];
 };
 
 export function listTopHands(limit = 5) {

@@ -157,22 +157,45 @@ export default function ProfilePage() {
                   <strong className="profile-rating">
                     {stats ? stats.rating : "…"}
                   </strong>
-                  {stats ? (
-                    <span className="muted" style={{ fontSize: "0.82rem" }}>
-                      {stats.likes_received} лайков · {stats.shares_count} раздач
-                      опубликовано
-                    </span>
-                  ) : null}
+                </div>
+              </div>
+
+              <div className="profile-field">
+                <span className="profile-field-label">Лайки</span>
+                <div className="profile-field-value">
+                  <strong>♥ {stats ? stats.likes_received : "…"}</strong>
+                  <span className="muted" style={{ fontSize: "0.82rem" }}>
+                    со всех раздач и комментариев
+                  </span>
+                </div>
+              </div>
+
+              <div className="profile-field">
+                <span className="profile-field-label">Комментарии</span>
+                <div className="profile-field-value">
+                  <strong>{stats ? stats.comments_count : "…"}</strong>
+                </div>
+              </div>
+
+              <div className="profile-field">
+                <span className="profile-field-label">Раздач опубликовано</span>
+                <div className="profile-field-value">
+                  <strong>{stats ? stats.shares_count : "…"}</strong>
                 </div>
               </div>
             </div>
 
             <div className="profile-top-hands">
-              <h3>Лучшие раздачи</h3>
-              <p className="muted profile-tab-lead">Топ по лайкам среди ваших шаров.</p>
+              <h3>Опубликованные раздачи</h3>
+              <p className="muted profile-tab-lead">
+                Ссылки на раздачи и комментарии к ним.
+              </p>
               {statsError ? <p className="error">{statsError}</p> : null}
               {!stats && !statsError ? (
                 <p className="muted">Загрузка…</p>
+              ) : null}
+              {stats && stats.top_hands.length === 0 ? (
+                <p className="muted">Пока нет опубликованных раздач.</p>
               ) : null}
               {stats && stats.top_hands.length > 0 ? (
                 <ol className="profile-top-hands-list">
@@ -191,6 +214,10 @@ export default function ProfilePage() {
                               ? new Date(h.played_at).toLocaleDateString("ru-RU")
                               : "—"}
                             {net ? ` · ${net}` : ""}
+                            {" · "}
+                            <Link to={h.path} className="profile-top-link">
+                              {h.comments_count} комм.
+                            </Link>
                           </span>
                         </div>
                         <span className="profile-top-likes">♥ {h.likes_count}</span>

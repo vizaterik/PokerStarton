@@ -2,6 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getPublicProfile, type PublicProfile } from "../api/client";
 
+function formatHandLabel(hand: string | null | undefined) {
+  if (!hand || hand.length < 4) return "Раздача";
+  return `${hand.slice(0, 2)} ${hand.slice(2, 4)}`;
+}
+
 export default function PublicProfilePage() {
   const { displayName = "" } = useParams<{ displayName: string }>();
   const [data, setData] = useState<PublicProfile | null>(null);
@@ -79,8 +84,46 @@ export default function PublicProfilePage() {
             <span className="public-profile-stat-label">Лайки</span>
             <span>♥ {data.likes_received}</span>
           </div>
+          <div>
+            <span className="public-profile-stat-label">Комментарии</span>
+            <span>{data.comments_count}</span>
+          </div>
+          <div>
+            <span className="public-profile-stat-label">Раздач опубликовано</span>
+            <span>{data.shares_count}</span>
+          </div>
         </div>
       </header>
+
+      <h2 className="public-profile-sub">Раздачи</h2>
+      {data.top_hands.length === 0 ? (
+        <p className="muted">Пока нет опубликованных раздач.</p>
+      ) : (
+        <ol className="feed-top-list">
+          {data.top_hands.map((h, i) => (
+            <li key={h.token}>
+              <span className="feed-top-rank">{i + 1}</span>
+              <div className="feed-top-body">
+                <Link to={h.path} className="feed-top-link">
+                  {formatHandLabel(h.hero_hand)}
+                  {h.hero_position ? ` · ${h.hero_position}` : ""}
+                </Link>
+                <div className="feed-meta">
+                  {h.played_at ? (
+                    <span>{new Date(h.played_at).toLocaleDateString("ru-RU")}</span>
+                  ) : null}
+                  <Link to={h.path} className="feed-top-link">
+                    {h.comments_count} комм.
+                  </Link>
+                </div>
+              </div>
+              <div className="feed-top-stats">
+                <span title="Лайки">♥ {h.likes_count}</span>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   );
 }

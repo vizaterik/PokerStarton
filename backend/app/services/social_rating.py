@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from uuid import UUID
 
 from app.models.hand_share import HandShare
-from app.models.hand_share_social import HandShareComment, HandShareLike, HandShareView
+from app.models.hand_share_social import (
+    HandShareComment,
+    HandShareCommentLike,
+    HandShareLike,
+    HandShareView,
+)
 
 # Europe/Moscow calendar day for «раздачи дня»
 DAY_TZ = ZoneInfo("Europe/Moscow")
@@ -49,7 +54,10 @@ def moscow_day_end(day_start_utc: datetime) -> datetime:
 
 
 def author_engagement_totals(db: Session, user_id: UUID) -> tuple[int, int, int]:
-    """Return (unique_views, likes, comments) received on author's shares."""
+    """Return (unique_views, likes_from_everywhere, comments) on author's shares.
+
+    Likes = hand likes + likes on comments under those hands.
+    """
     unique_views = int(
         db.scalar(
             select(func.count())
@@ -59,11 +67,21 @@ def author_engagement_totals(db: Session, user_id: UUID) -> tuple[int, int, int]
         )
         or 0
     )
-    likes = int(
+    hand_likes = int(
         db.scalar(
             select(func.count())
             .select_from(HandShareLike)
             .join(HandShare, HandShare.id == HandShareLike.share_id)
+            .where(HandShare.created_by == user_id)
+        )
+        or 0
+    )
+    comment_likes = int(
+        db.scalar(
+            select(func.count())
+            .select_from(HandShareCommentLike)
+            .join(HandShareComment, HandShareComment.id == HandShareCommentLike.comment_id)
+            .join(HandShare, HandShare.id == HandShareComment.share_id)
             .where(HandShare.created_by == user_id)
         )
         or 0
@@ -77,9 +95,18 @@ def author_engagement_totals(db: Session, user_id: UUID) -> tuple[int, int, int]
         )
         or 0
     )
-    return unique_views, likes, comments
+    return unique_views, hand_likes + comment_likes, comments
 
 
 def author_rating(db: Session, user_id: UUID) -> int:
     views, likes, comments = author_engagement_totals(db, user_id)
     return rating_from_counts(unique_views=views, likes=likes, comments=comments)
+
+
+def author_shares_count(db: Session, user_id: UUID) -> int:
+    return int(
+        db.scalar(
+            select(func.count()).select_from(HandShare).where(HandShare.created_by == user_id)
+        )
+        or 0
+    )

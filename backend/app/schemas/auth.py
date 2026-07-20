@@ -82,7 +82,8 @@ class DeleteAccountResponse(BaseModel):
 class ProfileTopHandRead(BaseModel):
     token: str
     path: str
-    likes_count: int
+    likes_count: int = 0
+    comments_count: int = 0
     hero_hand: str | None = None
     hero_position: str | None = None
     played_at: datetime | None = None
@@ -92,6 +93,8 @@ class ProfileTopHandRead(BaseModel):
 class ProfileStatsRead(BaseModel):
     registered_at: datetime
     rating: int
-    likes_received: int
-    shares_count: int
+    likes_received: int = 0
+    comments_count: int = 0
+    unique_views: int = 0
+    shares_count: int = 0
     top_hands: list[ProfileTopHandRead] = Field(default_factory=list)
