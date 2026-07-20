@@ -6,7 +6,7 @@ import {
   type ProfileComment,
   type PublicProfile,
 } from "../api/client";
-import EngagementIcons from "../components/EngagementIcons";
+import EngagementIcons, { HeartIcon } from "../components/EngagementIcons";
 
 type Panel = "hands" | "comments" | null;
 
@@ -123,7 +123,10 @@ export default function PublicProfilePage() {
           </div>
           <div>
             <span className="public-profile-stat-label">Лайки</span>
-            <span>♥ {data.likes_received}</span>
+            <span className="profile-likes-value">
+              <HeartIcon />
+              {data.likes_received}
+            </span>
           </div>
           <div>
             <span className="public-profile-stat-label">Комментарии</span>

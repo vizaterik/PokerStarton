@@ -15,7 +15,6 @@ import FeedPage from "./pages/FeedPage";
 import HomePage from "./pages/HomePage";
 import LoginPage from "./pages/LoginPage";
 import LogoutPage from "./pages/LogoutPage";
-import NewsPage from "./pages/NewsPage";
 import NicknamePage from "./pages/NicknamePage";
 import ProfilePage from "./pages/ProfilePage";
 import PublicProfilePage from "./pages/PublicProfilePage";
@@ -114,9 +113,6 @@ export default function App() {
                 <NavLink to="/feed" className={navClass}>
                   Хиты
                 </NavLink>
-                <NavLink to="/news" className={navClass}>
-                  Новости
-                </NavLink>
                 {isAdmin ? (
                   <NavLink to="/admin" className={navClass}>
                     Админ
@@ -128,9 +124,6 @@ export default function App() {
               <>
                 <NavLink to="/feed" className={navClass}>
                   Хиты
-                </NavLink>
-                <NavLink to="/news" className={navClass}>
-                  Новости
                 </NavLink>
                 <Link className="nav-ghost" to="/login" state={{ mode: "login" }}>
                   Вход
@@ -148,8 +141,6 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/logout" element={<LogoutPage />} />
           <Route path="/feed" element={<FeedPage />} />
-          <Route path="/news" element={<NewsPage />} />
-          <Route path="/news/archive" element={<NewsPage archive />} />
           <Route path="/u/:displayName" element={<PublicProfilePage />} />
 
           <Route element={<GuestOnly />}>

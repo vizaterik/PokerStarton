@@ -270,7 +270,8 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
               <strong>
                 {source === "local" ? "текущей сессии" : "активной сессии в базе"}
               </strong>
-              : pot odds, эквити, базовые пороги.{" "}
+              : pot odds, эквити, базовые пороги — без привязки к вашим чартам. Сверка со
+              стратегией — во вкладке «Стратегии».{" "}
               {typeof handsInDb === "number" ? (
                 <>
                   Раздач: <strong>{handsInDb.toLocaleString("ru-RU")}</strong>

@@ -153,7 +153,8 @@ export default function SharedHandSocial({
         onClick={() => void onLike()}
         title={loggedIn ? "Лайкнуть раздачу" : "Войдите, чтобы лайкнуть"}
       >
-        ♥ {data?.likes_count ?? 0}
+        <span className="share-like-heart" aria-hidden />
+        {data?.likes_count ?? 0}
       </button>
       {!loggedIn && (
         <p className="share-social-hint share-like-login">
@@ -237,7 +238,8 @@ export default function SharedHandSocial({
                                   : "Войдите, чтобы лайкнуть"
                               }
                             >
-                              ♥ {c.likes_count ?? 0}
+                              <span className="share-like-heart" aria-hidden />
+                              {c.likes_count ?? 0}
                             </button>
                           </div>
                           <span>{c.body}</span>

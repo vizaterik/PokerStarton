@@ -12,7 +12,7 @@ import {
 } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DatabasesPanel from "../components/DatabasesPanel";
-import EngagementIcons from "../components/EngagementIcons";
+import EngagementIcons, { HeartIcon } from "../components/EngagementIcons";
 // import SubscriptionPanel from "../components/SubscriptionPanel";
 import { BRAND } from "../lib/brand";
 import { logout } from "../lib/auth";
@@ -197,7 +197,10 @@ export default function ProfilePage() {
               <div className="profile-field">
                 <span className="profile-field-label">Лайки</span>
                 <div className="profile-field-value">
-                  <strong>♥ {stats ? stats.likes_received : "…"}</strong>
+                  <strong className="profile-likes-value">
+                    <HeartIcon />
+                    {stats ? stats.likes_received : "…"}
+                  </strong>
                   <span className="muted" style={{ fontSize: "0.82rem" }}>
                     со всех раздач и комментариев
                   </span>

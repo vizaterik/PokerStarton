@@ -27,12 +27,17 @@ function CommentIcon() {
   );
 }
 
-function HeartIcon() {
+/** Filled heart for likes — used in Hits, profiles, share UI. */
+export function HeartIcon({ className }: { className?: string }) {
   return (
-    <svg className="eng-ico eng-ico-heart" viewBox="0 0 24 24" aria-hidden>
+    <svg
+      className={`heart-ico${className ? ` ${className}` : ""}`}
+      viewBox="0 0 24 24"
+      aria-hidden
+    >
       <path
         fill="currentColor"
-        d="M12 21s-7.2-4.5-9.5-8.4C.7 9.6 2.1 6 5.4 6c1.9 0 3.2 1.1 3.9 2.2C10 7.1 11.3 6 13.2 6c3.3 0 4.7 3.6 2.9 6.6C19.2 16.5 12 21 12 21z"
+        d="M12.1 21.35c-.1 0-.2-.05-.3-.1C7.1 17.9 4 14.55 4 10.75 4 8.05 6.05 6 8.7 6c1.45 0 2.8.7 3.6 1.8C13.1 6.7 14.45 6 15.9 6 18.55 6 20.6 8.05 20.6 10.75c0 3.8-3.1 7.15-7.8 10.5-.1.05-.2.1-.3.1h-.4z"
       />
     </svg>
   );
