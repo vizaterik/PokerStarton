@@ -1,4 +1,4 @@
-# PokerStraton on a VPS (Beget etc.): UI + API + Postgres, one domain.
+# PokerStraton on a VPS (Beget etc.): UI + API + Postgres + Caddy on port 80.
 services:
   db:
     image: postgres:16-alpine
@@ -24,15 +24,29 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://poker:${POSTGRES_PASSWORD:-changeme}@db:5432/pokerstarton
       SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://pokerstarton.ru,http://localhost:5173}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://159.194.238.97,http://yaneva7e.beget.tech,http://pokerstarton.ru}
       DESKTOP_STATIC_DIR: /app/static
       UPLOAD_DIR: /app/uploads
       PORT: "8000"
     volumes:
       - uploads:/app/uploads
+    # Only reachable inside Docker network; Caddy exposes 80.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
     ports:
-      - "8000:8000"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   pgdata:
   uploads:
+  caddy_data:
+  caddy_config:

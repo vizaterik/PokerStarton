@@ -1,0 +1,5 @@
+# HTTP on port 80 → PokerStraton app (works by IP and any domain pointed here).
+:80 {
+	encode gzip
+	reverse_proxy app:8000
+}
