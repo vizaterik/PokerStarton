@@ -45,8 +45,24 @@ async function copyText(text: string): Promise<boolean> {
 import { peekAnalysisCache } from "../lib/analysisCache";
 import { formatHandHistoryText } from "../lib/formatHandHistory";
 import PokerTable, { formatAmount, type AmountUnit } from "./PokerTable";
+import type { ReplayAction } from "../api/client";
 
 const AMOUNT_UNIT_KEY = "pokerledger.replay.amountUnit";
+
+/** Display label for action log (check is stored as call with 0). */
+function formatLogAction(
+  a: ReplayAction,
+  unit: AmountUnit,
+  bigBlind: number | null | undefined,
+): string {
+  if (a.action === "call" && (a.amount == null || a.amount === 0)) {
+    return "check";
+  }
+  if (a.action === "check") return "check";
+  const amt =
+    a.amount != null ? ` ${formatAmount(a.amount, unit, bigBlind)}` : "";
+  return `${a.action}${amt}`;
+}
 
 function readAmountUnit(): AmountUnit {
   try {
@@ -124,7 +140,6 @@ export default function HandReplayModal({
   const [loading, setLoading] = useState(false);
   const [handIdx, setHandIdx] = useState(0);
   const [actionIdx, setActionIdx] = useState(-1);
-  const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
   const [shareState, setShareState] = useState<"idle" | "loading" | "ok" | "fail">("idle");
   const [shareError, setShareError] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -155,7 +170,6 @@ export default function HandReplayModal({
     setError(null);
     setData(null);
     setActionIdx(-1);
-    setCopyState("idle");
     setShareState("idle");
     setShareError(null);
     setShareUrl(null);
@@ -308,7 +322,6 @@ export default function HandReplayModal({
 
   useEffect(() => {
     setActionIdx(-1);
-    setCopyState("idle");
     setShareUrl(null);
     setShareError(null);
     setShareState("idle");
@@ -366,18 +379,6 @@ export default function HandReplayModal({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [actionIdx, handIdx]);
-
-  async function copyHistory() {
-    if (!hand) return;
-    try {
-      await navigator.clipboard.writeText(formatHandHistoryText(hand));
-      setCopyState("ok");
-      window.setTimeout(() => setCopyState("idle"), 1600);
-    } catch {
-      setCopyState("fail");
-      window.setTimeout(() => setCopyState("idle"), 2000);
-    }
-  }
 
   async function copyShareLink() {
     if (!hand) return;
@@ -459,18 +460,29 @@ export default function HandReplayModal({
                       : "Поделиться"}
               </button>
             ) : null}
-            {hand && (
-              <button type="button" className="pr-ghost-btn" onClick={() => void copyHistory()}>
-                {copyState === "ok" ? "Copied" : copyState === "fail" ? "Failed" : "Copy HH"}
-              </button>
-            )}
             <button
               type="button"
-              className="pr-ghost-btn"
+              className="pr-icon-btn pr-fs-btn"
               onClick={() => setLogOpen((v) => !v)}
-              aria-pressed={logOpen}
+              aria-pressed={!logOpen}
+              aria-label={logOpen ? "На весь экран" : "Показать лог"}
+              title={logOpen ? "На весь экран" : "Показать лог"}
             >
-              {logOpen ? "Hide log" : "Show log"}
+              {logOpen ? (
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+                  <path
+                    fill="currentColor"
+                    d="M7 14H5v5h5v-2H7v-3zm0-4h2V7h3V5H5v5zm10 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"
+                  />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+                  <path
+                    fill="currentColor"
+                    d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"
+                  />
+                </svg>
+              )}
             </button>
             {!pageMode ? (
               <button type="button" className="pr-icon-btn" onClick={onClose} aria-label="Close">
@@ -519,6 +531,10 @@ export default function HandReplayModal({
                   )}
                   {actionLog.map((a, i) => {
                     const current = i === actionLog.length - 1;
+                    const actKind =
+                      a.action === "call" && (a.amount == null || a.amount === 0)
+                        ? "check"
+                        : a.action;
                     return (
                       <li
                         key={`${a.order}-${a.player_name}`}
@@ -526,7 +542,7 @@ export default function HandReplayModal({
                           "pr-log-row",
                           a.is_hero ? "hero" : "",
                           current ? "current" : "",
-                          a.action,
+                          actKind,
                         ]
                           .filter(Boolean)
                           .join(" ")}
@@ -534,10 +550,7 @@ export default function HandReplayModal({
                         <span className="pr-log-street">{a.street}</span>
                         <span className="pr-log-name">{a.player_name}</span>
                         <span className="pr-log-act">
-                          {a.action}
-                          {a.amount != null
-                            ? ` ${formatAmount(a.amount, amountUnit, hand.big_blind)}`
-                            : ""}
+                          {formatLogAction(a, amountUnit, hand.big_blind)}
                         </span>
                       </li>
                     );

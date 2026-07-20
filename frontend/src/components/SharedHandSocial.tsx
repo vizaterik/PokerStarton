@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
   fetchHandShareSocial,
@@ -18,6 +18,8 @@ type Props = {
   unlockedStreets: ShareStreet[];
   /** Active street in the replayer */
   currentStreet: ShareStreet;
+  /** Hand / replay rendered between likes and comments */
+  children?: ReactNode;
 };
 
 export default function SharedHandSocial({
@@ -25,6 +27,7 @@ export default function SharedHandSocial({
   playedStreets,
   unlockedStreets,
   currentStreet,
+  children,
 }: Props) {
   const [data, setData] = useState<HandShareSocial | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -115,104 +118,137 @@ export default function SharedHandSocial({
 
   const lockedAhead = playedStreets.filter((s) => !visibleStreets.includes(s));
 
+  const likeBtn = (
+    <button
+      type="button"
+      className={`share-like-btn${data?.liked_by_me ? " is-liked" : ""}`}
+      disabled={!loggedIn || likeBusy || loading}
+      onClick={() => void onLike()}
+      title={loggedIn ? "Лайкнуть раздачу" : "Войдите, чтобы лайкнуть"}
+    >
+      ♥ {data?.likes_count ?? 0}
+    </button>
+  );
+
   return (
-    <section className="share-social" aria-label="Комментарии и лайки">
-      <div className="share-social-head">
-        <h3>Обсуждение раздачи</h3>
-        <button
-          type="button"
-          className={`share-like-btn${data?.liked_by_me ? " is-liked" : ""}`}
-          disabled={!loggedIn || likeBusy || loading}
-          onClick={() => void onLike()}
-          title={loggedIn ? "Лайкнуть раздачу" : "Войдите, чтобы лайкнуть"}
-        >
-          ♥ {data?.likes_count ?? 0}
-        </button>
+    <>
+      <div className="share-likes-bar" aria-label="Лайки раздачи">
+        {likeBtn}
+        {!loggedIn && (
+          <p className="share-social-hint share-likes-hint">
+            <Link to="/login">Войдите</Link>, чтобы лайкнуть
+          </p>
+        )}
       </div>
 
-      <p className="share-social-hint share-social-progress">
-        Сейчас: <strong>{SHARE_STREET_LABELS[currentStreet]}</strong>
-        {" · "}
-        комментарии открываются по ходу реплея
-      </p>
+      {children}
 
-      {!loggedIn && (
-        <p className="share-social-hint">
-          <Link to="/login">Войдите</Link>, чтобы лайкнуть раздачу и оставить по одному
-          комментарию на улицу.
-        </p>
-      )}
-      {error && <p className="share-social-error">{error}</p>}
-      {loading && <p className="share-social-muted">Загрузка…</p>}
+      <div className="share-social-wrap">
+        <section className="share-social" aria-label="Комментарии">
+          <div className="share-social-head">
+            <h3>Обсуждение раздачи</h3>
+          </div>
 
-      {!loading && visibleStreets.length === 0 && (
-        <p className="share-social-muted">Листайте реплей — откроется комментарий к улице</p>
-      )}
+          <p className="share-social-hint share-social-progress">
+            Сейчас: <strong>{SHARE_STREET_LABELS[currentStreet]}</strong>
+            {" · "}
+            полный текст — только на текущей улице
+          </p>
 
-      {!loading &&
-        visibleStreets.map((key) => {
-          const list = commentsByStreet(key);
-          const mine = Boolean(data?.my_comments_by_street[key]);
-          const isCurrent = key === currentStreet;
-          return (
-            <div
-              key={key}
-              className={`share-street-block${isCurrent ? " is-current" : ""}`}
-            >
-              <div className="share-street-title">
-                {SHARE_STREET_LABELS[key]}
-                {isCurrent ? <span className="share-street-now">сейчас</span> : null}
-              </div>
-              {list.length === 0 ? (
-                <p className="share-social-muted">Пока нет комментариев</p>
-              ) : (
-                <ul className="share-comment-list">
-                  {list.map((c) => (
-                    <li key={c.id} className={c.is_mine ? "is-mine" : undefined}>
-                      <strong>{c.author_name}</strong>
-                      <span>{c.body}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {loggedIn && isCurrent && (
-                <div className="share-comment-form">
-                  <textarea
-                    value={drafts[key]}
-                    maxLength={1000}
-                    rows={2}
-                    placeholder={
-                      mine
-                        ? "Ваш комментарий (можно изменить)"
-                        : `Комментарий к улице «${SHARE_STREET_LABELS[key]}»`
-                    }
-                    onChange={(e) =>
-                      setDrafts((prev) => ({ ...prev, [key]: e.target.value }))
-                    }
-                  />
-                  <button
-                    type="button"
-                    disabled={savingStreet === key}
-                    onClick={() => void onSaveComment(key)}
-                  >
-                    {savingStreet === key
-                      ? "…"
-                      : mine
-                        ? "Обновить"
-                        : "Отправить"}
-                  </button>
+          {!loggedIn && (
+            <p className="share-social-hint">
+              <Link to="/login">Войдите</Link>, чтобы оставить по одному комментарию на улицу.
+            </p>
+          )}
+          {error && <p className="share-social-error">{error}</p>}
+          {loading && <p className="share-social-muted">Загрузка…</p>}
+
+          {!loading && visibleStreets.length === 0 && (
+            <p className="share-social-muted">
+              Листайте реплей — откроется комментарий к улице
+            </p>
+          )}
+
+          {!loading &&
+            visibleStreets.map((key) => {
+              const list = commentsByStreet(key);
+              const mine = Boolean(data?.my_comments_by_street[key]);
+              const isCurrent = key === currentStreet;
+              const countLabel =
+                list.length === 0
+                  ? "нет"
+                  : `${list.length}`;
+
+              if (!isCurrent) {
+                return (
+                  <div key={key} className="share-street-block share-street-summary">
+                    <div className="share-street-title">
+                      {SHARE_STREET_LABELS[key]}
+                      <span className="share-street-count">{countLabel}</span>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div key={key} className="share-street-block is-current">
+                  <div className="share-street-title">
+                    {SHARE_STREET_LABELS[key]}
+                    <span className="share-street-now">сейчас</span>
+                    <span className="share-street-count">{countLabel}</span>
+                  </div>
+                  {list.length === 0 ? (
+                    <p className="share-social-muted">Пока нет комментариев</p>
+                  ) : (
+                    <ul className="share-comment-list">
+                      {list.map((c) => (
+                        <li key={c.id} className={c.is_mine ? "is-mine" : undefined}>
+                          <strong>{c.author_name}</strong>
+                          <span>{c.body}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {loggedIn && (
+                    <div className="share-comment-form">
+                      <textarea
+                        value={drafts[key]}
+                        maxLength={1000}
+                        rows={2}
+                        placeholder={
+                          mine
+                            ? "Ваш комментарий (можно изменить)"
+                            : `Комментарий к улице «${SHARE_STREET_LABELS[key]}»`
+                        }
+                        onChange={(e) =>
+                          setDrafts((prev) => ({ ...prev, [key]: e.target.value }))
+                        }
+                      />
+                      <button
+                        type="button"
+                        disabled={savingStreet === key}
+                        onClick={() => void onSaveComment(key)}
+                      >
+                        {savingStreet === key
+                          ? "…"
+                          : mine
+                            ? "Обновить"
+                            : "Отправить"}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          );
-        })}
+              );
+            })}
 
-      {!loading && lockedAhead.length > 0 && (
-        <p className="share-social-muted share-social-locked">
-          Дальше откроется:{" "}
-          {lockedAhead.map((s) => SHARE_STREET_LABELS[s]).join(" → ")}
-        </p>
-      )}
-    </section>
+          {!loading && lockedAhead.length > 0 && (
+            <p className="share-social-muted share-social-locked">
+              Дальше откроется:{" "}
+              {lockedAhead.map((s) => SHARE_STREET_LABELS[s]).join(" → ")}
+            </p>
+          )}
+        </section>
+      </div>
+    </>
   );
 }

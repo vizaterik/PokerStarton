@@ -45,22 +45,21 @@ export default function SharedHandPage() {
         </Link>
         <span className="share-hand-badge">Публичная раздача</span>
       </header>
-      <HandReplayModal
-        open
-        pageMode
-        publicToken={token}
-        label="Shared hand"
-        onStreetProgress={onStreetProgress}
-        onClose={() => undefined}
-      />
-      <div className="share-social-wrap">
-        <SharedHandSocial
-          token={token}
-          currentStreet={currentStreet}
-          playedStreets={playedStreets}
-          unlockedStreets={unlockedStreets}
+      <SharedHandSocial
+        token={token}
+        currentStreet={currentStreet}
+        playedStreets={playedStreets}
+        unlockedStreets={unlockedStreets}
+      >
+        <HandReplayModal
+          open
+          pageMode
+          publicToken={token}
+          label="Shared hand"
+          onStreetProgress={onStreetProgress}
+          onClose={() => undefined}
         />
-      </div>
+      </SharedHandSocial>
     </div>
   );
 }

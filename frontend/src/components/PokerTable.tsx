@@ -212,6 +212,40 @@ function parseShownCards(raw: string): Map<string, [string, string]> {
   return out;
 }
 
+/** Winners and amounts collected (supports run-it-twice multi-collect). */
+function parseWinners(raw: string): Map<string, number> {
+  const out = new Map<string, number>();
+  const add = (name: string, amount: number) => {
+    const key = name.replace(/\s+\([^)]*\)\s*$/, "").trim().toLowerCase();
+    if (!key || !Number.isFinite(amount) || amount <= 0) return;
+    out.set(key, (out.get(key) || 0) + amount);
+  };
+
+  // Action log: "Hero collected $12.50 from pot" (also run-it-twice)
+  for (const m of raw.matchAll(
+    /^([^:\n]+?)\s+collected\s+\$?([\d.]+)(?:\s+from\s+(?:main\s+)?pot)?/gim,
+  )) {
+    add(m[1], Number(m[2]));
+  }
+  if (out.size > 0) return out;
+
+  // SUMMARY: "Seat 1: Hero ... and won ($12.50)" / "won ($12.50)"
+  for (const m of raw.matchAll(
+    /^Seat\s+\d+:\s*(.+?)\s+(?:\([^)]*\)\s+)?(?:won|collected)\s+\(\$?([\d.]+)\)/gim,
+  )) {
+    add(m[1], Number(m[2]));
+  }
+  if (out.size > 0) return out;
+
+  for (const m of raw.matchAll(
+    /^Seat\s+\d+:\s*([^\n]+?)\s+.*?\band\s+won\s+\(\$?([\d.]+)\)/gim,
+  )) {
+    const name = m[1].replace(/\s+\([^)]*\)\s*$/, "").trim();
+    add(name, Number(m[2]));
+  }
+  return out;
+}
+
 /** Posted blinds (posts are not stored as replay actions). */
 function seedBlindBets(hand: ReplayHand): Map<string, number> {
   const bets = new Map<string, number>();
@@ -298,6 +332,10 @@ export default function PokerTable({
   const board = boardForStep(hand, actionIndex);
   const holes = useMemo(() => holeCards(hand), [hand]);
   const shown = useMemo(() => parseShownCards(hand.raw_text || ""), [hand.raw_text]);
+  const winners = useMemo(
+    () => parseWinners(hand.raw_text || ""),
+    [hand.raw_text],
+  );
   // One step = apply action + highlight who acts next (no empty intermediate).
   const last = actionIndex >= 0 ? hand.actions[actionIndex] : null;
   const next =
@@ -325,6 +363,7 @@ export default function PokerTable({
     key: string;
     bets: Map<string, number>;
   } | null>(null);
+  const [payoutAnim, setPayoutAnim] = useState(false);
 
   useEffect(() => {
     if (!chipsToPot) return;
@@ -336,6 +375,16 @@ export default function PokerTable({
     return () => window.clearTimeout(t);
   }, [chipsToPot, actionIndex, nextStreet, streetBets]);
 
+  useEffect(() => {
+    if (!atEnd) {
+      setPayoutAnim(false);
+      return;
+    }
+    setPayoutAnim(true);
+    const t = window.setTimeout(() => setPayoutAnim(false), 700);
+    return () => window.clearTimeout(t);
+  }, [atEnd, actionIndex]);
+
   const folded = new Set<string>();
   for (let i = 0; i <= actionIndex && i < hand.actions.length; i += 1) {
     if (hand.actions[i].action === "fold") {
@@ -344,6 +393,21 @@ export default function PokerTable({
   }
   const justFoldedKey =
     last?.action === "fold" ? last.player_name.toLowerCase() : null;
+
+  // Uncontested pot: everyone folded → last non-folder wins remaining pot
+  let winnersEffective = winners;
+  if (atEnd && winners.size === 0) {
+    const active = hand.seats
+      .map((s) => s.name.toLowerCase())
+      .filter((n) => !folded.has(n) && !/^seat\s+\d+$/i.test(n));
+    if (active.length === 1) {
+      winnersEffective = new Map([[active[0], pot]]);
+    } else if (hand.hero_name && (hand.hero_net ?? 0) > 0) {
+      winnersEffective = new Map([
+        [hand.hero_name.toLowerCase(), Math.abs(hand.hero_net || pot)],
+      ]);
+    }
+  }
 
   const streetLabel = atEnd
     ? "showdown"
@@ -354,6 +418,8 @@ export default function PokerTable({
   const seatCount = layout.length;
   const visibleBets = atEnd || chipsToPot ? new Map<string, number>() : streetBets;
   const animBets = collectBurst?.bets ?? null;
+  const payingOut = atEnd && winnersEffective.size > 0;
+  const displayPot = payingOut ? 0 : pot;
 
   return (
     <div
@@ -365,9 +431,13 @@ export default function PokerTable({
         <div className="pr-table-felt-line" aria-hidden />
 
         <div className="pr-center">
-          <div className={`pr-pot${chipsToPot || collectBurst ? " is-collecting" : ""}`}>
+          <div
+            className={`pr-pot${chipsToPot || collectBurst ? " is-collecting" : ""}${
+              payingOut ? " is-paid" : ""
+            }${payingOut && payoutAnim ? " is-paying" : ""}`}
+          >
             <span>
-              Банк : <strong>{amt(pot)}</strong>
+              Банк : <strong>{amt(displayPot)}</strong>
             </span>
           </div>
 
@@ -389,13 +459,17 @@ export default function PokerTable({
           const key = seat.name.toLowerCase();
           const bet = visibleBets.get(key) || 0;
           const collectAmt = animBets?.get(key) || 0;
-          if (bet <= 0 && collectAmt <= 0) return null;
+          const winAmt = payingOut ? winnersEffective.get(key) || 0 : 0;
+          if (bet <= 0 && collectAmt <= 0 && winAmt <= 0) return null;
           const showCollect = collectAmt > 0 && bet <= 0;
-          const amount = showCollect ? collectAmt : bet;
+          const showWin = winAmt > 0 && !showCollect;
+          const amount = showCollect ? collectAmt : showWin ? winAmt : bet;
           return (
             <div
-              key={`bet-${seat.seat}-${showCollect ? collectBurst?.key : "live"}`}
-              className={`pr-street-bet${showCollect ? " is-to-pot" : ""}`}
+              key={`bet-${seat.seat}-${showCollect ? collectBurst?.key : showWin ? "win" : "live"}`}
+              className={`pr-street-bet${showCollect ? " is-to-pot" : ""}${
+                showWin ? (payoutAnim ? " is-from-pot" : " is-won") : ""
+              }`}
               style={
                 {
                   left: `${slot.bx}%`,
@@ -419,21 +493,26 @@ export default function PokerTable({
           const isFolded = folded.has(key);
           const isJustFolded = justFoldedKey === key;
           const isActor = !atEnd && toActKey != null && toActKey === key;
+          const isWinner = atEnd && winnersEffective.has(key);
+          const winAmt = winnersEffective.get(key) || 0;
           // Clear CALL/RAISE/CHECK pills when the next street is already shown.
           const justActed =
             !chipsToPot &&
+            !atEnd &&
             last != null &&
             last.player_name.toLowerCase() === key;
           const isHero = seat.is_hero;
           const isPlaceholder = /^seat\s+\d+$/i.test(seat.name);
           const shownCards = atEnd && !isFolded ? shown.get(key) : undefined;
-          const badge = justActed
-            ? actionBadge(last, unit, bb)
-            : isFolded
-              ? { text: "FOLD", kind: "fold" as const }
-              : shownCards
-                ? { text: "SHOW", kind: "show" as const }
-                : null;
+          const badge = isWinner
+            ? { text: `WIN ${amt(winAmt)}`, kind: "win" as const }
+            : justActed
+              ? actionBadge(last, unit, bb)
+              : isFolded
+                ? { text: "FOLD", kind: "fold" as const }
+                : shownCards
+                  ? { text: "SHOW", kind: "show" as const }
+                  : null;
           const revealed: [string, string] | undefined =
             isHero && holes.length === 2 && !isFolded
               ? [holes[0], holes[1]]
@@ -464,6 +543,7 @@ export default function PokerTable({
                   isPlaceholder ? "is-placeholder" : "",
                   isActor ? "is-turn" : "",
                   atEnd && revealed ? "is-showdown" : "",
+                  isWinner ? "is-winner" : "",
                   `badge-${slot.badge}`,
                 ]
                   .filter(Boolean)

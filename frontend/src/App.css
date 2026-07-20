@@ -10623,6 +10623,19 @@ body.confirm-open #root {
   color: #fca5a5;
 }
 
+.share-likes-bar {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.1rem 0.55rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.share-likes-hint {
+  margin: 0;
+}
+
 .share-social-wrap {
   max-width: 1200px;
   margin: 0 auto;
@@ -10630,7 +10643,7 @@ body.confirm-open #root {
 }
 
 .share-social {
-  margin-top: 1rem;
+  margin-top: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 0.85rem;
   background: rgba(15, 18, 24, 0.92);
@@ -10643,6 +10656,24 @@ body.confirm-open #root {
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
+}
+
+.share-street-summary {
+  opacity: 0.55;
+  padding-top: 0.55rem;
+  padding-bottom: 0.15rem;
+}
+
+.share-street-count {
+  margin-left: auto;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  color: rgba(232, 234, 239, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  padding: 0.08rem 0.5rem;
 }
 
 .share-social-head h3 {
@@ -10907,6 +10938,16 @@ body.confirm-open #root {
   height: 2.1rem;
   font-size: 1.35rem;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.pr-fs-btn[aria-pressed="true"] {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.1);
+  color: #fbbf24;
 }
 
 .pr-ghost-btn:hover,
@@ -11136,6 +11177,14 @@ body.confirm-open #root {
   animation: pr-pot-pulse 0.45s ease;
 }
 
+.pr-pot.is-paying {
+  animation: pr-pot-pay 0.55s ease forwards;
+}
+
+.pr-pot.is-paid {
+  opacity: 0.45;
+}
+
 @keyframes pr-pot-pulse {
   0%,
   100% {
@@ -11143,6 +11192,48 @@ body.confirm-open #root {
   }
   45% {
     transform: scale(1.06);
+  }
+}
+
+@keyframes pr-pot-pay {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.4;
+    transform: scale(0.92);
+  }
+}
+
+.pr-street-bet.is-from-pot {
+  animation: pr-pot-to-winner 0.6s ease forwards;
+  z-index: 9;
+}
+
+.pr-street-bet.is-won {
+  z-index: 7;
+}
+
+.pr-street-bet.is-won > span:not(.pr-chip),
+.pr-street-bet.is-from-pot > span:not(.pr-chip) {
+  border-color: rgba(245, 215, 110, 0.55);
+  background: rgba(40, 32, 10, 0.88);
+  color: #f5d76e;
+}
+
+@keyframes pr-pot-to-winner {
+  0% {
+    opacity: 0.95;
+    transform: translate(
+        calc(-50% + (50 - var(--bx, 50)) * 1cqw),
+        calc(-50% + (48 - var(--by, 50)) * 1cqh)
+      )
+      scale(0.85);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
   }
 }
 
@@ -11454,6 +11545,17 @@ body.confirm-open #root {
 .pr-action-pill.show {
   background: rgba(37, 99, 235, 0.95);
   color: #dbeafe;
+}
+
+.pr-action-pill.win {
+  background: rgba(212, 160, 30, 0.95);
+  color: #fff8e0;
+  min-width: 4.2rem;
+}
+
+.pr-seat.is-winner .pr-seat-name,
+.pr-seat.is-winner .pr-seat-stack {
+  box-shadow: 0 0 0 2px rgba(245, 215, 110, 0.75);
 }
 
 .pr-action-pill.check,
