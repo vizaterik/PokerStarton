@@ -11,11 +11,18 @@ import {
   threeBetLine,
   type PresetLine,
 } from "./branchPresets";
-import { findNode, pathToNode } from "./engine";
+import { commitWithAutoFolds, findNode, pathToNode } from "./engine";
+import {
+  buildPlayedLine,
+  type PlayedLine,
+  type PlayedLineAction,
+} from "./lineMatch";
 import { loadTree, saveTree } from "./persist";
 import { branchRangeSpots } from "./rangeSpots";
 import { seatsFor } from "./seats";
+import { standardOpenSize, THREE_BET_MULT, FOUR_BET_MULT } from "./standardSizings";
 import type { GameTreeDocument, GameTreeNode, Seat, TableSize } from "./types";
+import type { HandRow } from "../../engine/localDb";
 
 export type SpotSeed = {
   spot_key: string;
@@ -252,6 +259,84 @@ export function seedSpotIntoTree(
   const next = { ...result.doc, updatedAt: new Date().toISOString() };
   saveTree(next);
   // Push so editor hydrate does not replace with an older remote tree.
+  void putStrategyTree(strategyId, next as unknown as Record<string, unknown>).catch(
+    () => undefined,
+  );
+  return { tipNodeId: result.tipNodeId, paintNodeId: result.paintNodeId };
+}
+
+function defaultSizing(action: PlayedLineAction, raiseCount: number, seat: Seat): number | undefined {
+  if (action.action !== "RAISE") return undefined;
+  if (action.sizingBB != null) return action.sizingBB;
+  if (raiseCount <= 0) return standardOpenSize(seat);
+  if (raiseCount === 1) return Math.round(standardOpenSize(seat) * THREE_BET_MULT * 10) / 10;
+  return Math.round(standardOpenSize(seat) * THREE_BET_MULT * FOUR_BET_MULT * 10) / 10;
+}
+
+/**
+ * Create missing tree edges for a played HH line (with range inheritance via commitAction).
+ * Returns editor focus on the hero decision node.
+ */
+export function seedPlayedLineIntoDoc(
+  doc: GameTreeDocument,
+  line: PlayedLine,
+): SeedSpotResult | null {
+  if (!line.actions.length) return null;
+
+  let current = doc;
+  let raiseCount = 0;
+  let cursorId = current.root.id;
+  let heroPaintId: string | null = null;
+
+  for (const act of line.actions) {
+    const parent = findNode(current.root, cursorId);
+    if (!parent || parent.awaitingFlop) break;
+
+    const sizing = defaultSizing(act, raiseCount, act.seat);
+    const beforeId = cursorId;
+    const result = commitWithAutoFolds(
+      current,
+      cursorId,
+      act.seat,
+      act.action,
+      sizing,
+    );
+    if (!result.childId) return null;
+    current = result.doc;
+    if (act.isHero) {
+      const p = pathToNode(current.root, result.childId);
+      if (p && p.length >= 2) heroPaintId = p[p.length - 2].id;
+      else heroPaintId = beforeId;
+    }
+    cursorId = result.childId;
+    if (act.action === "RAISE") raiseCount += 1;
+    if (result.awaitingFlop) break;
+  }
+
+  const paintNodeId = heroPaintId ?? cursorId;
+  if (!findNode(current.root, paintNodeId)) return null;
+
+  let tipNodeId = paintNodeId;
+  const path = pathToNode(current.root, paintNodeId) ?? [];
+  const flopTip = path.find((n) => n.awaitingFlop);
+  if (flopTip) tipNodeId = flopTip.id;
+  else {
+    const last = findNode(current.root, cursorId);
+    if (last?.awaitingFlop) tipNodeId = last.id;
+  }
+
+  return { doc: current, tipNodeId, paintNodeId };
+}
+
+export function seedPlayedLineIntoTree(
+  strategyId: string,
+  hand: HandRow,
+): SeedFocus | null {
+  const line = buildPlayedLine(hand);
+  const result = seedPlayedLineIntoDoc(loadTree(strategyId), line);
+  if (!result) return null;
+  const next = { ...result.doc, updatedAt: new Date().toISOString() };
+  saveTree(next);
   void putStrategyTree(strategyId, next as unknown as Record<string, unknown>).catch(
     () => undefined,
   );

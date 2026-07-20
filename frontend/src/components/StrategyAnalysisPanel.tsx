@@ -30,8 +30,17 @@ import {
   writeAnalysisCache,
   type AnalysisCachePayload,
 } from "../lib/analysisCache";
-import { seedSpotIntoTree } from "../lib/gameTree/seedTreeFromSpots";
+import {
+  analyzeHandsAgainstTree,
+  type HandLineAnalysis,
+  type LineAnalysisSummary,
+} from "../engine/lineAnalysis";
+import {
+  seedPlayedLineIntoTree,
+  seedSpotIntoTree,
+} from "../lib/gameTree/seedTreeFromSpots";
 import { stashEditorFocus } from "../lib/gameTree/editorFocus";
+import HandLineDetail from "./strategyLine/HandLineDetail";
 import {
   STRATEGY_CHARTS_GAP_HINT,
   strategyHasPlayCharts,
@@ -106,7 +115,7 @@ function isAbortError(err: unknown) {
 }
 
 type AnalysisTab = "chart" | "hud" | "preflop" | "recommendations";
-type PreflopSubTab = "overview" | "positions" | "branches" | "errors";
+type PreflopSubTab = "overview" | "positions" | "branches" | "lines" | "errors";
 
 type ReplayState =
   | { mode: "stat"; stat: string; label: string }
@@ -352,6 +361,10 @@ export default function StrategyAnalysisPanel({
   const [addingSpots, setAddingSpots] = useState(false);
   /** Key of the single branch currently being added, or "all". */
   const [addingSpotKey, setAddingSpotKey] = useState<string | null>(null);
+  const [lineSummary, setLineSummary] = useState<LineAnalysisSummary | null>(null);
+  const [lineLoading, setLineLoading] = useState(false);
+  const [selectedLineHandId, setSelectedLineHandId] = useState<string | null>(null);
+  const [creatingLineBranch, setCreatingLineBranch] = useState(false);
   /** Real hand total for progress UI (sessions + last analysis). */
   const [handTotal, setHandTotal] = useState<number | null>(
     () => cachedBoot?.handTotal ?? cachedBoot?.analysis?.hands ?? null,
@@ -595,6 +608,36 @@ export default function StrategyAnalysisPanel({
     [addingSpots, navigate, strategyId],
   );
 
+  const createMissingLineBranch = useCallback(
+    async (handId: string) => {
+      if (creatingLineBranch) return;
+      setCreatingLineBranch(true);
+      try {
+        const hands = await listHandsForStrategy(strategyId);
+        const hand = hands.find((h) => h.key === handId);
+        if (!hand) {
+          setSpotsHint("Раздача не найдена в локальной базе.");
+          return;
+        }
+        const focus = seedPlayedLineIntoTree(strategyId, hand);
+        if (!focus) {
+          setSpotsHint("Не удалось создать ветку по линии этой раздачи.");
+          return;
+        }
+        clearAnalysisCache(strategyId);
+        stashEditorFocus(strategyId, focus);
+        navigate(`/strategies/${strategyId}`);
+      } catch (err: unknown) {
+        setSpotsHint(
+          err instanceof Error ? err.message : "Не удалось создать ветку",
+        );
+      } finally {
+        setCreatingLineBranch(false);
+      }
+    },
+    [creatingLineBranch, navigate, strategyId],
+  );
+
   // Cache hit → show instantly. Full recompute only when hands/cache miss (new upload).
   useEffect(() => {
     setError(null);
@@ -816,6 +859,37 @@ export default function StrategyAnalysisPanel({
     if (tab !== "preflop" || preflopSub !== "branches" || loading) return;
     void reloadMissingSpots();
   }, [tab, preflopSub, strategyId, refreshKey, loading, reloadMissingSpots]);
+
+  // Line analysis vs constructor tree
+  useEffect(() => {
+    if (tab !== "preflop" || preflopSub !== "lines" || loading) return;
+    let cancelled = false;
+    setLineLoading(true);
+    void (async () => {
+      try {
+        const treeDoc = await resolveConstructorTree(strategyId);
+        const hands = await listHandsForStrategy(strategyId);
+        if (cancelled) return;
+        const summary = analyzeHandsAgainstTree(treeDoc, hands, 250);
+        setLineSummary(summary);
+        setSelectedLineHandId((prev) => {
+          if (prev && summary.hands.some((h) => h.handId === prev)) return prev;
+          const interesting =
+            summary.hands.find((h) => h.status === "missing_branch") ||
+            summary.hands.find((h) => h.status === "found" && !h.inRange) ||
+            summary.hands[0];
+          return interesting?.handId ?? null;
+        });
+      } catch {
+        if (!cancelled) setLineSummary(null);
+      } finally {
+        if (!cancelled) setLineLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, preflopSub, strategyId, refreshKey, loading, chartsBump]);
 
   // Hydrate constructor tree (cache path may skip chart sync).
   useEffect(() => {
@@ -1247,6 +1321,123 @@ export default function StrategyAnalysisPanel({
   }
 
   function renderPreflopBody() {
+    if (preflopSub === "lines") {
+      if (lineLoading) {
+        return <p className="muted">Сверяем линии с деревом стратегии…</p>;
+      }
+      if (!lineSummary || lineSummary.total === 0) {
+        return (
+          <p className="muted">
+            Нет локальных раздач для анализа линий. Загрузите HH на вкладке Анализ.
+          </p>
+        );
+      }
+      const selected: HandLineAnalysis | null =
+        lineSummary.hands.find((h) => h.handId === selectedLineHandId) ??
+        lineSummary.hands[0] ??
+        null;
+      const list = lineSummary.hands.filter((h) => h.status !== "empty");
+      return (
+        <>
+          <p className="muted analysis-chart-hint">
+            Полная префлоп-линия раздачи сопоставляется с деревом конструктора: найденная
+            ветка, отклонение по комбо, отсутствующие рёбра и целостность вилки.
+          </p>
+          <div className="analysis-kpis strategy-dev-kpis">
+            <div className="analysis-kpi">
+              <span>Найдено</span>
+              <strong>{lineSummary.found}</strong>
+              <em>из {lineSummary.total} рук</em>
+            </div>
+            <div className="analysis-kpi">
+              <span>В диапазоне</span>
+              <strong className={lineSummary.inRange ? "pos" : undefined}>
+                {lineSummary.inRange}
+              </strong>
+              <em>отклонений {lineSummary.deviations}</em>
+            </div>
+            <div className="analysis-kpi">
+              <span>Нет ветки</span>
+              <strong className={lineSummary.missing ? "neg" : undefined}>
+                {lineSummary.missing}
+              </strong>
+              <em>integrity {lineSummary.integrityWarnings}</em>
+            </div>
+          </div>
+          <div className="line-analysis-layout">
+            <aside className="line-analysis-list">
+              <ul>
+                {list.slice(0, 80).map((h) => {
+                  const label =
+                    h.status === "found"
+                      ? h.heroHandCode || "?"
+                      : h.status === "missing_branch"
+                        ? h.missingLabel
+                        : "—";
+                  const badge =
+                    h.status === "found"
+                      ? h.inRange
+                        ? "ok"
+                        : "bad"
+                      : h.status === "missing_branch"
+                        ? "miss"
+                        : "";
+                  return (
+                    <li key={h.handId}>
+                      <button
+                        type="button"
+                        className={
+                          selected?.handId === h.handId ? "is-active" : undefined
+                        }
+                        onClick={() => setSelectedLineHandId(h.handId)}
+                      >
+                        <span className={`line-badge ${badge}`}>
+                          {h.status === "found"
+                            ? h.inRange
+                              ? "OK"
+                              : "ERR"
+                            : "—"}
+                        </span>
+                        <strong>{label}</strong>
+                        <em className="muted">
+                          {h.status === "found" || h.status === "missing_branch"
+                            ? h.pathLabels.slice(-2).join(" → ") || "линия"
+                            : ""}
+                        </em>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </aside>
+            <div className="line-analysis-detail">
+              {selected ? (
+                <HandLineDetail
+                  analysis={selected}
+                  busy={creatingLineBranch}
+                  onCreateBranch={
+                    selected.status === "missing_branch"
+                      ? () => void createMissingLineBranch(selected.handId)
+                      : undefined
+                  }
+                  onOpenReplay={() =>
+                    setReplay({
+                      mode: "hand",
+                      handIds: [selected.handId],
+                      startIndex: 0,
+                      label: "Линия раздачи",
+                    })
+                  }
+                />
+              ) : (
+                <p className="muted">Выберите раздачу слева.</p>
+              )}
+            </div>
+          </div>
+        </>
+      );
+    }
+
     if (!liveDevs || !devs) return null;
 
     if (preflopSub === "overview") {
@@ -2173,70 +2364,71 @@ export default function StrategyAnalysisPanel({
 
       {tab === "preflop" && (
         <div className="analysis-tab-pane" role="tabpanel">
-          {devsLoading ? (
-            <p className="muted">
-              {chartProgress || "Проверяем стратегию…"}
-              {!chartProgress?.includes("/") &&
-              (handTotal ?? pendingHandTotal ?? data?.hands ?? 0) > 0
-                ? ` · ${(handTotal ?? pendingHandTotal ?? data?.hands ?? 0).toLocaleString("ru-RU")} рук`
-                : ""}
+          <section className="analysis-block">
+            <h2>Стратегии · сравнение веток</h2>
+            <p className="muted analysis-chart-hint">
+              Сверка с вашим регламентом: каждое префлоп-решение сравнивается с вашими чартами
+              (raise / call / fold). Если чарт говорит raise, а вы сфолдили — это ошибка
+              (пропущенное открытие). Это не GTO и не «общий» эталон — только дисциплина
+              относительно своих диапазонов.
             </p>
-          ) : devError ? (
-            <p className="error">{devError}</p>
-          ) : !devs ? (
-            <p className="muted">Нет данных для сверки.</p>
-          ) : (
-            <section className="analysis-block">
-              <h2>Стратегии · сравнение веток</h2>
-              <p className="muted analysis-chart-hint">
-                Сверка с вашим регламентом: каждое префлоп-решение сравнивается с вашими чартами
-                (raise / call / fold). Если чарт говорит raise, а вы сфолдили — это ошибка
-                (пропущенное открытие). Это не GTO и не «общий» эталон — только дисциплина
-                относительно своих диапазонов.
+            {!hasPlayCharts ? (
+              <p className="strategy-gap-banner" role="status">
+                {STRATEGY_CHARTS_GAP_HINT}{" "}
+                <Link className="spots-hint-link" to={`/strategies/${strategyId}`}>
+                  Открыть конструктор →
+                </Link>
               </p>
-              {!hasPlayCharts ? (
-                <p className="strategy-gap-banner" role="status">
-                  {STRATEGY_CHARTS_GAP_HINT}{" "}
-                  <Link className="spots-hint-link" to={`/strategies/${strategyId}`}>
-                    Открыть конструктор →
-                  </Link>
-                </p>
-              ) : null}
+            ) : null}
 
-              <div className="preflop-subtabs" role="tablist" aria-label="Разделы стратегии">
-                {(
-                  [
-                    ["overview", "Обзор"],
-                    ["positions", "Позиции"],
-                    ["branches", "Ветки"],
-                    ["errors", "Ошибки"],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    role="tab"
-                    aria-selected={preflopSub === id}
-                    className={preflopSub === id ? "active" : ""}
-                    onClick={() => setPreflopSub(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+            <div className="preflop-subtabs" role="tablist" aria-label="Разделы стратегии">
+              {(
+                [
+                  ["overview", "Обзор"],
+                  ["positions", "Позиции"],
+                  ["branches", "Ветки"],
+                  ["lines", "Линии"],
+                  ["errors", "Ошибки"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={preflopSub === id}
+                  className={preflopSub === id ? "active" : ""}
+                  onClick={() => setPreflopSub(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
-              {spotsHint ? (
-                <p className="muted analysis-chart-hint spots-hint" role="status">
-                  {spotsHint}{" "}
-                  <Link className="spots-hint-link" to={`/strategies/${strategyId}`}>
-                    Открыть редактор →
-                  </Link>
-                </p>
-              ) : null}
+            {spotsHint ? (
+              <p className="muted analysis-chart-hint spots-hint" role="status">
+                {spotsHint}{" "}
+                <Link className="spots-hint-link" to={`/strategies/${strategyId}`}>
+                  Открыть редактор →
+                </Link>
+              </p>
+            ) : null}
 
-              {renderPreflopBody()}
-            </section>
-          )}
+            {preflopSub !== "lines" && devsLoading ? (
+              <p className="muted">
+                {chartProgress || "Проверяем стратегию…"}
+                {!chartProgress?.includes("/") &&
+                (handTotal ?? pendingHandTotal ?? data?.hands ?? 0) > 0
+                  ? ` · ${(handTotal ?? pendingHandTotal ?? data?.hands ?? 0).toLocaleString("ru-RU")} рук`
+                  : ""}
+              </p>
+            ) : preflopSub !== "lines" && devError ? (
+              <p className="error">{devError}</p>
+            ) : preflopSub !== "lines" && !devs ? (
+              <p className="muted">Нет данных для сверки.</p>
+            ) : (
+              renderPreflopBody()
+            )}
+          </section>
         </div>
       )}
 

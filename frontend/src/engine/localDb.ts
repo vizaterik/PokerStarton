@@ -37,8 +37,13 @@ export type HandRow = {
   big_blind: number | null;
   /** All seated nicknames/stacks for Trainer table. */
   seats: ParsedSeat[];
-  /** Preflop actions through hero decision (Trainer on server). */
+  /**
+   * Preflop actions through hero decision (Trainer / line analysis).
+   * Alias domain: also treated as `preflop_actions` for strategy line matching.
+   */
   actions: ParsedAction[];
+  /** Optional explicit preflop line (same as actions when present). */
+  preflop_actions?: ParsedAction[];
   /** Full HH text for local replay */
   raw_text: string;
   vpip: number;
@@ -122,6 +127,7 @@ function toRow(strategyId: string, sessionId: string, h: ParsedHand): HandRow {
     big_blind: h.big_blind,
     seats: Array.isArray(h.seats) ? h.seats : [],
     actions: trimTrainerActions(h.actions),
+    preflop_actions: trimTrainerActions(h.actions),
     raw_text: h.raw_text,
     vpip: h.vpip ? 1 : 0,
     pfr: h.pfr ? 1 : 0,

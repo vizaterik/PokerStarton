@@ -12,10 +12,15 @@ import {
   type StatHandsResponse,
 } from "../api/client";
 import {
+  analyzeReplayHand,
+  type HandLineAnalysis,
+} from "../engine/lineAnalysis";
+import {
   fetchLocalHandReplay,
   fetchLocalStatHands,
   isLocalHandId,
 } from "../engine/localReplay";
+import { loadTree } from "../lib/gameTree/persist";
 import {
   streetAtAction,
   streetsPlayedInHand,
@@ -269,6 +274,15 @@ export default function HandReplayModal({
   const maxAction = hand ? hand.actions.length - 1 : -1;
   const handsCount = data?.hands.length ?? 0;
 
+  const strategyMatch = useMemo((): HandLineAnalysis | null => {
+    if (!hand || !strategyId || publicToken) return null;
+    try {
+      return analyzeReplayHand(loadTree(strategyId), hand);
+    } catch {
+      return null;
+    }
+  }, [hand, strategyId, publicToken]);
+
   useEffect(() => {
     if (!onStreetProgress) return;
     const nextAct = hand?.actions[actionIdx + 1];
@@ -460,6 +474,31 @@ export default function HandReplayModal({
             </h2>
           </div>
           <div className="pr-topbar-right">
+            {strategyMatch && strategyMatch.status !== "empty" ? (
+              <span
+                className={
+                  strategyMatch.status === "found"
+                    ? strategyMatch.inRange
+                      ? "pr-strategy-badge ok"
+                      : "pr-strategy-badge bad"
+                    : "pr-strategy-badge miss"
+                }
+                title={
+                  strategyMatch.status === "found"
+                    ? strategyMatch.deviationText ||
+                      strategyMatch.pathLabels.join(" → ")
+                    : strategyMatch.status === "missing_branch"
+                      ? `Нет ветки: ${strategyMatch.missingLabel}`
+                      : ""
+                }
+              >
+                {strategyMatch.status === "found"
+                  ? strategyMatch.inRange
+                    ? "Стратегия ✓"
+                    : "Отклонение"
+                  : "Нет ветки"}
+              </span>
+            ) : null}
             {topbarExtra}
             {canShare && hand ? (
               <button

@@ -1,5 +1,6 @@
 import { produce } from "immer";
 import { buildEmptyMatrix, HandCode, RANKS } from "../handMatrix";
+import { isHandReachable, REACH_EPS } from "./combos";
 import { nextSeat, seatLabel, seatsFor } from "./seats";
 import { standardRaiseSize } from "./standardSizings";
 import {
@@ -31,6 +32,75 @@ export function emptyRanges(): Record<HandCode, HandMix> {
     out[code] = { FOLD: 1, CALL: 0, RAISE: 0 };
   }
   return out;
+}
+
+/**
+ * Ranges for the next decision seat: Fold shell for all hands.
+ * If that seat already acted on the path, paint is clamped to hands they
+ * put on that prior action (`handPaintableOnNode`).
+ */
+export function rangesInheritedForNextSeat(
+  _root: GameTreeNode,
+  _parentId: string,
+  _nextSeatPlayer: Seat,
+): Record<HandCode, HandMix> {
+  return emptyRanges();
+}
+
+/** Parent of nodeId, or null for root. */
+export function findParent(
+  root: GameTreeNode,
+  nodeId: string,
+): GameTreeNode | null {
+  if (root.id === nodeId) return null;
+  for (const child of root.children) {
+    if (child.id === nodeId) return root;
+    const hit = findParent(child, nodeId);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Prior decision of `seat` on the path to `nodeId`, and the action they took.
+ * Used to inherit reachable combos when the same seat acts again.
+ */
+export function priorSeatDecision(
+  root: GameTreeNode,
+  nodeId: string,
+  seat: Seat,
+): { decision: GameTreeNode; via: PaintAction } | null {
+  const path = pathToNode(root, nodeId);
+  if (!path?.length) return null;
+  // Exclude current node — look for an earlier decision by this seat
+  for (let i = path.length - 2; i >= 0; i -= 1) {
+    const n = path[i];
+    if (n.activePlayer !== seat) continue;
+    const via = path[i + 1]?.actionTaken;
+    if (via !== "FOLD" && via !== "CALL" && via !== "RAISE") continue;
+    return { decision: n, via };
+  }
+  return null;
+}
+
+/** Whether `hand` may be painted on `node` (subset of this seat's prior action). */
+export function handPaintableOnNode(
+  root: GameTreeNode,
+  node: GameTreeNode,
+  hand: HandCode,
+): boolean {
+  const prior = priorSeatDecision(root, node.id, node.activePlayer);
+  if (!prior) return true;
+  // Soft: if prior decision has no painted play mass, allow (legacy trees).
+  let parentHasPaint = false;
+  for (const mix of Object.values(prior.decision.ranges)) {
+    if ((mix.CALL ?? 0) > REACH_EPS || (mix.RAISE ?? 0) > REACH_EPS) {
+      parentHasPaint = true;
+      break;
+    }
+  }
+  if (!parentHasPaint) return true;
+  return isHandReachable(prior.decision, prior.via, hand);
 }
 
 export function createRootNode(tableSize: TableSize): GameTreeNode {
@@ -231,7 +301,7 @@ export function commitAction(
         activePlayer: parent.activePlayer,
         actionTaken: action,
         sizingBB: action === "RAISE" ? sizingBB : undefined,
-        ranges: emptyRanges(),
+        ranges: rangesInheritedForNextSeat(draft.root, parentId, parent.activePlayer),
         children: [],
         awaitingFlop: false,
         autoFold: markAuto || undefined,
@@ -267,7 +337,7 @@ export function commitAction(
       activePlayer: turn.nextPlayer,
       actionTaken: action,
       sizingBB: action === "RAISE" ? sizingBB : undefined,
-      ranges: emptyRanges(),
+      ranges: rangesInheritedForNextSeat(draft.root, parentId, turn.nextPlayer),
       children: [],
       autoFold: markAuto || undefined,
     };
@@ -445,6 +515,7 @@ export function paintHand(
       draft.updatedAt = new Date().toISOString();
       return;
     }
+    if (!handPaintableOnNode(draft.root, node, hand)) return;
     const w = Math.min(1, Math.max(0, weight));
     const mix: HandMix = { FOLD: 0, CALL: 0, RAISE: 0 };
     mix[action] = w;
@@ -481,6 +552,7 @@ export function paintHands(
     if (!node || node.awaitingFlop) return;
     const w = Math.min(1, Math.max(0, weight));
     for (const hand of hands) {
+      if (!handPaintableOnNode(draft.root, node, hand)) continue;
       const mix: HandMix = { FOLD: 0, CALL: 0, RAISE: 0 };
       mix[action] = w;
       if (action !== "FOLD" && w < 1) mix.FOLD = 1 - w;
