@@ -13,7 +13,7 @@ import {
   subscribeAnalysisJob,
   type AnalysisJobState,
 } from "../lib/analysisJob";
-import { peekAnalysisCache } from "../lib/analysisCache";
+import { peekAnalysisHud } from "../lib/analysisCache";
 import { readLastStrategyId, writeLastStrategyId } from "../lib/handDbCache";
 
 type AnalysisScope = "session" | "database";
@@ -156,7 +156,7 @@ export default function AnalysisPage() {
     SCOPE_TABS.find((t) => t.id === scope)?.lead ?? SCOPE_TABS[0].lead;
 
   const hasCachedReport = Boolean(
-    strategyId && peekAnalysisCache(strategyId)?.analysis,
+    strategyId && peekAnalysisHud(strategyId)?.analysis,
   );
   const waiting = bgRunning || job.status === "error";
 

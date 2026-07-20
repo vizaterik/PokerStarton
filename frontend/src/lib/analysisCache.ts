@@ -28,6 +28,8 @@ export const CHART_COMPARE_VER = 11;
 
 /** v7: sync tree by painted jobs; score synced spots (exact matchup). */
 const PREFIX = "pokerledger.analysis.v7:";
+/** Slim HUD/curve only — Analysis nav open must not JSON.parse thousands of errors. */
+const HUD_PREFIX = "pokerledger.analysis.hud.v1:";
 const LEGACY = [
   "pokerledger.analysis.v1:",
   "pokerledger.analysis.v2:",
@@ -37,7 +39,17 @@ const LEGACY = [
   "pokerledger.analysis.v6:",
 ];
 
+export type AnalysisHudCache = {
+  fingerprint: string;
+  analysis: StrategyAnalysis;
+  handTotal: number;
+  savedAt: number;
+  chartsRev?: string | null;
+  strategyUpdatedAt?: string | null;
+};
+
 const memory = new Map<string, AnalysisCachePayload>();
+const hudMemory = new Map<string, AnalysisHudCache>();
 
 function storage(): Storage | null {
   try {
@@ -78,6 +90,23 @@ function fromStorage(strategyId: string): AnalysisCachePayload | null {
     const parsed = JSON.parse(raw) as AnalysisCachePayload;
     if (!parsed?.analysis || !parsed?.deviations || !parsed?.fingerprint) return null;
     memory.set(strategyId, parsed);
+    // Migrate: next Analysis open reads slim HUD key only.
+    writeHudSlim(strategyId, parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function hudFromStorage(strategyId: string): AnalysisHudCache | null {
+  const store = storage();
+  if (!store) return null;
+  try {
+    const raw = store.getItem(HUD_PREFIX + strategyId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AnalysisHudCache;
+    if (!parsed?.analysis || !parsed?.fingerprint) return null;
+    hudMemory.set(strategyId, parsed);
     return parsed;
   } catch {
     return null;
@@ -87,6 +116,30 @@ function fromStorage(strategyId: string): AnalysisCachePayload | null {
 /** Any cached payload for strategy (may be stale — check fingerprint). */
 export function peekAnalysisCache(strategyId: string): AnalysisCachePayload | null {
   return memory.get(strategyId) ?? fromStorage(strategyId);
+}
+
+/**
+ * HUD/curve only — safe for Analysis page first paint.
+ * Avoids parsing the full deviations blob from localStorage.
+ */
+export function peekAnalysisHud(strategyId: string): AnalysisHudCache | null {
+  const mem = hudMemory.get(strategyId);
+  if (mem) return mem;
+  const full = memory.get(strategyId);
+  if (full) {
+    const slim: AnalysisHudCache = {
+      fingerprint: full.fingerprint,
+      analysis: full.analysis,
+      handTotal: full.handTotal,
+      savedAt: full.savedAt,
+      chartsRev: full.chartsRev,
+      strategyUpdatedAt: full.strategyUpdatedAt,
+    };
+    hudMemory.set(strategyId, slim);
+    return slim;
+  }
+  // Prefer slim key only — never JSON.parse the full deviations blob on nav open.
+  return hudFromStorage(strategyId);
 }
 
 /** Only return cache when fingerprint still matches current hands. */
@@ -99,12 +152,32 @@ export function readAnalysisCache(
   return parsed;
 }
 
+function writeHudSlim(strategyId: string, full: AnalysisCachePayload) {
+  const slim: AnalysisHudCache = {
+    fingerprint: full.fingerprint,
+    analysis: full.analysis,
+    handTotal: full.handTotal,
+    savedAt: full.savedAt,
+    chartsRev: full.chartsRev,
+    strategyUpdatedAt: full.strategyUpdatedAt,
+  };
+  hudMemory.set(strategyId, slim);
+  const store = storage();
+  if (!store) return;
+  try {
+    store.setItem(HUD_PREFIX + strategyId, JSON.stringify(slim));
+  } catch {
+    /* ignore — full cache still in memory */
+  }
+}
+
 export function writeAnalysisCache(
   strategyId: string,
   payload: Omit<AnalysisCachePayload, "savedAt">,
 ) {
   const full: AnalysisCachePayload = { ...payload, savedAt: Date.now() };
   memory.set(strategyId, full);
+  writeHudSlim(strategyId, full);
   const store = storage();
   if (!store) return;
   try {
@@ -115,13 +188,14 @@ export function writeAnalysisCache(
       const keys: string[] = [];
       for (let i = 0; i < store.length; i += 1) {
         const k = store.key(i);
-        if (k?.startsWith(PREFIX)) keys.push(k);
+        if (k?.startsWith(PREFIX) || k?.startsWith(HUD_PREFIX)) keys.push(k);
       }
       keys.sort();
       for (const k of keys.slice(0, Math.max(1, Math.floor(keys.length / 2)))) {
         store.removeItem(k);
       }
       store.setItem(PREFIX + strategyId, JSON.stringify(full));
+      writeHudSlim(strategyId, full);
     } catch {
       /* memory still works */
     }
@@ -132,16 +206,24 @@ export function clearAnalysisCache(strategyId?: string) {
   try {
     if (strategyId) {
       memory.delete(strategyId);
+      hudMemory.delete(strategyId);
       storage()?.removeItem(PREFIX + strategyId);
+      storage()?.removeItem(HUD_PREFIX + strategyId);
       return;
     }
     memory.clear();
+    hudMemory.clear();
     const store = storage();
     if (!store) return;
     const keys: string[] = [];
     for (let i = 0; i < store.length; i += 1) {
       const k = store.key(i);
-      if (k && (k.startsWith(PREFIX) || LEGACY.some((p) => k.startsWith(p)))) {
+      if (
+        k &&
+        (k.startsWith(PREFIX) ||
+          k.startsWith(HUD_PREFIX) ||
+          LEGACY.some((p) => k.startsWith(p)))
+      ) {
         keys.push(k);
       }
     }

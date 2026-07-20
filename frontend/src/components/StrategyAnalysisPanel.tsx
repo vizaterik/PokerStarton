@@ -27,6 +27,7 @@ import {
   analysisFingerprint,
   clearAnalysisCache,
   peekAnalysisCache,
+  peekAnalysisHud,
   readAnalysisCache,
   writeAnalysisCache,
   type AnalysisCachePayload,
@@ -65,6 +66,7 @@ import {
   normalizeChartPos,
   normalizeMatchupTag,
   potLookupKinds,
+  reverseMatchupTag,
   spotCoveredByBranches,
 } from "../lib/spotCoverage";
 import { isChartPainted } from "../lib/spotResolve";
@@ -435,13 +437,12 @@ export default function StrategyAnalysisPanel({
   /** Bumps when constructor charts fingerprint changes — rebuild Обзор/Позиции/Ветки/Ошибки. */
   const [chartsBump, setChartsBump] = useState(0);
   const lastChartsRevRef = useRef<string | null>(null);
-  const cachedBoot = peekAnalysisCache(strategyId);
+  // Boot HUD/curve only — never parse full deviations blob on first paint.
+  const cachedBoot = peekAnalysisHud(strategyId);
   const [data, setData] = useState<StrategyAnalysis | null>(
     () => cachedBoot?.analysis ?? null,
   );
-  const [devs, setDevs] = useState<StrategyDeviationsResponse | null>(
-    () => cachedBoot?.deviations ?? null,
-  );
+  const [devs, setDevs] = useState<StrategyDeviationsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [devError, setDevError] = useState<string | null>(null);
   // Analysis page (backgroundJobMode): never flash server-style AnalysisCalcProgress on F5.
@@ -450,20 +451,13 @@ export default function StrategyAnalysisPanel({
   const [replay, setReplay] = useState<ReplayState | null>(null);
   const [uploadTick, setUploadTick] = useState(0);
   const [errorFilter, setErrorFilter] = useState<ErrorFilter>({});
-  const [selectedChartKey, setSelectedChartKey] = useState<string | null>(() => {
-    const first = cachedBoot?.deviations?.chart_errors?.[0];
-    return first ? chartKey(first) : null;
-  });
+  const [selectedChartKey, setSelectedChartKey] = useState<string | null>(null);
   const [selectedHand, setSelectedHand] = useState<string | null>(null);
-  const [strategySpots, setStrategySpots] = useState<StrategySpot[]>(
-    () => cachedBoot?.spots ?? [],
-  );
+  const [strategySpots, setStrategySpots] = useState<StrategySpot[]>([]);
   const [strategyChart, setStrategyChart] = useState<Record<string, CellFreq>>({});
   const [strategyChartLoading, setStrategyChartLoading] = useState(false);
   const [spotsHint, setSpotsHint] = useState<string | null>(null);
-  const [missingSpots, setMissingSpots] = useState<EnsuredSpotInfo[]>(
-    () => cachedBoot?.missing ?? [],
-  );
+  const [missingSpots, setMissingSpots] = useState<EnsuredSpotInfo[]>([]);
   const [missingLoading, setMissingLoading] = useState(false);
   const [addingSpots, setAddingSpots] = useState(false);
   /** Key of the single branch currently being added, or "all". */
@@ -513,13 +507,11 @@ export default function StrategyAnalysisPanel({
   hasDevsRef.current = !!devs;
 
   /**
-   * Strategy compare: on «Моя стратегия», and whenever constructor charts change
-   * (even if the user is still on HUD / overview — keep analysis reactive).
+   * Strategy compare only on «Стратегии» — never on График/HUD open
+   * (full rescore + constructor sync was freezing the Analysis nav click).
    */
   useEffect(() => {
-    if (!strategyId || analysisSuspended) return;
-    const chartsChanged = chartsBump !== lastBuiltChartsBumpRef.current;
-    if (tab !== "preflop" && !chartsChanged) return;
+    if (!strategyId || analysisSuspended || tab !== "preflop") return;
 
     const gen = ++chartGenRef.current;
     let cancelled = false;
@@ -538,12 +530,10 @@ export default function StrategyAnalysisPanel({
         setDevs(res.deviations);
         setStrategySpots(res.spots);
         if (res.hands > 0) setHandTotal(res.hands);
-        if (tab === "preflop") {
-          const first = res.deviations.chart_errors?.[0];
-          setSelectedChartKey(first ? chartKey(first) : null);
-          setErrorFilter({});
-          setSelectedHand(null);
-        }
+        const first = res.deviations.chart_errors?.[0];
+        setSelectedChartKey(first ? chartKey(first) : null);
+        setErrorFilter({});
+        setSelectedHand(null);
       })
       .catch((err) => {
         if (cancelled || chartGenRef.current !== gen) return;
@@ -760,18 +750,25 @@ export default function StrategyAnalysisPanel({
     setStrategyChart({});
     setReplay(null);
 
-    const applyCached = (cached: AnalysisCachePayload) => {
+    /** HUD/curve always; strategy compare payload only when Strategies is open. */
+    const applyCached = (
+      cached: AnalysisCachePayload,
+      opts?: { withStrategy?: boolean },
+    ) => {
       setData(cached.analysis);
-      setDevs(cached.deviations);
-      setStrategySpots(cached.spots);
       setMissingSpots(cached.missing);
       setHandTotal(cached.handTotal || cached.analysis.hands);
+      setLoading(false);
+      setDevsLoading(false);
+      if (opts?.withStrategy === false) {
+        return;
+      }
+      setDevs(cached.deviations);
+      setStrategySpots(cached.spots);
       const first = cached.deviations.chart_errors?.[0];
       setSelectedChartKey(first ? chartKey(first) : null);
       setErrorFilter({});
       setSelectedHand(null);
-      setLoading(false);
-      setDevsLoading(false);
     };
 
     if (analysisSuspended || isAnalysisJobRunning(strategyId)) {
@@ -796,10 +793,17 @@ export default function StrategyAnalysisPanel({
     const { signal } = controller;
     const isStale = () => signal.aborted || runId !== runGenRef.current;
 
-    // Paint last result immediately — F5 must not look like a new analysis job.
-    const peek = peekAnalysisCache(strategyId);
-    if (peek) {
-      applyCached(peek);
+    // Paint last HUD immediately — strategy deviations hydrate on Strategies tab.
+    const peekHud = peekAnalysisHud(strategyId);
+    if (peekHud) {
+      setData(peekHud.analysis);
+      setHandTotal(peekHud.handTotal || peekHud.analysis.hands);
+      setLoading(false);
+      setDevsLoading(false);
+      if (!backgroundJobMode) {
+        const full = peekAnalysisCache(strategyId);
+        if (full) applyCached(full, { withStrategy: true });
+      }
     } else if (!backgroundJobMode) {
       setLoading(true);
       setDevsLoading(true);
@@ -816,9 +820,12 @@ export default function StrategyAnalysisPanel({
       try {
         // Local analysis page: show the same report as after upload (from cache / IDB).
         if (backgroundJobMode) {
-          const localReport = peekAnalysisCache(strategyId);
-          if (localReport && !isStale()) {
-            applyCached(localReport);
+          const hud = peekAnalysisHud(strategyId);
+          if (hud && !isStale()) {
+            setData(hud.analysis);
+            setHandTotal(hud.handTotal || hud.analysis.hands);
+            setLoading(false);
+            setDevsLoading(false);
             return;
           }
           if (isAnalysisJobRunning(strategyId)) return;
@@ -831,9 +838,12 @@ export default function StrategyAnalysisPanel({
               setHandTotal(rows.length);
               await restoreLocalSessionReport(strategyId);
               if (isStale()) return;
-              const restored = peekAnalysisCache(strategyId);
-              if (restored) {
-                applyCached(restored);
+              const restoredHud = peekAnalysisHud(strategyId);
+              if (restoredHud) {
+                setData(restoredHud.analysis);
+                setHandTotal(restoredHud.handTotal || restoredHud.analysis.hands);
+                setLoading(false);
+                setDevsLoading(false);
                 return;
               }
             }
@@ -843,7 +853,7 @@ export default function StrategyAnalysisPanel({
           if (!isStale()) {
             setLoading(false);
             setDevsLoading(false);
-            if (!peek) {
+            if (!peekHud) {
               setData(null);
               setDevs(null);
             }
@@ -967,15 +977,39 @@ export default function StrategyAnalysisPanel({
     backgroundJobMode,
   ]);
 
+  /** Pull strategy-compare payload only when opening «Стратегии» (keeps Анализ click light). */
+  useEffect(() => {
+    if (tab !== "preflop" || !strategyId || analysisSuspended) return;
+    if (devs) return;
+    const cached = peekAnalysisCache(strategyId);
+    if (!cached?.deviations) return;
+    setDevs(cached.deviations);
+    setStrategySpots(cached.spots ?? []);
+    setMissingSpots(cached.missing ?? []);
+    const first = cached.deviations.chart_errors?.[0];
+    setSelectedChartKey(first ? chartKey(first) : null);
+  }, [tab, strategyId, analysisSuspended, devs]);
+
   // Refresh session branches when opening «Ветки»
   useEffect(() => {
     if (tab !== "preflop" || preflopSub !== "branches" || loading) return;
     void reloadMissingSpots();
   }, [tab, preflopSub, strategyId, refreshKey, loading, reloadMissingSpots]);
 
-  /** Hydrate local constructor tree (cheap GET + localStorage). */
+  /** Full strategy rescore only after a new upload / parent revision — not on every remount. */
   useEffect(() => {
     if (!strategyId || analysisSuspended) return;
+    if (refreshKey === 0) return;
+    setChartsBump((n) => n + 1);
+  }, [refreshKey, strategyId, analysisSuspended]);
+
+  /**
+   * Constructor hydrate + branch lists only when «Стратегии» is open.
+   * Doing this on every Analysis mount froze the nav click (JSON.parse tree +
+   * O(errors×branches) filter + repeated loadBranchPaintMatrix).
+   */
+  useEffect(() => {
+    if (!strategyId || analysisSuspended || tab !== "preflop") return;
     let cancelled = false;
     void resolveConstructorTree(strategyId)
       .then(() => {
@@ -990,14 +1024,7 @@ export default function StrategyAnalysisPanel({
     return () => {
       cancelled = true;
     };
-  }, [strategyId, analysisSuspended, refreshKey, strategyRevision]);
-
-  /** Full strategy rescore only after a new upload / parent revision — not on every remount. */
-  useEffect(() => {
-    if (!strategyId || analysisSuspended) return;
-    if (refreshKey === 0) return;
-    setChartsBump((n) => n + 1);
-  }, [refreshKey, strategyId, analysisSuspended]);
+  }, [strategyId, analysisSuspended, refreshKey, strategyRevision, tab]);
 
   /** When opening «Стратегии» — reload branch list (strategy paint refreshes on chart click). */
   useEffect(() => {
@@ -1005,8 +1032,9 @@ export default function StrategyAnalysisPanel({
     void reloadMissingSpots();
   }, [tab, strategyId, analysisSuspended, reloadMissingSpots]);
 
-  // Re-pull constructor when returning from the editor (deleted / painted branches).
+  // Re-pull constructor when returning from the editor while on Strategies.
   useEffect(() => {
+    if (tab !== "preflop") return;
     const syncConstructor = () => {
       void resolveConstructorTree(strategyId)
         .then(() => {
@@ -1034,25 +1062,54 @@ export default function StrategyAnalysisPanel({
       window.removeEventListener("focus", syncConstructor);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [strategyId]);
+  }, [strategyId, tab]);
+
+  /** Heavy strategy memos — only while Strategies tab is active. */
+  const strategyTabLive = tab === "preflop";
 
   /** Painted strategy branches — source of truth for «Моя стратегия» scoring. */
-  const paintedTreeBranches = useMemo(() => {
+  const paintedTreeBranches = useMemo((): SavedBranch[] => {
+    if (!strategyTabLive) return [];
     try {
       return collectAnalysisBranches(loadTree(strategyId).root);
     } catch {
       return [];
     }
-  }, [strategyId, refreshKey, strategyRevision, treeTick]);
+  }, [strategyTabLive, strategyId, refreshKey, strategyRevision, treeTick]);
+
+  /** pot|matchup keys for painted branches — avoids re-parsing the tree per row. */
+  const paintedBranchKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const b of paintedTreeBranches) {
+      const mu = normalizeMatchupTag(b.label);
+      keys.add(`${b.potKind}|${mu}`);
+      const rev = reverseMatchupTag(mu);
+      if (rev) keys.add(`${b.potKind}|${rev}`);
+    }
+    return keys;
+  }, [paintedTreeBranches]);
+
+  const hasPaintedBranch = useCallback(
+    (pot: string, mu: string) => {
+      const nmu = normalizeMatchupTag(mu);
+      for (const p of potLookupKinds(pot)) {
+        if (paintedBranchKeys.has(`${p}|${nmu}`)) return true;
+        const rev = reverseMatchupTag(nmu);
+        if (rev && paintedBranchKeys.has(`${p}|${rev}`)) return true;
+      }
+      return false;
+    },
+    [paintedBranchKeys],
+  );
 
   const hasPlayCharts = useMemo(
-    () => strategyHasPlayCharts(strategyId),
-    [strategyId, refreshKey, strategyRevision, treeTick, paintedTreeBranches.length],
+    () => (strategyTabLive ? strategyHasPlayCharts(strategyId) : false),
+    [strategyTabLive, strategyId, refreshKey, strategyRevision, treeTick, paintedTreeBranches.length],
   );
 
   /** Drop cached matchups that are no longer in the constructor. */
   const liveDevs = useMemo(() => {
-    if (!devs) return null;
+    if (!strategyTabLive || !devs) return null;
     // No painted branch list yet — still show synced-spot scoring (0/0 only if none).
     if (!paintedTreeBranches.length) {
       return {
@@ -1067,49 +1124,29 @@ export default function StrategyAnalysisPanel({
         hero_position: string;
         villain_position?: string | null;
       },
-      potKind?: string | null,
-    ) =>
-      paintedTreeBranches.some((b) => {
-        if (
-          potKind &&
-          b.potKind !== potKind &&
-          !potLookupKinds(potKind).includes(b.potKind)
-        ) {
-          return false;
-        }
-        return spotCoveredByBranches(spot, [b], coverOpts);
-      });
+    ) => spotCoveredByBranches(spot, paintedTreeBranches, coverOpts);
     // Accuracy / errors only for strategy (painted constructor) branches.
     const by_branch = (devs.by_branch ?? []).filter((row) =>
-      covers(
-        {
-          spot_key: row.spot_key,
-          hero_position: row.hero_position,
-          villain_position: row.villain_position,
-        },
-        row.pot_kind || spotPotKind(row.spot_key),
-      ),
+      covers({
+        spot_key: row.spot_key,
+        hero_position: row.hero_position,
+        villain_position: row.villain_position,
+      }),
     );
     const coverChart = (c: ChartErrorSpot) =>
-      covers(
-        {
-          spot_key: c.spot_key,
-          hero_position: c.hero_position,
-          villain_position: c.villain_position,
-        },
-        c.pot_kind || spotPotKind(c.spot_key),
-      );
+      covers({
+        spot_key: c.spot_key,
+        hero_position: c.hero_position,
+        villain_position: c.villain_position,
+      });
     const chart_errors = (devs.chart_errors ?? []).filter(coverChart);
     const chart_plays = (devs.chart_plays ?? []).filter(coverChart);
     const deviations = (devs.deviations ?? []).filter((d) =>
-      covers(
-        {
-          spot_key: d.spot_key || "",
-          hero_position: d.hero_position || "",
-          villain_position: d.villain_position,
-        },
-        spotPotKind(d.spot_key || ""),
-      ),
+      covers({
+        spot_key: d.spot_key || "",
+        hero_position: d.hero_position || "",
+        villain_position: d.villain_position,
+      }),
     );
     return {
       ...devs,
@@ -1120,7 +1157,7 @@ export default function StrategyAnalysisPanel({
       // Overview KPI must match Errors tab (not stale cache from deleted branches).
       total: deviations.length,
     };
-  }, [devs, paintedTreeBranches]);
+  }, [strategyTabLive, devs, paintedTreeBranches]);
 
   const filteredDevs = useMemo(() => {
     if (!liveDevs) return [];
@@ -1131,6 +1168,7 @@ export default function StrategyAnalysisPanel({
 
   /** Painted strategy branches that actually appeared in the session (VPIP). */
   const branchScoreRows = useMemo(() => {
+    if (!strategyTabLive) return [];
     const rows = liveDevs?.by_branch ?? [];
     const accByKey = new Map<string, PreflopBranchAccuracy>();
     for (const row of rows) {
@@ -1213,7 +1251,7 @@ export default function StrategyAnalysisPanel({
         const decisions = acc?.decisions ?? plays;
         // VPIP count for list: scored plays, else session hands.
         const played = Math.max(decisions, plays, hands);
-        const hasChart = Boolean(loadBranchPaintMatrix(strategyId, potKind, mu));
+        const hasChart = hasPaintedBranch(potKind, mu);
         return {
           ...seed,
           matchup: mu,
@@ -1231,13 +1269,20 @@ export default function StrategyAnalysisPanel({
         (a, b) =>
           b.played - a.played || a.matchup.localeCompare(b.matchup, "ru"),
       );
-  }, [liveDevs, paintedTreeBranches, sessionBranches, strategyId]);
+  }, [
+    strategyTabLive,
+    liveDevs,
+    paintedTreeBranches,
+    sessionBranches,
+    hasPaintedBranch,
+  ]);
 
   /**
    * Always list every VPIP matchup from the HH session.
    * Painted constructor branches overlay scores; unpainted stay with «+».
    */
   const branchListRows = useMemo(() => {
+    if (!strategyTabLive) return [];
     type Row = {
       spot_key: string;
       hero_position: string;
@@ -1255,15 +1300,6 @@ export default function StrategyAnalysisPanel({
     };
     const byKey = new Map<string, Row>();
 
-    const hasPaint = (pot: string, mu: string) => {
-      if (loadBranchPaintMatrix(strategyId, pot, mu)) return true;
-      const m = normalizeMatchupTag(mu).match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
-      if (!m) return false;
-      return Boolean(
-        loadBranchPaintMatrix(strategyId, pot, `${m[2]}vs${m[1]}`),
-      );
-    };
-
     // 1) Full session — every pot|matchup that appeared in the hands.
     for (const s of sessionBranches) {
       const potKind = spotPotKind(s.spot_key) as BranchPotKind;
@@ -1276,7 +1312,7 @@ export default function StrategyAnalysisPanel({
       const played = s.hands_count ?? 0;
       if (played <= 0) continue;
       const key = `${potKind}|${normalizeMatchupTag(mu)}`;
-      const painted = hasPaint(potKind, mu);
+      const painted = hasPaintedBranch(potKind, mu);
       byKey.set(key, {
         spot_key: s.spot_key,
         hero_position: s.hero_position,
@@ -1323,7 +1359,7 @@ export default function StrategyAnalysisPanel({
         b.played - a.played ||
         a.matchup.localeCompare(b.matchup, "ru"),
     );
-  }, [sessionBranches, branchScoreRows, strategyId]);
+  }, [strategyTabLive, sessionBranches, branchScoreRows, hasPaintedBranch]);
 
   /** Focus a strategy branch for Strategy|Error range compare (stay on current subtab). */
   const selectBranchFocus = useCallback(
