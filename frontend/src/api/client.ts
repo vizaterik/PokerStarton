@@ -950,6 +950,20 @@ export function createHandShare(handId: string) {
   return request<HandShare>(`/api/hands/${handId}/share`, { method: "POST" });
 }
 
+/** Share from raw HH — for local / unsynced replays (auth required). */
+export function createHandShareFromText(payload: {
+  raw_text: string;
+  external_hand_id?: string | null;
+}) {
+  return request<HandShare>("/api/hands/share", {
+    method: "POST",
+    body: JSON.stringify({
+      raw_text: payload.raw_text,
+      external_hand_id: payload.external_hand_id || undefined,
+    }),
+  });
+}
+
 /** Public replay — no auth required; does not clear tokens on failure. */
 export async function fetchPublicHandReplay(token: string) {
   const res = await fetch(`${API_BASE}/api/public/hands/${encodeURIComponent(token)}/replay`);

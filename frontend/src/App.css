@@ -10653,18 +10653,27 @@ body.confirm-open #root {
 .pr-topbar-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.4rem;
 }
 
 .pr-share-btn {
-  border-color: rgba(52, 211, 153, 0.45) !important;
+  border-color: rgba(52, 211, 153, 0.55) !important;
   color: #6ee7b7 !important;
-  background: rgba(16, 185, 129, 0.12) !important;
+  background: rgba(16, 185, 129, 0.18) !important;
+  font-weight: 700 !important;
 }
 
 .pr-share-btn:hover:not(:disabled) {
-  border-color: rgba(52, 211, 153, 0.7) !important;
-  background: rgba(16, 185, 129, 0.2) !important;
+  border-color: rgba(52, 211, 153, 0.85) !important;
+  background: rgba(16, 185, 129, 0.28) !important;
+}
+
+.pr-controls-hands .pr-share-btn {
+  margin-left: 0.35rem;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.82rem;
 }
 
 .pr-ghost-btn,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   createHandShare,
+  createHandShareFromText,
   fetchHandReplay,
   fetchPublicHandReplay,
   fetchResultsHuPotHands,
@@ -14,6 +15,13 @@ import {
   fetchLocalStatHands,
   isLocalHandId,
 } from "../engine/localReplay";
+
+const SERVER_HAND_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isServerHandId(id: string | null | undefined): boolean {
+  return Boolean(id && SERVER_HAND_UUID_RE.test(id));
+}
 import { peekAnalysisCache } from "../lib/analysisCache";
 import { formatHandHistoryText } from "../lib/formatHandHistory";
 import PokerTable, { formatAmount, type AmountUnit } from "./PokerTable";
@@ -318,11 +326,19 @@ export default function HandReplayModal({
   }
 
   async function copyShareLink() {
-    const id = hand?.id ?? handId;
-    if (!id) return;
+    if (!hand) return;
     setShareState("loading");
     try {
-      const share = await createHandShare(id);
+      const id = hand.id ?? handId;
+      const raw = (hand.raw_text || "").trim() || formatHandHistoryText(hand);
+      if (!raw.trim()) throw new Error("empty hh");
+      const share =
+        isServerHandId(id) && !isLocalHandId(id)
+          ? await createHandShare(id)
+          : await createHandShareFromText({
+              raw_text: raw,
+              external_hand_id: hand.external_hand_id,
+            });
       const path = share.path.startsWith("/") ? share.path : `/${share.path}`;
       const url = `${window.location.origin}${path}`;
       await navigator.clipboard.writeText(url);
@@ -361,7 +377,7 @@ export default function HandReplayModal({
             </h2>
           </div>
           <div className="pr-topbar-right">
-            {canShare && hand?.id && !isLocalHandId(hand.id) ? (
+            {canShare && hand ? (
               <button
                 type="button"
                 className="pr-ghost-btn pr-share-btn"
@@ -375,7 +391,7 @@ export default function HandReplayModal({
                     ? "Ссылка скопирована"
                     : shareState === "fail"
                       ? "Ошибка"
-                      : "Копировать ссылку"}
+                      : "Поделиться"}
               </button>
             ) : null}
             {hand && (
@@ -564,6 +580,23 @@ export default function HandReplayModal({
                     </button>
                   </>
                 )}
+                {canShare ? (
+                  <button
+                    type="button"
+                    className="pr-hand-btn pr-share-btn"
+                    disabled={shareState === "loading"}
+                    onClick={() => void copyShareLink()}
+                    title="Скопировать публичную ссылку"
+                  >
+                    {shareState === "loading"
+                      ? "…"
+                      : shareState === "ok"
+                        ? "Ссылка скопирована"
+                        : shareState === "fail"
+                          ? "Ошибка шаринга"
+                          : "Поделиться раздачей"}
+                  </button>
+                ) : null}
                 <span className="pr-controls-step">
                   Шаг {Math.max(0, actionIdx + 1)}/{Math.max(0, maxAction + 1)}
                 </span>
