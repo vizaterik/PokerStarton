@@ -419,8 +419,11 @@ export default function PokerTable({
           const isFolded = folded.has(key);
           const isJustFolded = justFoldedKey === key;
           const isActor = !atEnd && toActKey != null && toActKey === key;
+          // Clear CALL/RAISE/CHECK pills when the next street is already shown.
           const justActed =
-            last != null && last.player_name.toLowerCase() === key;
+            !chipsToPot &&
+            last != null &&
+            last.player_name.toLowerCase() === key;
           const isHero = seat.is_hero;
           const isPlaceholder = /^seat\s+\d+$/i.test(seat.name);
           const shownCards = atEnd && !isFolded ? shown.get(key) : undefined;
