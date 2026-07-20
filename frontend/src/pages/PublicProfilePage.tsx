@@ -75,7 +75,9 @@ export default function PublicProfilePage() {
             </span>
           ) : null}
           <span>Рейтинг {data.rating}</span>
-          <span>{data.likes_received} лайков</span>
+          <span>{data.views_count} просм.</span>
+          <span>{data.comments_count} комм.</span>
+          <span>♥ {data.likes_received}</span>
           <span>{data.shares_count} раздач</span>
         </div>
       </header>
@@ -102,6 +104,7 @@ export default function PublicProfilePage() {
               </div>
               <div className="feed-top-stats">
                 <span title="Просмотры">{h.views_count ?? 0} просм.</span>
+                <span title="Комментарии">{h.comments_count ?? 0} комм.</span>
                 <span title="Лайки">♥ {h.likes_count}</span>
               </div>
             </li>

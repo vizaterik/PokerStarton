@@ -1,27 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listTopLikedHands, type TopLikedHand } from "../api/client";
-
-function formatHand(hand: string | null | undefined) {
-  if (!hand || hand.length < 4) return "Раздача";
-  return `${hand.slice(0, 2)} ${hand.slice(2, 4)}`;
-}
-
-function formatNet(net: number | null | undefined) {
-  if (net == null || !Number.isFinite(net)) return null;
-  const sign = net > 0 ? "+" : "";
-  return `${sign}${net.toFixed(2)}`;
-}
+import { listTopAuthors, type TopAuthor } from "../api/client";
 
 export default function FeedPage() {
-  const [items, setItems] = useState<TopLikedHand[]>([]);
+  const [items, setItems] = useState<TopAuthor[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void listTopLikedHands(5)
+    void listTopAuthors(5)
       .then((res) => {
         if (!cancelled) setItems(res.items);
       })
@@ -43,7 +32,7 @@ export default function FeedPage() {
       <header className="feed-page-head">
         <div>
           <h1>Хиты</h1>
-          <p className="lead">Топ‑5 публичных раздач по лайкам.</p>
+          <p className="lead">Топ‑5 авторов по лайкам на публичных раздачах.</p>
         </div>
       </header>
 
@@ -51,42 +40,29 @@ export default function FeedPage() {
       {error ? <p className="error">{error}</p> : null}
 
       {!loading && !error && items.length === 0 ? (
-        <p className="muted">Пока нет лайкнутых публичных раздач.</p>
+        <p className="muted">Пока нет авторов с лайками.</p>
       ) : null}
 
       <ol className="feed-top-list">
-        {items.map((p, i) => {
-          const net = formatNet(p.hero_net);
-          return (
-            <li key={p.token}>
-              <span className="feed-top-rank">{i + 1}</span>
-              <div className="feed-top-body">
-                <Link to={p.path} className="feed-top-link">
-                  {formatHand(p.hero_hand)}
-                  {p.hero_position ? ` · ${p.hero_position}` : ""}
-                </Link>
-                <div className="feed-meta">
-                  {p.author_name && p.author_path ? (
-                    <Link to={p.author_path} className="feed-author-link">
-                      {p.author_name}
-                    </Link>
-                  ) : p.author_name ? (
-                    <span>{p.author_name}</span>
-                  ) : null}
-                  {p.stakes_label ? <span>{p.stakes_label}</span> : null}
-                  {p.played_at ? (
-                    <span>{new Date(p.played_at).toLocaleDateString("ru-RU")}</span>
-                  ) : null}
-                  {net ? <span>{net}</span> : null}
-                </div>
+        {items.map((p, i) => (
+          <li key={p.path}>
+            <span className="feed-top-rank">{i + 1}</span>
+            <div className="feed-top-body">
+              <Link to={p.path} className="feed-top-link">
+                {p.display_name}
+              </Link>
+              <div className="feed-meta">
+                <span>рейтинг {p.rating}</span>
+                <span>{p.shares_count} раздач</span>
               </div>
-              <div className="feed-top-stats">
-                <span title="Просмотры">{p.views_count ?? 0} просм.</span>
-                <span title="Лайки">♥ {p.likes_count}</span>
-              </div>
-            </li>
-          );
-        })}
+            </div>
+            <div className="feed-top-stats">
+              <span title="Просмотры раздач">{p.views_count} просм.</span>
+              <span title="Комментарии">{p.comments_count} комм.</span>
+              <span title="Лайки">♥ {p.likes_count}</span>
+            </div>
+          </li>
+        ))}
       </ol>
     </section>
   );
