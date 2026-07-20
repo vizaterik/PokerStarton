@@ -13,6 +13,9 @@ venv/
 # Node
 node_modules/
 dist/
+# Prebuilt UI for low-RAM VPS Docker (no Vite on the server).
+!deploy/frontend-dist/
+!deploy/frontend-dist/**
 *.local
 
 # Uploads / local data

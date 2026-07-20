@@ -8,8 +8,9 @@
 **/*.db-wal
 **/*.db-shm
 **/uploads
-frontend/dist
-frontend/src/engine/h2n
+frontend
 backend/.venv
 **/.pytest_cache
 **/agent-transcripts
+!deploy/frontend-dist
+!deploy/frontend-dist/**

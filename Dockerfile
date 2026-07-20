@@ -1,20 +1,9 @@
-# Same-origin deploy: UI + API on one host (avoids browser CORS to a second Render service).
-FROM node:20-alpine AS frontend
-WORKDIR /fe
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
-COPY frontend/ ./
-# Empty base → browser calls /api and /health on the same origin.
-ENV VITE_API_BASE=
-# Low-RAM VPS: one Rollup worker, no minify/sourcemaps (avoids hang after transform).
-ENV VITE_DOCKER_BUILD=1
-ENV NODE_OPTIONS=--max-old-space-size=512
-RUN npm run build:docker
-
-# Frontend first so BuildKit does not run apt + npm build at the same time (low-RAM VPS).
+# Low-RAM VPS: frontend is prebuilt into deploy/frontend-dist (no Node/Vite here).
+# Refresh static: cd frontend && set VITE_DOCKER_BUILD=1&& set VITE_API_BASE=&& npm run build:docker
+# then copy dist → deploy/frontend-dist before commit/push.
 FROM python:3.12-slim
 WORKDIR /app
-COPY --from=frontend /fe/dist /app/static
+COPY deploy/frontend-dist /app/static
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
