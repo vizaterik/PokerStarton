@@ -148,18 +148,12 @@ export default function SharedHandSocial({
     <div className="share-like-bar">
       <button
         type="button"
-        className={`share-like-btn share-like-btn-lg${data?.liked_by_me ? " is-liked" : ""}`}
+        className={`share-like-btn${data?.liked_by_me ? " is-liked" : ""}`}
         disabled={!loggedIn || likeBusy || loading}
         onClick={() => void onLike()}
         title={loggedIn ? "Лайкнуть раздачу" : "Войдите, чтобы лайкнуть"}
       >
-        <span className="share-like-heart" aria-hidden>
-          ♥
-        </span>
-        <span className="share-like-meta">
-          <strong>{data?.likes_count ?? 0}</strong>
-          <em>{data?.liked_by_me ? "Нравится" : "Нравится раздача"}</em>
-        </span>
+        ♥ {data?.likes_count ?? 0}
       </button>
       {!loggedIn && (
         <p className="share-social-hint share-like-login">
