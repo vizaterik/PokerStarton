@@ -766,6 +766,8 @@ export type ChartErrorCell = {
   raise_count?: number;
   call_count?: number;
   fold_count?: number;
+  /** Local hand keys for replay when clicking the combo cell. */
+  hand_ids?: string[];
   actual_action: string | null;
   expected_action: string | null;
 };

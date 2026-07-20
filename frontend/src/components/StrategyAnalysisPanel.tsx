@@ -961,7 +961,7 @@ export default function StrategyAnalysisPanel({
     );
   }, [liveDevs, errorFilter, paintedTreeBranches]);
 
-  /** All painted strategy branches — list for «Ветки» / переключение сравнения. */
+  /** Painted strategy branches that actually appeared in the session (VPIP). */
   const branchScoreRows = useMemo(() => {
     const rows = liveDevs?.by_branch ?? [];
     const accByKey = new Map<string, PreflopBranchAccuracy>();
@@ -1010,6 +1010,29 @@ export default function StrategyAnalysisPanel({
       return null;
     };
 
+    const playsByKey = new Map<string, number>();
+    for (const c of liveDevs?.chart_plays ?? []) {
+      const mu =
+        c.label ||
+        analysisMatchup(c.spot_key, c.hero_position, c.villain_position, c.label);
+      const pot = c.pot_kind || spotPotKind(c.spot_key);
+      const n = (c.cells ?? []).reduce((s, cell) => s + (cell.errors ?? 0), 0);
+      if (n <= 0) continue;
+      for (const mk of matchupLookupKeys(mu)) {
+        const key = `${pot}|${mk}`;
+        playsByKey.set(key, (playsByKey.get(key) ?? 0) + n);
+      }
+    }
+    const lookupPlays = (pot: string, mu: string) => {
+      for (const p of potLookupKinds(pot)) {
+        for (const mk of matchupLookupKeys(mu)) {
+          const hit = playsByKey.get(`${p}|${mk}`);
+          if (hit) return hit;
+        }
+      }
+      return 0;
+    };
+
     return paintedTreeBranches
       .map((b) => {
         const mu = b.label;
@@ -1018,8 +1041,10 @@ export default function StrategyAnalysisPanel({
         const acc = lookupAcc(potKind, mu);
         const hh = lookupHh(potKind, mu);
         const hands = hh?.hands_count ?? 0;
-        const decisions = acc?.decisions ?? 0;
-        // Only list branches that still have a loadable strategy chart.
+        const plays = lookupPlays(potKind, mu);
+        const decisions = acc?.decisions ?? plays;
+        // VPIP count for list: scored plays, else session hands.
+        const played = Math.max(decisions, plays, hands);
         const hasChart = Boolean(loadBranchPaintMatrix(strategyId, potKind, mu));
         return {
           ...seed,
@@ -1028,15 +1053,15 @@ export default function StrategyAnalysisPanel({
           pot_tag: potKindTag(potKind),
           hands_count: hands,
           decisions,
+          played,
           correct_pct: acc?.correct_pct ?? null,
           hasChart,
         };
       })
-      .filter((r) => r.hasChart)
+      .filter((r) => r.hasChart && r.played > 0)
       .sort(
         (a, b) =>
-          (b.decisions || b.hands_count) - (a.decisions || a.hands_count) ||
-          a.matchup.localeCompare(b.matchup, "ru"),
+          b.played - a.played || a.matchup.localeCompare(b.matchup, "ru"),
       );
   }, [liveDevs, paintedTreeBranches, sessionBranches, strategyId]);
 
@@ -1375,6 +1400,48 @@ export default function StrategyAnalysisPanel({
     openErrorReplay(d);
   }
 
+  /** Click combo / hand code → filter + open replay (errors first, else played ids). */
+  function openComboReplay(
+    code: string,
+    filter: ErrorFilter,
+    playCells?: { hand_code: string; hand_ids?: string[] }[] | null,
+  ) {
+    setSelectedHand(code);
+    setErrorFilter({ ...filter, handCode: code });
+    const nextFilter = { ...filter, handCode: code };
+    const errList = (liveDevs?.deviations ?? []).filter((d) =>
+      matchesFilter(d, nextFilter, paintedTreeBranches),
+    );
+    if (errList.length > 0) {
+      setReplay({
+        mode: "hand",
+        handIds: errList.map((d) => d.hand_id),
+        startIndex: 0,
+        label: `${code} · ошибки · ${errList.length}`,
+      });
+      return;
+    }
+    const fromCell = (playCells ?? []).find((c) => c.hand_code === code)?.hand_ids ?? [];
+    if (fromCell.length > 0) {
+      setReplay({
+        mode: "hand",
+        handIds: fromCell,
+        startIndex: 0,
+        label: `${code} · раздачи · ${fromCell.length}`,
+      });
+    }
+  }
+
+  function openHandsReplay(handIds: string[], label: string, startIndex = 0) {
+    if (!handIds.length) return;
+    setReplay({
+      mode: "hand",
+      handIds,
+      startIndex,
+      label,
+    });
+  }
+
   function goErrors(filter: ErrorFilter, chart?: ChartErrorSpot | null) {
     setErrorFilter(filter);
     setSelectedHand(filter.handCode ?? null);
@@ -1541,8 +1608,8 @@ export default function StrategyAnalysisPanel({
       return (
         <>
           <p className="muted analysis-chart-hint">
-            С какой позиции открывал / не открывал относительно чарта RFI. Клик по строке → ошибки
-            этой позиции.
+            С какой позиции открывал / не открывал относительно чарта RFI. Клик по строке → реплей
+            ошибок этой позиции.
           </p>
           <div className="analysis-table-wrap">
             <table className="analysis-table">
@@ -1563,9 +1630,23 @@ export default function StrategyAnalysisPanel({
                   <tr
                     key={row.position}
                     className="clickable-row"
-                    onClick={() =>
-                      goErrors({ spotKey: "rfi", heroPosition: row.position })
-                    }
+                    title="Открыть реплей"
+                    onClick={() => {
+                      const filter: ErrorFilter = {
+                        spotKey: "rfi",
+                        heroPosition: row.position,
+                      };
+                      goErrors(filter);
+                      const list = (liveDevs?.deviations ?? []).filter((d) =>
+                        matchesFilter(d, filter, paintedTreeBranches),
+                      );
+                      if (list.length) {
+                        openHandsReplay(
+                          list.map((d) => d.hand_id),
+                          `RFI · ${row.position} · ${list.length}`,
+                        );
+                      }
+                    }}
                   >
                     <td>
                       <strong>{row.position}</strong>
@@ -1597,14 +1678,19 @@ export default function StrategyAnalysisPanel({
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Все ветки стратегии слева — клик переключает сравнение: стратегия, ошибки и
-            диапазон из раздач. Ситуации вне стратегии — ниже.
+            Слева только ветки, которые были во впипе сессии — счётчик ошибки/раздачи.
+            Сравнение: стратегия, ошибки и диапазон из раздач. Вне стратегии — ниже.
           </p>
 
-          {!paintedTreeBranches.length || scoreRows.length === 0 ? (
+          {!paintedTreeBranches.length ? (
             <p className="muted">
               В стратегии нет покрашенных веток — открой тренажёр, нарисуй чарты, затем
               вернись к отчёту.
+            </p>
+          ) : scoreRows.length === 0 ? (
+            <p className="muted">
+              Нет веток стратегии с раздачами в этой сессии — загрузи HH или выбери другую
+              базу.
             </p>
           ) : (
             <div className="preflop-errors-layout branches-compare-layout">
@@ -1631,6 +1717,7 @@ export default function StrategyAnalysisPanel({
                         paintedTreeBranches,
                       ),
                     ).length;
+                    const played = row.played || row.decisions || row.hands_count || 0;
                     return (
                       <li key={`${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`}>
                         <button
@@ -1644,16 +1731,9 @@ export default function StrategyAnalysisPanel({
                             </em>
                             <strong className="err-chart-matchup">{row.matchup}</strong>
                           </span>
-                          <em className="muted">
-                            {row.correct_pct != null
-                              ? `${row.correct_pct.toFixed(0)}%`
-                              : row.hands_count > 0
-                                ? `${row.hands_count} разд.`
-                                : "—"}
+                          <em className="err-count" title="ошибки / впипнутые раздачи">
+                            {errForRow}/{played}
                           </em>
-                          {errForRow > 0 ? (
-                            <em className="err-count">{errForRow}</em>
-                          ) : null}
                         </button>
                       </li>
                     );
@@ -1707,16 +1787,17 @@ export default function StrategyAnalysisPanel({
                             cells={strategyChart}
                             selected={selectedHand}
                             onSelectHand={(code) => {
-                              setSelectedHand(code);
-                              setErrorFilter((prev) => ({
-                                ...prev,
-                                spotKey: activeChart.spot_key,
-                                heroPosition: activeChart.hero_position,
-                                villainPosition: activeChart.villain_position,
-                                handCode: code,
-                                matchup: prev.matchup || focusMu,
-                                potKind: prev.potKind || focusPot,
-                              }));
+                              openComboReplay(
+                                code,
+                                {
+                                  spotKey: activeChart.spot_key,
+                                  heroPosition: activeChart.hero_position,
+                                  villainPosition: activeChart.villain_position,
+                                  matchup: focusMu,
+                                  potKind: focusPot,
+                                },
+                                activePlayedChart?.cells ?? activeChart.cells,
+                              );
                             }}
                           />
                         )}
@@ -1730,23 +1811,24 @@ export default function StrategyAnalysisPanel({
                           cells={activeChart.cells}
                           selectedHand={selectedHand}
                           onSelectHand={(code) => {
-                            setSelectedHand(code);
-                            setErrorFilter((prev) => ({
-                              ...prev,
-                              spotKey: activeChart.spot_key,
-                              heroPosition: activeChart.hero_position,
-                              villainPosition: activeChart.villain_position,
-                              handCode: code,
-                              matchup: prev.matchup || focusMu,
-                              potKind: prev.potKind || focusPot,
-                            }));
+                            openComboReplay(
+                              code,
+                              {
+                                spotKey: activeChart.spot_key,
+                                heroPosition: activeChart.hero_position,
+                                villainPosition: activeChart.villain_position,
+                                matchup: focusMu,
+                                potKind: focusPot,
+                              },
+                              activeChart.cells,
+                            );
                           }}
                         />
                       </div>
                       <div className="preflop-chart-pane preflop-chart-pane--played">
                         <header>
                           <strong>Из раздач</strong>
-                          <span>raise / call / fold · все решения</span>
+                          <span>raise / call / fold · клик = реплей</span>
                         </header>
                         <DeviationErrorMatrix
                           cells={activePlayedChart?.cells ?? []}
@@ -1754,21 +1836,22 @@ export default function StrategyAnalysisPanel({
                           countNoun="разд."
                           ariaLabel="Диапазон из раздач"
                           onSelectHand={(code) => {
-                            setSelectedHand(code);
-                            setErrorFilter((prev) => ({
-                              ...prev,
-                              spotKey:
-                                activePlayedChart?.spot_key || activeChart.spot_key,
-                              heroPosition:
-                                activePlayedChart?.hero_position ||
-                                activeChart.hero_position,
-                              villainPosition:
-                                activePlayedChart?.villain_position ??
-                                activeChart.villain_position,
-                              handCode: code,
-                              matchup: prev.matchup || focusMu,
-                              potKind: prev.potKind || focusPot,
-                            }));
+                            openComboReplay(
+                              code,
+                              {
+                                spotKey:
+                                  activePlayedChart?.spot_key || activeChart.spot_key,
+                                heroPosition:
+                                  activePlayedChart?.hero_position ||
+                                  activeChart.hero_position,
+                                villainPosition:
+                                  activePlayedChart?.villain_position ??
+                                  activeChart.villain_position,
+                                matchup: focusMu,
+                                potKind: focusPot,
+                              },
+                              activePlayedChart?.cells ?? [],
+                            );
                           }}
                         />
                       </div>
@@ -1786,7 +1869,7 @@ export default function StrategyAnalysisPanel({
                       </div>
                     ) : (
                       <p className="muted analysis-chart-hint">
-                        По этой ветке ошибок нет — все решения совпали с чартом.
+                        По этой ветке ошибок нет — клик по комбо в «Из раздач» откроет реплей.
                       </p>
                     )}
                   </>
@@ -1874,35 +1957,42 @@ export default function StrategyAnalysisPanel({
     const chartRows =
       branchScoreRows.length > 0
         ? branchScoreRows
-        : (liveDevs.chart_errors ?? []).map((c) => {
-            const mu =
-              c.label ||
-              analysisMatchup(
-                c.spot_key,
-                c.hero_position,
-                c.villain_position,
-                c.label,
+        : (liveDevs.chart_plays ?? liveDevs.chart_errors ?? [])
+            .map((c) => {
+              const mu =
+                c.label ||
+                analysisMatchup(
+                  c.spot_key,
+                  c.hero_position,
+                  c.villain_position,
+                  c.label,
+                );
+              const potKind = (c.pot_kind || spotPotKind(c.spot_key)) as BranchPotKind;
+              const played = (c.cells ?? []).reduce(
+                (s, cell) => s + (cell.errors ?? 0),
+                0,
               );
-            const potKind = (c.pot_kind || spotPotKind(c.spot_key)) as BranchPotKind;
-            return {
-              spot_key: c.spot_key,
-              hero_position: c.hero_position,
-              villain_position: c.villain_position,
-              matchup: mu,
-              pot_kind: potKind,
-              pot_tag: potKindTag(potKind),
-              hands_count: 0,
-              decisions: 0,
-              correct_pct: null as number | null,
-            };
-          });
+              return {
+                spot_key: c.spot_key,
+                hero_position: c.hero_position,
+                villain_position: c.villain_position,
+                matchup: mu,
+                pot_kind: potKind,
+                pot_tag: potKindTag(potKind),
+                hands_count: played,
+                decisions: played,
+                played,
+                correct_pct: null as number | null,
+              };
+            })
+            .filter((r) => r.played > 0);
 
     return (
       <>
         <div className="preflop-errors-toolbar">
           <p className="muted analysis-chart-hint">
-            Список веток слева всегда виден — переключайся и сравнивай диапазон стратегии с
-            ошибками.
+            Слева только впипнутые ветки — счётчик ошибки/раздачи. Кликай и сравнивай
+            стратегию с ошибками.
           </p>
           <div className="preflop-errors-actions">
             {filteredDevs.length > 0 ? (
@@ -1956,6 +2046,11 @@ export default function StrategyAnalysisPanel({
                       paintedTreeBranches,
                     ),
                   ).length;
+                  const played =
+                    ("played" in row ? Number(row.played) : 0) ||
+                    row.decisions ||
+                    row.hands_count ||
+                    0;
                   return (
                     <li key={`${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`}>
                       <button
@@ -1969,9 +2064,9 @@ export default function StrategyAnalysisPanel({
                           </em>
                           <strong className="err-chart-matchup">{row.matchup}</strong>
                         </span>
-                        {errCount > 0 ? (
-                          <em className="err-count">{errCount}</em>
-                        ) : null}
+                        <em className="err-count" title="ошибки / впипнутые раздачи">
+                          {errCount}/{played}
+                        </em>
                       </button>
                     </li>
                   );
@@ -2023,27 +2118,30 @@ export default function StrategyAnalysisPanel({
                         cells={strategyChart}
                         selected={selectedHand}
                         onSelectHand={(code) => {
-                          setSelectedHand(code);
-                          setErrorFilter((prev) => ({
-                            ...prev,
-                            spotKey: activeChart.spot_key,
-                            heroPosition: activeChart.hero_position,
-                            villainPosition: activeChart.villain_position,
-                            handCode: code,
-                            matchup:
-                              prev.matchup ||
-                              activeChart.label ||
-                              analysisMatchup(
-                                activeChart.spot_key,
-                                activeChart.hero_position,
-                                activeChart.villain_position,
-                                activeChart.label,
-                              ),
-                            potKind:
-                              prev.potKind ||
-                              activeChart.pot_kind ||
-                              spotPotKind(activeChart.spot_key),
-                          }));
+                          const mu =
+                            errorFilter.matchup ||
+                            activeChart.label ||
+                            analysisMatchup(
+                              activeChart.spot_key,
+                              activeChart.hero_position,
+                              activeChart.villain_position,
+                              activeChart.label,
+                            );
+                          const pot =
+                            errorFilter.potKind ||
+                            activeChart.pot_kind ||
+                            spotPotKind(activeChart.spot_key);
+                          openComboReplay(
+                            code,
+                            {
+                              spotKey: activeChart.spot_key,
+                              heroPosition: activeChart.hero_position,
+                              villainPosition: activeChart.villain_position,
+                              matchup: mu,
+                              potKind: pot,
+                            },
+                            activePlayedChart?.cells ?? activeChart.cells,
+                          );
                         }}
                       />
                     )}
@@ -2051,40 +2149,43 @@ export default function StrategyAnalysisPanel({
                   <div className="preflop-chart-pane">
                     <header>
                       <strong>Ошибки</strong>
-                      <span>raise / call / fold · счётчик</span>
+                      <span>raise / call / fold · клик = реплей</span>
                     </header>
                     <DeviationErrorMatrix
                       cells={activeChart.cells}
                       selectedHand={selectedHand}
                       onSelectHand={(code) => {
-                        setSelectedHand(code);
-                        setErrorFilter((prev) => ({
-                          ...prev,
-                          spotKey: activeChart.spot_key,
-                          heroPosition: activeChart.hero_position,
-                          villainPosition: activeChart.villain_position,
-                          handCode: code,
-                          matchup:
-                            prev.matchup ||
-                            activeChart.label ||
-                            analysisMatchup(
-                              activeChart.spot_key,
-                              activeChart.hero_position,
-                              activeChart.villain_position,
-                              activeChart.label,
-                            ),
-                          potKind:
-                            prev.potKind ||
-                            activeChart.pot_kind ||
-                            spotPotKind(activeChart.spot_key),
-                        }));
+                        const mu =
+                          errorFilter.matchup ||
+                          activeChart.label ||
+                          analysisMatchup(
+                            activeChart.spot_key,
+                            activeChart.hero_position,
+                            activeChart.villain_position,
+                            activeChart.label,
+                          );
+                        const pot =
+                          errorFilter.potKind ||
+                          activeChart.pot_kind ||
+                          spotPotKind(activeChart.spot_key);
+                        openComboReplay(
+                          code,
+                          {
+                            spotKey: activeChart.spot_key,
+                            heroPosition: activeChart.hero_position,
+                            villainPosition: activeChart.villain_position,
+                            matchup: mu,
+                            potKind: pot,
+                          },
+                          activeChart.cells,
+                        );
                       }}
                     />
                   </div>
                   <div className="preflop-chart-pane preflop-chart-pane--played">
                     <header>
                       <strong>Из раздач</strong>
-                      <span>raise / call / fold · все решения</span>
+                      <span>raise / call / fold · клик = реплей</span>
                     </header>
                     <DeviationErrorMatrix
                       cells={activePlayedChart?.cells ?? []}
@@ -2092,34 +2193,37 @@ export default function StrategyAnalysisPanel({
                       countNoun="разд."
                       ariaLabel="Диапазон из раздач"
                       onSelectHand={(code) => {
-                        setSelectedHand(code);
-                        setErrorFilter((prev) => ({
-                          ...prev,
-                          spotKey:
-                            activePlayedChart?.spot_key || activeChart.spot_key,
-                          heroPosition:
-                            activePlayedChart?.hero_position ||
+                        const mu =
+                          errorFilter.matchup ||
+                          activePlayedChart?.label ||
+                          activeChart.label ||
+                          analysisMatchup(
+                            activeChart.spot_key,
                             activeChart.hero_position,
-                          villainPosition:
-                            activePlayedChart?.villain_position ??
                             activeChart.villain_position,
-                          handCode: code,
-                          matchup:
-                            prev.matchup ||
-                            activePlayedChart?.label ||
-                            activeChart.label ||
-                            analysisMatchup(
-                              activeChart.spot_key,
+                            activeChart.label,
+                          );
+                        const pot =
+                          errorFilter.potKind ||
+                          activePlayedChart?.pot_kind ||
+                          activeChart.pot_kind ||
+                          spotPotKind(activeChart.spot_key);
+                        openComboReplay(
+                          code,
+                          {
+                            spotKey:
+                              activePlayedChart?.spot_key || activeChart.spot_key,
+                            heroPosition:
+                              activePlayedChart?.hero_position ||
                               activeChart.hero_position,
+                            villainPosition:
+                              activePlayedChart?.villain_position ??
                               activeChart.villain_position,
-                              activeChart.label,
-                            ),
-                          potKind:
-                            prev.potKind ||
-                            activePlayedChart?.pot_kind ||
-                            activeChart.pot_kind ||
-                            spotPotKind(activeChart.spot_key),
-                        }));
+                            matchup: mu,
+                            potKind: pot,
+                          },
+                          activePlayedChart?.cells ?? [],
+                        );
                       }}
                     />
                   </div>
@@ -2345,6 +2449,9 @@ export default function StrategyAnalysisPanel({
           {data.by_position.length > 0 && (
             <section className="analysis-block">
               <h2>По позициям</h2>
+              <p className="muted analysis-chart-hint">
+                Клик по строке — реплей VPIP-раздач с этой позиции.
+              </p>
               <div className="analysis-table-wrap">
                 <table className="analysis-table">
                   <thead>
@@ -2360,7 +2467,29 @@ export default function StrategyAnalysisPanel({
                   </thead>
                   <tbody>
                     {data.by_position.map((row) => (
-                      <tr key={row.position}>
+                      <tr
+                        key={row.position}
+                        className="clickable-row"
+                        title="Открыть реплей"
+                        onClick={() => {
+                          void (async () => {
+                            const hands = await listHandsForStrategy(strategyId);
+                            const pos = normalizeChartPos(row.position);
+                            const ids = hands
+                              .filter((h) => {
+                                if (normalizeChartPos(h.hero_position || "") !== pos) {
+                                  return false;
+                                }
+                                return Boolean(h.flags?.vpip || h.vpip);
+                              })
+                              .map((h) => h.key);
+                            openHandsReplay(
+                              ids,
+                              `VPIP · ${row.position} · ${ids.length}`,
+                            );
+                          })();
+                        }}
+                      >
                         <td>{row.position}</td>
                         <td>{row.hands}</td>
                         <td>{fmtStat(row.vpip, "pct")}</td>

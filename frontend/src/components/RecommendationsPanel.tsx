@@ -69,13 +69,32 @@ function HandCard({
   onOpen: (handId: string) => void;
 }) {
   return (
-    <li className="rec-card">
+    <li
+      className="rec-card clickable-row"
+      role="button"
+      tabIndex={0}
+      title="Открыть реплей"
+      onClick={() => onOpen(item.hand_id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(item.hand_id);
+        }
+      }}
+    >
       <div className="rec-card-top">
         <div className="rec-card-title">
           <strong>{item.title}</strong>
           <span className="rec-card-id">#{item.external_hand_id}</span>
         </div>
-        <button type="button" className="rec-open-btn" onClick={() => onOpen(item.hand_id)}>
+        <button
+          type="button"
+          className="rec-open-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(item.hand_id);
+          }}
+        >
           Открыть раздачу
         </button>
       </div>

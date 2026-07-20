@@ -667,6 +667,7 @@ async function buildDeviations(
     fold: number;
     actual: string;
     expected: string;
+    handIds: string[];
   };
   const chartMap = new Map<string, Map<string, ChartCellAgg>>();
   /** All scored decisions (errors + correct) for «из раздач» matrix. */
@@ -798,13 +799,22 @@ async function buildDeviations(
       }
       let played = pmap.get(h.hero_hand_code);
       if (!played) {
-        played = { errors: 0, raise: 0, call: 0, fold: 0, actual, expected };
+        played = {
+          errors: 0,
+          raise: 0,
+          call: 0,
+          fold: 0,
+          actual,
+          expected,
+          handIds: [],
+        };
         pmap.set(h.hero_hand_code, played);
       }
       played.errors += 1;
       if (actual === "raise" || actual === "call" || actual === "fold") played[actual] += 1;
       played.actual = actual;
       played.expected = expected;
+      if (h.key && !played.handIds.includes(h.key)) played.handIds.push(h.key);
 
       if (!deviant) continue;
 
@@ -816,13 +826,22 @@ async function buildDeviations(
       }
       let err = cmap.get(h.hero_hand_code);
       if (!err) {
-        err = { errors: 0, raise: 0, call: 0, fold: 0, actual, expected };
+        err = {
+          errors: 0,
+          raise: 0,
+          call: 0,
+          fold: 0,
+          actual,
+          expected,
+          handIds: [],
+        };
         cmap.set(h.hero_hand_code, err);
       }
       err.errors += 1;
       if (actual === "raise" || actual === "call" || actual === "fold") err[actual] += 1;
       err.actual = actual;
       err.expected = expected;
+      if (h.key && !err.handIds.includes(h.key)) err.handIds.push(h.key);
 
       const freqs: Record<string, number> = { raise: raiseF, call: callF, fold: foldF };
       const actualFreq = freqs[actual] ?? 0;
@@ -949,6 +968,7 @@ async function buildDeviations(
           raise_count: e.raise,
           call_count: e.call,
           fold_count: e.fold,
+          hand_ids: e.handIds,
           actual_action: e.actual,
           expected_action: e.expected,
         })),

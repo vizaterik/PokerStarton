@@ -271,13 +271,20 @@ function mergeErrorCells(charts: ChartErrorSpot[]): ChartErrorCell[] {
     for (const cell of c.cells) {
       const prev = map.get(cell.hand_code);
       if (!prev) {
-        map.set(cell.hand_code, { ...cell });
+        map.set(cell.hand_code, {
+          ...cell,
+          hand_ids: cell.hand_ids ? [...cell.hand_ids] : undefined,
+        });
         continue;
       }
       prev.errors += cell.errors;
       prev.raise_count = (prev.raise_count ?? 0) + (cell.raise_count ?? 0);
       prev.call_count = (prev.call_count ?? 0) + (cell.call_count ?? 0);
       prev.fold_count = (prev.fold_count ?? 0) + (cell.fold_count ?? 0);
+      if (cell.hand_ids?.length) {
+        const ids = new Set([...(prev.hand_ids ?? []), ...cell.hand_ids]);
+        prev.hand_ids = [...ids];
+      }
     }
   }
   return [...map.values()].sort((a, b) => b.errors - a.errors);
