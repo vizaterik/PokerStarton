@@ -1768,26 +1768,17 @@ export function getAdminOverview() {
   return request<AdminOverview>("/api/admin/overview");
 }
 
-export type TopAuthor = {
-  display_name: string;
-  path: string;
-  likes_count: number;
-  views_count: number;
-  comments_count: number;
-  shares_count: number;
-  rating: number;
-};
-
-export type PublicProfileHand = {
+export type TopHand = {
   token: string;
   path: string;
   likes_count: number;
-  views_count: number;
   comments_count: number;
-  hero_hand: string | null;
-  hero_position: string | null;
-  played_at: string | null;
-  stakes_label: string | null;
+  views_count: number;
+  author_display_name: string;
+  author_path: string;
+  hero_cards: string[];
+  pot_tag: string | null;
+  matchup: string | null;
 };
 
 export type PublicProfile = {
@@ -1795,15 +1786,11 @@ export type PublicProfile = {
   registered_at: string | null;
   rating: number;
   likes_received: number;
-  views_count: number;
-  comments_count: number;
-  shares_count: number;
-  top_hands: PublicProfileHand[];
 };
 
-export function listTopAuthors(limit = 5) {
+export function listTopHands(limit = 5) {
   const q = new URLSearchParams({ limit: String(limit) });
-  return request<{ items: TopAuthor[]; total: number }>(`/api/feed/top?${q}`);
+  return request<{ items: TopHand[]; total: number }>(`/api/feed/top?${q}`);
 }
 
 export function getPublicProfile(displayName: string) {

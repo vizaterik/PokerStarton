@@ -2,19 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.feed import PublicProfileRead, TopAuthorsResponse
+from app.schemas.feed import PublicProfileRead, TopHandsResponse
 from app.services import feed_top as feed_top_svc
 
 router = APIRouter(tags=["feed"])
 
 
-@router.get("/feed/top", response_model=TopAuthorsResponse)
-def list_top_authors(
+@router.get("/feed/top", response_model=TopHandsResponse)
+def list_top_hands(
     limit: int = Query(default=5, ge=1, le=20),
     db: Session = Depends(get_db),
-) -> TopAuthorsResponse:
-    """Public hits: top authors by likes on shared hands."""
-    return feed_top_svc.list_top_authors(db, limit=limit)
+) -> TopHandsResponse:
+    """Public hits: one most-liked hand per author."""
+    return feed_top_svc.list_top_hands(db, limit=limit)
 
 
 @router.get("/public/users/{display_name}", response_model=PublicProfileRead)

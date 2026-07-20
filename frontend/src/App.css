@@ -15739,9 +15739,110 @@ button,
   margin: 0 0 0.45rem;
 }
 
-.public-profile-sub {
-  margin: 1.5rem 0 0.75rem;
-  font-size: 1.05rem;
+.public-profile-stats {
+  display: grid;
+  gap: 0.65rem;
+  max-width: 22rem;
+  margin-top: 0.85rem;
+}
+
+.public-profile-stats > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+}
+
+.public-profile-stat-label {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.hits-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+  max-width: 40rem;
+}
+
+.hits-card {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.hits-hand-link {
+  display: grid;
+  gap: 0.45rem;
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+}
+
+.hits-hand-link:hover .hits-tag {
+  border-color: rgba(110, 231, 183, 0.45);
+}
+
+.hits-cards {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.hits-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.hits-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(232, 234, 239, 0.88);
+}
+
+.hits-tag.pot {
+  color: #fcd34d;
+}
+
+.hits-tag.matchup {
+  color: #6ee7b7;
+}
+
+.hits-side {
+  display: grid;
+  gap: 0.4rem;
+  justify-items: end;
+  align-content: center;
+}
+
+.hits-engagement {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: end;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: rgba(232, 234, 239, 0.75);
+}
+
+.hits-likes {
+  color: #fca5a5;
+  font-weight: 800;
 }
 
 .feed-back {

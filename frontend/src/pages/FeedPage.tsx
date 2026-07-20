@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listTopAuthors, type TopAuthor } from "../api/client";
+import { listTopHands, type TopHand } from "../api/client";
+import PlayingCard from "../components/PlayingCard";
 
 export default function FeedPage() {
-  const [items, setItems] = useState<TopAuthor[]>([]);
+  const [items, setItems] = useState<TopHand[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void listTopAuthors(5)
+    void listTopHands(5)
       .then((res) => {
         if (!cancelled) setItems(res.items);
       })
@@ -32,7 +33,7 @@ export default function FeedPage() {
       <header className="feed-page-head">
         <div>
           <h1>Хиты</h1>
-          <p className="lead">Топ‑5 авторов по лайкам на публичных раздачах.</p>
+          <p className="lead">Лучшие раздачи по лайкам.</p>
         </div>
       </header>
 
@@ -40,26 +41,39 @@ export default function FeedPage() {
       {error ? <p className="error">{error}</p> : null}
 
       {!loading && !error && items.length === 0 ? (
-        <p className="muted">Пока нет авторов с лайками.</p>
+        <p className="muted">Пока нет раздач с лайками.</p>
       ) : null}
 
-      <ol className="feed-top-list">
-        {items.map((p, i) => (
-          <li key={p.path}>
+      <ol className="hits-list">
+        {items.map((h, i) => (
+          <li key={h.token} className="hits-card">
             <span className="feed-top-rank">{i + 1}</span>
-            <div className="feed-top-body">
-              <Link to={p.path} className="feed-top-link">
-                {p.display_name}
+            <Link to={h.path} className="hits-hand-link" title="Открыть раздачу">
+              <span className="hits-cards">
+                {h.hero_cards.length >= 2 ? (
+                  <>
+                    <PlayingCard code={h.hero_cards[0]} size="md" />
+                    <PlayingCard code={h.hero_cards[1]} size="md" />
+                  </>
+                ) : (
+                  <span className="muted">?? ??</span>
+                )}
+              </span>
+              <span className="hits-tags">
+                {h.pot_tag ? <span className="hits-tag pot">{h.pot_tag}</span> : null}
+                {h.matchup ? <span className="hits-tag matchup">{h.matchup}</span> : null}
+              </span>
+            </Link>
+            <div className="hits-side">
+              <Link to={h.author_path} className="feed-author-link" title="Профиль">
+                {h.author_display_name}
               </Link>
-              <div className="feed-meta">
-                <span>рейтинг {p.rating}</span>
-                <span>{p.shares_count} раздач</span>
+              <div className="hits-engagement">
+                <span title="Комментарии">{h.comments_count} комм.</span>
+                <span className="hits-likes" title="Лайки">
+                  ♥ {h.likes_count}
+                </span>
               </div>
-            </div>
-            <div className="feed-top-stats">
-              <span title="Просмотры раздач">{p.views_count} просм.</span>
-              <span title="Комментарии">{p.comments_count} комм.</span>
-              <span title="Лайки">♥ {p.likes_count}</span>
             </div>
           </li>
         ))}
