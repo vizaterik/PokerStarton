@@ -159,7 +159,8 @@ export default function ProfilePage() {
                   </strong>
                   {stats ? (
                     <span className="muted" style={{ fontSize: "0.82rem" }}>
-                      ♥ {stats.likes_received} · {stats.shares_count} шаров
+                      {stats.likes_received} лайков · {stats.shares_count} раздач
+                      опубликовано
                     </span>
                   ) : null}
                 </div>
