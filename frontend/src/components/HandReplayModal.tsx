@@ -124,6 +124,8 @@ export default function HandReplayModal({
   const [loading, setLoading] = useState(false);
   const [handIdx, setHandIdx] = useState(0);
   const [actionIdx, setActionIdx] = useState(-1);
+  /** true = show whose turn; false = show what they just did */
+  const [pendingTurn, setPendingTurn] = useState(true);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "fail">("idle");
   const [shareState, setShareState] = useState<"idle" | "loading" | "ok" | "fail">("idle");
   const [shareError, setShareError] = useState<string | null>(null);
@@ -155,6 +157,7 @@ export default function HandReplayModal({
     setError(null);
     setData(null);
     setActionIdx(-1);
+    setPendingTurn(true);
     setCopyState("idle");
     setShareState("idle");
     setShareError(null);
@@ -243,46 +246,99 @@ export default function HandReplayModal({
 
   useEffect(() => {
     if (!onStreetProgress) return;
+    const peekStreet =
+      hand && pendingTurn && hand.actions[actionIdx + 1]
+        ? ((hand.actions[actionIdx + 1].street || "preflop").toLowerCase() as
+            | "preflop"
+            | "flop"
+            | "turn"
+            | "river")
+        : streetAtAction(hand, actionIdx);
+    const played = streetsPlayedInHand(hand);
+    const unlockIdx =
+      hand && pendingTurn && actionIdx + 1 < hand.actions.length
+        ? actionIdx + 1
+        : actionIdx;
+    const unlocked = unlockedCommentStreets(hand, unlockIdx);
+    const unlockedSet = new Set(unlocked);
+    if (
+      (peekStreet === "preflop" ||
+        peekStreet === "flop" ||
+        peekStreet === "turn" ||
+        peekStreet === "river") &&
+      played.includes(peekStreet)
+    ) {
+      unlockedSet.add(peekStreet);
+    }
     onStreetProgress({
-      currentStreet: streetAtAction(hand, actionIdx),
-      playedStreets: streetsPlayedInHand(hand),
-      unlockedStreets: unlockedCommentStreets(hand, actionIdx),
+      currentStreet: peekStreet,
+      playedStreets: played,
+      unlockedStreets: played.filter((s) => unlockedSet.has(s)),
     });
-  }, [hand, actionIdx, onStreetProgress]);
+  }, [hand, actionIdx, pendingTurn, onStreetProgress]);
 
-  const canNextStep = hand != null && actionIdx < maxAction;
-  const canPrevStep = hand != null && actionIdx > -1;
+  const microTotal = Math.max(0, (maxAction + 1) * 2);
+  const microStep = pendingTurn
+    ? Math.max(0, (actionIdx + 1) * 2)
+    : Math.max(0, (actionIdx + 1) * 2 - 1);
+
+  const canNextStep =
+    hand != null &&
+    maxAction >= 0 &&
+    (pendingTurn ? actionIdx < maxAction : actionIdx < maxAction);
+  const canPrevStep = hand != null && !(actionIdx < 0 && pendingTurn);
   const canPrevHand = !singleHand && handIdx > 0;
   const canNextHand = !singleHand && data != null && handIdx < data.hands.length - 1;
 
   const goNextStep = useCallback(() => {
-    if (!hand) return;
-    if (actionIdx < maxAction) setActionIdx((i) => i + 1);
-  }, [actionIdx, hand, maxAction]);
+    if (!hand || maxAction < 0) return;
+    if (pendingTurn) {
+      if (actionIdx < maxAction) {
+        setActionIdx((i) => i + 1);
+        setPendingTurn(false);
+      }
+      return;
+    }
+    if (actionIdx < maxAction) {
+      setPendingTurn(true);
+    }
+  }, [actionIdx, hand, maxAction, pendingTurn]);
 
   const goPrevStep = useCallback(() => {
     if (!hand) return;
-    if (actionIdx > -1) setActionIdx((i) => i - 1);
-  }, [actionIdx, hand]);
+    if (pendingTurn) {
+      if (actionIdx >= 0) setPendingTurn(false);
+      return;
+    }
+    // Showing revealed action at actionIdx → back to that player's turn
+    setActionIdx((i) => i - 1);
+    setPendingTurn(true);
+  }, [hand, pendingTurn, actionIdx]);
 
   const goStart = useCallback(() => {
     setActionIdx(-1);
+    setPendingTurn(true);
   }, []);
 
   const goEnd = useCallback(() => {
-    if (maxAction >= 0) setActionIdx(maxAction);
+    if (maxAction >= 0) {
+      setActionIdx(maxAction);
+      setPendingTurn(false);
+    }
   }, [maxAction]);
 
   const goPrevHand = useCallback(() => {
     if (!canPrevHand) return;
     setHandIdx((i) => i - 1);
     setActionIdx(-1);
+    setPendingTurn(true);
   }, [canPrevHand]);
 
   const goNextHand = useCallback(() => {
     if (!canNextHand) return;
     setHandIdx((i) => i + 1);
     setActionIdx(-1);
+    setPendingTurn(true);
   }, [canNextHand]);
 
   const jumpToHand = useCallback(
@@ -291,12 +347,14 @@ export default function HandReplayModal({
       const next = Math.max(0, Math.min(data.hands.length - 1, index));
       setHandIdx(next);
       setActionIdx(-1);
+      setPendingTurn(true);
     },
     [data, singleHand],
   );
 
   useEffect(() => {
     setActionIdx(-1);
+    setPendingTurn(true);
     setCopyState("idle");
     setShareUrl(null);
     setShareError(null);
@@ -407,7 +465,7 @@ export default function HandReplayModal({
   if (!open) return null;
 
   const progress =
-    maxAction < 0 ? 0 : Math.min(100, ((actionIdx + 1) / (maxAction + 1)) * 100);
+    microTotal <= 0 ? 0 : Math.min(100, ((microStep + 1) / microTotal) * 100);
 
   const shell = (
       <div
@@ -488,14 +546,19 @@ export default function HandReplayModal({
           <>
             <div className="pr-main">
               <div className="pr-stage">
-                <PokerTable hand={hand} actionIndex={actionIdx} amountUnit={amountUnit} />
+                <PokerTable
+                  hand={hand}
+                  actionIndex={actionIdx}
+                  pendingTurn={pendingTurn}
+                  amountUnit={amountUnit}
+                />
               </div>
 
               <aside className="pr-log" aria-label="Action history">
                 <div className="pr-log-head">
                   <span>Action Log</span>
                   <em>
-                    {Math.max(0, actionIdx + 1)}/{Math.max(0, maxAction + 1)}
+                    {microTotal ? microStep + 1 : 0}/{microTotal || 0}
                   </em>
                 </div>
                 <ol className="pr-log-list" ref={logListRef}>
@@ -599,7 +662,9 @@ export default function HandReplayModal({
                 <button
                   type="button"
                   className="pr-media-btn"
-                  disabled={maxAction < 0 || actionIdx >= maxAction}
+                  disabled={
+                    maxAction < 0 || (actionIdx >= maxAction && !pendingTurn)
+                  }
                   onClick={goEnd}
                   title="В конец раздачи"
                   aria-label="В конец раздачи"
@@ -644,7 +709,8 @@ export default function HandReplayModal({
                   </>
                 )}
                 <span className="pr-controls-step">
-                  Шаг {Math.max(0, actionIdx + 1)}/{Math.max(0, maxAction + 1)}
+                  Шаг {microTotal ? microStep + 1 : 0}/{microTotal || 0}
+                  {pendingTurn ? " · ход" : " · действие"}
                 </span>
               </div>
 

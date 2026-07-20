@@ -7,6 +7,11 @@ export type AmountUnit = "money" | "bb";
 type Props = {
   hand: ReplayHand;
   actionIndex: number;
+  /**
+   * When true: highlight who acts next (action not revealed yet).
+   * When false: show the last revealed action badge (no next-turn ring).
+   */
+  pendingTurn?: boolean;
   amountUnit?: AmountUnit;
   /** Cap displayed seat stacks at this many BB (e.g. 100 for cash trainer). */
   maxStackBb?: number | null;
@@ -280,21 +285,32 @@ function streetBetsAndPot(hand: ReplayHand, actionIndex: number) {
 export default function PokerTable({
   hand,
   actionIndex,
+  pendingTurn = false,
   amountUnit = "money",
   maxStackBb = null,
 }: Props) {
   const layout = useMemo(() => seatLayout(hand.seats), [hand.seats]);
-  const atEnd = isAtHandEnd(hand, actionIndex);
-  const board = boardForStep(hand, actionIndex);
+  const atEnd = isAtHandEnd(hand, actionIndex) && !pendingTurn;
   const holes = useMemo(() => holeCards(hand), [hand]);
   const shown = useMemo(() => parseShownCards(hand.raw_text || ""), [hand.raw_text]);
-  // actionIndex = last applied action; turn belongs to the next player.
+  // actionIndex = last revealed action; pendingTurn → highlight next actor first.
   const last = actionIndex >= 0 ? hand.actions[actionIndex] : null;
   const next =
     actionIndex + 1 >= 0 && actionIndex + 1 < hand.actions.length
       ? hand.actions[actionIndex + 1]
       : null;
-  const toActKey = next ? next.player_name.toLowerCase() : null;
+  const board = (() => {
+    if (pendingTurn && next) {
+      const st = (next.street || "preflop").toLowerCase();
+      if (st === "preflop") return [] as string[];
+      if (st === "flop") return hand.board.slice(0, 3);
+      if (st === "turn") return hand.board.slice(0, 4);
+      return hand.board.slice(0, 5);
+    }
+    return boardForStep(hand, actionIndex);
+  })();
+  const toActKey =
+    pendingTurn && next && !atEnd ? next.player_name.toLowerCase() : null;
   const bb = hand.big_blind;
   const unit: AmountUnit =
     amountUnit === "bb" && bb != null && bb > 0 ? "bb" : "money";
@@ -312,7 +328,9 @@ export default function PokerTable({
     }
   }
 
-  const streetLabel = atEnd ? "showdown" : street;
+  const streetForLabel =
+    pendingTurn && next ? (next.street || street) : street;
+  const streetLabel = atEnd ? "showdown" : streetForLabel;
 
   const seatCount = layout.length;
 
@@ -370,17 +388,21 @@ export default function PokerTable({
           const isFolded = folded.has(key);
           const isActor = !atEnd && toActKey != null && toActKey === key;
           const justActed =
-            !atEnd && last != null && last.player_name.toLowerCase() === key;
+            !pendingTurn &&
+            last != null &&
+            last.player_name.toLowerCase() === key;
           const isHero = seat.is_hero;
           const isPlaceholder = /^seat\s+\d+$/i.test(seat.name);
           const shownCards = atEnd && !isFolded ? shown.get(key) : undefined;
           const badge = justActed
             ? actionBadge(last, unit, bb)
-            : shownCards
-              ? { text: "SHOW", kind: "bet" as const }
-              : null;
+            : isFolded
+              ? { text: "FOLD", kind: "fold" as const }
+              : shownCards
+                ? { text: "SHOW", kind: "show" as const }
+                : null;
           const revealed: [string, string] | undefined =
-            isHero && holes.length === 2
+            isHero && holes.length === 2 && !isFolded
               ? [holes[0], holes[1]]
               : shownCards;
           const cardSize = isHero ? "md" : "sm";
