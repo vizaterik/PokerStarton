@@ -1,7 +1,6 @@
 /**
  * Whether a session spot is already covered by strategy charts or tree branches.
- * Matchup is directional for roles, but tree labels (raiser vs caller) are often
- * the reverse of session labels (hero vs villain) for the same line.
+ * Matchup is directional: `SBvsBB` (SB aggressor, BB acts) ≠ `BBvsSB`.
  */
 import type { ChartErrorCell, ChartErrorSpot } from "../api/client";
 import type { StrategySpot } from "../api/client";
@@ -45,13 +44,6 @@ export function potLookupKinds(pot: string): string[] {
   return [p];
 }
 
-function reverseMatchup(label: string): string | null {
-  const n = normalizeMatchupTag(label);
-  const m = n.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
-  if (!m) return null;
-  return `${m[2]}vs${m[1]}`;
-}
-
 /** Pot+matchup key as shown in the constructor (`srp|UTGvsBB`). */
 export function constructorTagKey(
   potKind: BranchPotKind | SpotPotKind,
@@ -93,7 +85,6 @@ export function coveredByConstructorTags(
     ),
   );
   if (!wantMu || wantMu === "—") return false;
-  const wantRev = reverseMatchup(wantMu);
   const wantPot = spotPotKind(spot.spot_key);
   const isOpen = !wantMu.includes("vs");
 
@@ -102,14 +93,13 @@ export function coveredByConstructorTags(
     constructorMus.add(normalizeMatchupTag(b.label));
   }
 
-  // 1) Exact / reversed matchup present in constructor (any pot).
+  // 1) Exact matchup present in constructor (any pot).
   if (constructorMus.has(wantMu)) return true;
-  if (wantRev && constructorMus.has(wantRev)) return true;
 
   // 2) Open seat covered by facing line with that opener (`UTG` ← `UTGvsBB`).
   if (isOpen) {
     for (const mu of constructorMus) {
-      if (mu === wantMu || mu.startsWith(`${wantMu}vs`) || mu.endsWith(`vs${wantMu}`)) {
+      if (mu === wantMu || mu.startsWith(`${wantMu}vs`)) {
         return true;
       }
     }
@@ -121,16 +111,14 @@ export function coveredByConstructorTags(
     if (raiser && constructorMus.has(raiser)) return true;
   }
 
-  // 4) Per-branch: single-seat tip (`BB`) covers `BBvsUTG`; pot soft-match.
+  // 4) Per-branch: single-seat tip (`BB`) covers open `BB`; pot soft-match.
   for (const b of branches) {
     const haveMu = normalizeMatchupTag(b.label);
-    if (haveMu === wantMu || (wantRev && haveMu === wantRev)) return true;
+    if (haveMu === wantMu) return true;
     if (!haveMu.includes("vs") && wantMu.startsWith(`${haveMu}vs`)) return true;
     if (
       isOpen &&
-      (haveMu === wantMu ||
-        haveMu.startsWith(`${wantMu}vs`) ||
-        haveMu.endsWith(`vs${wantMu}`)) &&
+      (haveMu === wantMu || haveMu.startsWith(`${wantMu}vs`)) &&
       (b.potKind === wantPot || b.potKind === "srp" || wantPot === "srp")
     ) {
       return true;
@@ -173,7 +161,6 @@ function potsForSpot(spotKey: string, strictPot?: boolean): BranchPotKind[] {
  * Chart covers this session spot when:
  * - exact (spot, hero, villain), or
  * - generic (spot, hero, null) — same hero action chart (BBvsCO covered by vs_3bet BB).
- * Opposite hero (SBvsBB) is NOT covered by BBvsSB chart.
  */
 export function spotCoveredByCharts(spot: SpotLike, charts: StrategySpot[]): boolean {
   const key = spot.spot_key.trim().toLowerCase();
@@ -205,8 +192,8 @@ export type BranchCoverOpts = {
 };
 
 /**
- * Tree branch covers session spot when pot tag matches and matchup is the same
- * pair of seats: session `HvsV` matches tree `HvsV` or `VvsH` (raiser vs caller).
+ * Tree branch covers session spot when pot tag matches and matchup is exact
+ * (`SBvsBB` ≠ `BBvsSB` — who aggressed vs who acts).
  */
 export function spotCoveredByBranches(
   spot: SpotLike,
@@ -219,9 +206,8 @@ export function spotCoveredByBranches(
   const villain = spot.villain_position
     ? normalizeChartPos(spot.villain_position)
     : null;
-  // Same orientation as constructor tags: raiser vs caller (`UTGvsBB`).
+  // Same orientation as constructor tags: aggressor vs actor (`UTGvsBB`).
   const sessionMu = normalizeMatchupTag(treeMatchupLabel(key, hero, villain));
-  const sessionRev = reverseMatchup(sessionMu);
   const strictOpen = opts?.strictOpen === true;
 
   for (const b of branches) {
@@ -231,16 +217,13 @@ export function spotCoveredByBranches(
     if (!villain) {
       // RFI/ISO: exact open seat, optionally any line with that opener.
       if (treeMu === hero) return true;
-      if (
-        !strictOpen &&
-        (treeMu.startsWith(`${hero}vs`) || treeMu.endsWith(`vs${hero}`))
-      ) {
+      if (!strictOpen && treeMu.startsWith(`${hero}vs`)) {
         return true;
       }
       continue;
     }
 
-    if (treeMu === sessionMu || (sessionRev && treeMu === sessionRev)) {
+    if (treeMu === sessionMu) {
       return true;
     }
   }

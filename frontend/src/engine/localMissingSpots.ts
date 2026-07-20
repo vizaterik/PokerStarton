@@ -129,34 +129,6 @@ function isCovered(
   if (branches.length && spotCoveredByBranches(spot, branches, coverOpts)) {
     return true;
   }
-  // Facing matchup on a painted constructor branch with the same pot tag.
-  if (branches.length) {
-    const wantPot = spotPotKind(spot.spot_key);
-    const wantMu = normalizeMatchupTag(
-      treeMatchupLabel(
-        spot.spot_key,
-        normalizeChartPos(spot.hero_position),
-        spot.villain_position
-          ? normalizeChartPos(spot.villain_position)
-          : null,
-      ),
-    );
-    const rev = (() => {
-      const m = wantMu.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
-      return m ? `${m[2]}vs${m[1]}` : null;
-    })();
-    if (
-      wantMu &&
-      wantMu !== "—" &&
-      branches.some((b) => {
-        if (b.potKind !== wantPot || b.paintedCount <= 0) return false;
-        const have = normalizeMatchupTag(b.label);
-        return have === wantMu || (rev != null && have === rev);
-      })
-    ) {
-      return true;
-    }
-  }
   if (charts.length && spotCoveredByCharts(spot, charts)) return true;
   return false;
 }

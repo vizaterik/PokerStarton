@@ -194,10 +194,6 @@ export function loadBranchPaintMatrix(
   try {
     const doc = loadTree(strategyId);
     const wantMu = normalizeMatchupTag(matchup);
-    const rev = (() => {
-      const m = wantMu.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
-      return m ? `${m[2]}vs${m[1]}` : null;
-    })();
     const pot = String(potKind || "").toLowerCase();
     const potAliases =
       pot === "limp"
@@ -207,10 +203,10 @@ export function loadBranchPaintMatrix(
           : pot === "3bp"
             ? ["3bp"]
             : [pot];
+    // Exact matchup only — `SBvsBB` must not load paint from `BBvsSB`.
     const branch = collectAnalysisBranches(doc.root).find((b) => {
       if (!potAliases.includes(b.potKind)) return false;
-      const have = normalizeMatchupTag(b.label);
-      return have === wantMu || (rev != null && have === rev);
+      return normalizeMatchupTag(b.label) === wantMu;
     });
     if (!branch) return null;
     const node = findNode(doc.root, branch.paintNodeId);

@@ -176,17 +176,14 @@ function matchupTagsEqual(a: string, b: string) {
   return normalizeMatchupTag(a) === normalizeMatchupTag(b);
 }
 
-/** UTGvsBB and BBvsUTG are the same line for lookup. */
+/** Exact matchup keys only — `SBvsBB` ≠ `BBvsSB`. */
 function matchupLookupKeys(mu: string): string[] {
   const n = normalizeMatchupTag(mu);
-  const m = n.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
-  if (!m) return n ? [n] : [];
-  return [n, `${m[2]}vs${m[1]}`];
+  return n ? [n] : [];
 }
 
 function matchupsCompatible(a: string, b: string) {
-  const keys = new Set(matchupLookupKeys(a));
-  return matchupLookupKeys(b).some((k) => keys.has(k));
+  return matchupTagsEqual(a, b);
 }
 
 /** Parse `srp|UTGvsBB` or bare matchup from selectedChartKey. */
