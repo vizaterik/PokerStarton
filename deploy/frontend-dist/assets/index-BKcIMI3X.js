@@ -35370,29 +35370,7 @@ function StrategyAnalysisPanel({
   }, [strategyId, analysisSuspended, refreshKey, strategyRevision]);
   reactExports.useEffect(() => {
     if (!strategyId || analysisSuspended || tab !== "preflop") return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        await ensureConstructorChartsSynced(strategyId, { force: true });
-        if (cancelled) return;
-        setTreeTick((n) => n + 1);
-        const rev = readChartsRevision(strategyId);
-        if (rev) lastChartsRevRef.current = rev;
-        setChartsBump((n) => n + 1);
-        await reloadMissingSpots();
-        if (cancelled) return;
-        const spots = await listSpots(strategyId).catch(() => []);
-        if (!cancelled) setStrategySpots(spots);
-      } catch {
-        if (cancelled) return;
-        setTreeTick((n) => n + 1);
-        setChartsBump((n) => n + 1);
-        void reloadMissingSpots();
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    void reloadMissingSpots();
   }, [tab, strategyId, analysisSuspended, reloadMissingSpots]);
   reactExports.useEffect(() => {
     const syncConstructor = () => {
@@ -35656,8 +35634,15 @@ function StrategyAnalysisPanel({
       });
       setSelectedChartKey(`${row.pot_kind}|${row.matchup}`);
       setSelectedHand(null);
+      void ensureConstructorChartsSynced(strategyId).then(() => {
+        setTreeTick((n) => n + 1);
+        const rev = readChartsRevision(strategyId);
+        if (rev) lastChartsRevRef.current = rev;
+      }).catch(() => {
+        setTreeTick((n) => n + 1);
+      });
     },
-    []
+    [strategyId]
   );
   reactExports.useEffect(() => {
     if (tab !== "preflop" || preflopSub !== "branches" && preflopSub !== "errors") {
@@ -35852,7 +35837,8 @@ function StrategyAnalysisPanel({
     strategySpots,
     strategyId,
     errorFilter.potKind,
-    errorFilter.matchup
+    errorFilter.matchup,
+    treeTick
   ]);
   const uploadBlock = showUpload ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-upload", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
     SessionUploadPanel,
@@ -36180,7 +36166,6 @@ function StrategyAnalysisPanel({
     }
     if (preflopSub === "branches") {
       const scoreRows = branchListRows;
-      const branchErrCount = filteredDevs.length;
       const focusMu2 = errorFilter.matchup || "";
       const focusPot2 = errorFilter.potKind || "";
       const focusRow = scoreRows.find(
@@ -36188,10 +36173,34 @@ function StrategyAnalysisPanel({
       ) ?? null;
       const focusMissing = Boolean(focusRow == null ? void 0 : focusRow.missing);
       const vpipCells = focusMissing ? missingVpipCells : (activePlayedChart == null ? void 0 : activePlayedChart.cells) ?? [];
-      const errorCells = focusMissing ? [] : (activeChart == null ? void 0 : activeChart.cells) ?? [];
       const strategyCells = focusMissing ? {} : strategyChart;
       return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted analysis-chart-hint", children: "Клик по ветке — диапазоны. «Реплей VPIP ветки» — все раздачи матчапа (raise/call/fold). «+» — добавить open/ветку в конструктор для закраски." }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-errors-toolbar", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted analysis-chart-hint", children: "Слева ветки. Справа Стратегия и VPIP (позиции без чарта — через «+»)." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-errors-actions", children: [
+            focusRow ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                type: "button",
+                className: "preflop-filter-clear",
+                onClick: () => openBranchVpipReplay(focusRow),
+                children: "Реплей VPIP ветки"
+              }
+            ) : null,
+            focusRow && (selectedHand || errorFilter.handCode) ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "button",
+              {
+                type: "button",
+                className: "preflop-filter-clear",
+                onClick: () => openSelectedComboReplay(vpipCells),
+                children: [
+                  "Реплей · ",
+                  selectedHand || errorFilter.handCode
+                ]
+              }
+            ) : null
+          ] })
+        ] }),
         spotsHint ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "error", children: spotsHint }) : null,
         scoreRows.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: missingLoading ? "Проверяем раздачи…" : "Нет впипнутых веток в этой сессии — загрузи HH или выбери другую базу." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-errors-layout branches-compare-layout", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "preflop-chart-list", children: [
@@ -36276,13 +36285,9 @@ function StrategyAnalysisPanel({
                 /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: `pot-tag pot-${focusRow.pot_kind}`, children: focusRow.pot_tag }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "err-chart-matchup", children: focusRow.matchup })
               ] }),
-              focusMissing ? /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: "branch-missing-tag", children: " · нет в стратегии" }) : branchErrCount > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "err-count", children: [
-                " · ",
-                branchErrCount,
-                " ош."
-              ] }) : null
+              focusMissing ? /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: "branch-missing-tag", children: " · нет в стратегии" }) : null
             ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-chart-compare", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-chart-compare preflop-chart-compare--duo", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-chart-pane", children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Стратегия" }),
@@ -36308,30 +36313,8 @@ function StrategyAnalysisPanel({
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-chart-pane", children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Ошибки" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = выбрать" })
-                ] }),
-                focusMissing ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted analysis-chart-hint", children: "Нет эталона — ошибок стратегии нет." }) : /* @__PURE__ */ jsxRuntimeExports.jsx(
-                  DeviationErrorMatrix,
-                  {
-                    cells: errorCells,
-                    selectedHand,
-                    onSelectHand: (code) => {
-                      selectCombo(code, {
-                        spotKey: focusRow.spot_key,
-                        heroPosition: focusRow.hero_position,
-                        villainPosition: focusRow.villain_position,
-                        matchup: focusMu2,
-                        potKind: focusPot2
-                      });
-                    }
-                  }
-                )
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-chart-pane preflop-chart-pane--full", children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "VPIP" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = выбрать" })
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: focusMissing ? "позиция без чарта · клик = выбрать" : "raise / call / fold · клик = выбрать" })
                 ] }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(
                   DeviationErrorMatrix,
@@ -36352,37 +36335,7 @@ function StrategyAnalysisPanel({
                   }
                 )
               ] })
-            ] }),
-            focusRow ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "div",
-              {
-                className: "preflop-errors-actions",
-                style: { marginTop: "0.75rem" },
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx(
-                    "button",
-                    {
-                      type: "button",
-                      className: "preflop-filter-clear",
-                      onClick: () => openBranchVpipReplay(focusRow),
-                      children: "Реплей VPIP ветки"
-                    }
-                  ),
-                  selectedHand || errorFilter.handCode ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                    "button",
-                    {
-                      type: "button",
-                      className: "preflop-filter-clear",
-                      onClick: () => openSelectedComboReplay(vpipCells),
-                      children: [
-                        "Реплей · ",
-                        selectedHand || errorFilter.handCode
-                      ]
-                    }
-                  ) : null
-                ]
-              }
-            ) : null
+            ] })
           ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Выбери ветку слева." }) })
         ] })
       ] });
@@ -36585,32 +36538,7 @@ function StrategyAnalysisPanel({
                 }
               )
             ] })
-          ] }),
-          selectedHand || errorFilter.handCode || filteredDevs.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "div",
-            {
-              className: "preflop-errors-actions",
-              style: { marginTop: "0.75rem" },
-              children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-                "button",
-                {
-                  type: "button",
-                  className: "preflop-filter-clear",
-                  onClick: () => openSelectedComboReplay(activeChart.cells),
-                  children: [
-                    "Реплей",
-                    selectedHand || errorFilter.handCode ? ` · ${selectedHand || errorFilter.handCode}` : " · ошибки",
-                    " · ",
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "err-count", children: selectedHand || errorFilter.handCode ? resolveComboHandIds(
-                      selectedHand || errorFilter.handCode || "",
-                      errorFilter,
-                      activeChart.cells
-                    ).ids.length || filteredDevs.length : filteredDevs.length })
-                  ]
-                }
-              )
-            }
-          ) : null
+          ] })
         ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Выбери чарт слева." }) })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("h3", { className: "analysis-subhead", children: [
@@ -36694,18 +36622,7 @@ function StrategyAnalysisPanel({
           className: tab === "preflop" ? "active" : "",
           onClick: () => {
             setDevError(null);
-            if (tab === "preflop") {
-              setChartsBump((n) => n + 1);
-              void ensureConstructorChartsSynced(strategyId).then(() => {
-                setTreeTick((n) => n + 1);
-                return reloadMissingSpots();
-              }).catch(() => {
-                setTreeTick((n) => n + 1);
-                void reloadMissingSpots();
-              });
-            } else {
-              setTab("preflop");
-            }
+            setTab("preflop");
           },
           title: "Сверка решений с вашей стратегией (чарты и ветки)",
           children: "Стратегии"
@@ -36930,29 +36847,26 @@ const SCOPE_TABS = [
   {
     id: "session",
     label: "Анализ сессии",
-    lead: "Загрузите актуальную историю рук — разберём сессию и сверим со стратегией."
+    lead: "Загрузите актуальную историю — раздачи попадут в общую базу, отчёт пересчитается сразу."
   },
   {
     id: "database",
     label: "Анализ базы",
-    lead: "Один разбор по всем раздачам стратегии в активной базе — тот же отчёт, что после загрузки сессии."
+    lead: "Общий отчёт по всем раздачам стратегии. Обновляется вместе с загрузкой сессии."
   }
 ];
 function AnalysisPage() {
-  var _a;
-  const [scope, setScope] = reactExports.useState("session");
+  var _a, _b;
+  const [scope, setScope] = reactExports.useState("database");
   const [strategyId, setStrategyId] = reactExports.useState(() => readLastStrategyId() ?? "");
   const [strategies, setStrategies] = reactExports.useState([]);
   const [revision, setRevision] = reactExports.useState(0);
   const [pendingHandTotal, setPendingHandTotal] = reactExports.useState(null);
   const [localHands, setLocalHands] = reactExports.useState(null);
-  const [dbBusy, setDbBusy] = reactExports.useState(false);
-  const [dbError, setDbError] = reactExports.useState(null);
   const [job, setJob] = reactExports.useState(() => getAnalysisJob());
   const [bgRunning, setBgRunning] = reactExports.useState(
     () => isAnalysisJobRunning(readLastStrategyId() ?? void 0)
   );
-  const [dbReportReady, setDbReportReady] = reactExports.useState(false);
   const lastDoneTokenRef = reactExports.useRef(0);
   reactExports.useEffect(() => {
     let cancelled = false;
@@ -36998,13 +36912,11 @@ function AnalysisPage() {
         lastDoneTokenRef.current = next.doneToken;
         setPendingHandTotal(next.hands);
         setBgRunning(false);
-        setDbBusy(false);
-        setDbReportReady(true);
         setRevision((n) => n + 1);
+        setScope("database");
       }
       if (next.status === "error" && (!strategyId || next.strategyId === strategyId)) {
         setBgRunning(false);
-        setDbBusy(false);
       }
     };
     syncBusy();
@@ -37013,7 +36925,6 @@ function AnalysisPage() {
   const onStrategyChange = reactExports.useCallback((id) => {
     setStrategyId(id);
     writeLastStrategyId(id);
-    setDbReportReady(false);
   }, []);
   const onUploadStarted = reactExports.useCallback((id, estimatedHands) => {
     setStrategyId(id);
@@ -37022,17 +36933,16 @@ function AnalysisPage() {
     markAnalysisUploadStarted(id, estimatedHands, { external: true });
     setBgRunning(true);
     setScope("session");
-    setDbReportReady(true);
   }, []);
   const onUploaded = reactExports.useCallback((report, id) => {
     setStrategyId(id);
     writeLastStrategyId(id);
     const hands = report.total_hands > 0 ? report.total_hands : 0;
     if (hands) setPendingHandTotal(hands);
-    setDbReportReady(true);
     if (getAnalysisJob().status === "done") {
       setBgRunning(false);
       setRevision((n) => n + 1);
+      setScope("database");
     }
   }, []);
   const onUploadFinished = reactExports.useCallback((id, ok) => {
@@ -37045,62 +36955,11 @@ function AnalysisPage() {
     setBgRunning(false);
     setRevision((n) => n + 1);
   }, []);
-  const runDatabaseAnalysis = reactExports.useCallback(async () => {
-    if (!strategyId || dbBusy) return;
-    setDbError(null);
-    setDbBusy(true);
-    setBgRunning(true);
-    setDbReportReady(true);
-    const hint = localHands && localHands > 0 ? localHands : void 0;
-    markAnalysisUploadStarted(strategyId, hint, { external: true });
-    try {
-      updateClientImportProgress(
-        strategyId,
-        14,
-        "Подгружаем стратегию и чарты…",
-        hint
-      );
-      await ensureConstructorChartsSynced(strategyId, { force: true });
-      updateClientImportProgress(
-        strategyId,
-        40,
-        "Считаем HUD и сверку по всей базе…",
-        hint
-      );
-      const fin = await finalizeLocalAnalysis(strategyId, (p) => {
-        let pct2 = 45;
-        if (p.phase === "done") pct2 = 96;
-        else if (p.phase === "deviations") {
-          pct2 = 55 + Math.round(Math.min(1, (p.pct ?? 0) / 100) * 35);
-        } else if (p.phase === "hud") {
-          pct2 = 45 + Math.round(Math.min(1, (p.pct ?? 0) / 100) * 10);
-        }
-        updateClientImportProgress(
-          strategyId,
-          pct2,
-          p.message || "Анализ базы…",
-          p.total > 0 ? p.total : hint
-        );
-      });
-      completeClientImport(
-        strategyId,
-        fin.hands,
-        `База разобрана · ${fin.hands.toLocaleString("ru-RU")} рук`
-      );
-      setPendingHandTotal(fin.hands > 0 ? fin.hands : null);
-      setLocalHands(fin.hands);
-      setRevision((n) => n + 1);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Не удалось разобрать базу";
-      setDbError(msg);
-      markAnalysisUploadFailed(strategyId, msg);
-    } finally {
-      setDbBusy(false);
-      setBgRunning(false);
-    }
-  }, [strategyId, dbBusy, localHands]);
   const activeLead = ((_a = SCOPE_TABS.find((t) => t.id === scope)) == null ? void 0 : _a.lead) ?? SCOPE_TABS[0].lead;
-  const waiting = bgRunning || dbBusy || job.status === "error";
+  const hasCachedReport = Boolean(
+    strategyId && ((_b = peekAnalysisCache(strategyId)) == null ? void 0 : _b.analysis)
+  );
+  const waiting = bgRunning || job.status === "error";
   const resultsBlock = waiting ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-page-results", children: /* @__PURE__ */ jsxRuntimeExports.jsx(AnalysisBgWait, { pendingHands: pendingHandTotal ?? job.hands ?? localHands }) }) : !strategyId ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-empty panel analysis-page-results", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Выберите стратегию" }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "muted", children: [
@@ -37108,17 +36967,38 @@ function AnalysisPage() {
       /* @__PURE__ */ jsxRuntimeExports.jsx(Link, { to: "/strategies", children: "Соберите чарты" }),
       " — затем вернитесь за разбором."
     ] })
-  ] }) : dbReportReady || scope === "session" ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-page-results", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-    StrategyAnalysisPanel,
-    {
-      strategyId,
-      strategyRevision: revision,
-      analysisSuspended: false,
-      pendingHandTotal,
-      showUpload: false,
-      backgroundJobMode: true
-    }
-  ) }) : null;
+  ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-page-results", children: [
+    scope === "database" && strategies.length > 1 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "db-analyze-toolbar db-analyze-toolbar--inline", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "upload-field", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Стратегия" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "select",
+          {
+            value: strategyId,
+            onChange: (e) => onStrategyChange(e.target.value),
+            disabled: bgRunning,
+            children: strategies.map((s) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: s.id, children: s.name }, s.id))
+          }
+        )
+      ] }),
+      localHands != null ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "muted db-hands-pill", children: [
+        localHands.toLocaleString("ru-RU"),
+        " рук в базе",
+        hasCachedReport ? "" : " · загрузите сессию"
+      ] }) : null
+    ] }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      StrategyAnalysisPanel,
+      {
+        strategyId,
+        strategyRevision: revision,
+        analysisSuspended: false,
+        pendingHandTotal,
+        showUpload: false,
+        backgroundJobMode: true
+      }
+    )
+  ] });
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "page analysis-page", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "upload-hero", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "upload-kicker", children: "Session check" }),
@@ -37149,44 +37029,7 @@ function AnalysisPage() {
         }
       ),
       resultsBlock
-    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "analysis-scope-panel", role: "tabpanel", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "db-analyze panel", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("header", { className: "db-analyze-head", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { children: "Анализ всей базы" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "Без отдельного списка загрузок: раздачи уже в активной базе. Кнопка считает тот же отчёт (график, HUD, стратегии), что и после загрузки сессии." })
-        ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "db-analyze-toolbar", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "upload-field", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "Стратегия" }),
-            /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "select",
-              {
-                value: strategyId,
-                onChange: (e) => onStrategyChange(e.target.value),
-                disabled: strategies.length === 0 || dbBusy || bgRunning,
-                children: [
-                  strategies.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Сначала соберите стратегию" }) : null,
-                  strategies.map((s) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: s.id, children: s.name }, s.id))
-                ]
-              }
-            )
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "button",
-            {
-              type: "button",
-              className: "upload-submit db-analyze-run",
-              disabled: !strategyId || dbBusy || bgRunning,
-              onClick: () => void runDatabaseAnalysis(),
-              children: dbBusy || bgRunning ? "Считаем…" : localHands != null && localHands > 0 ? `Анализ всей базы · ${localHands.toLocaleString("ru-RU")} рук` : "Анализ всей базы"
-            }
-          )
-        ] }),
-        localHands === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: "В базе пока нет раздач для этой стратегии. Загрузите историю во вкладке «Анализ сессии»." }) : null,
-        dbError ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "error", children: dbError }) : null
-      ] }),
-      resultsBlock
-    ] })
+    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "analysis-scope-panel", role: "tabpanel", children: resultsBlock })
   ] });
 }
 const MATCHUPS = [

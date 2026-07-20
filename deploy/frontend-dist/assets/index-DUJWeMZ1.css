@@ -2670,39 +2670,22 @@ button.linkish {
   margin-top: 1.75rem;
 }
 
-.db-analyze {
-  display: grid;
-  gap: 0.95rem;
-  padding: 1.15rem 1.2rem 1.25rem;
-}
-
-.db-analyze-head h2 {
-  margin: 0 0 0.25rem;
-  font-family: "Sora", sans-serif;
-  font-size: 1.15rem;
-  letter-spacing: -0.02em;
-}
-
-.db-analyze-head .muted {
-  margin: 0;
-  max-width: 40rem;
-}
-
-.db-analyze-toolbar {
+.db-analyze-toolbar--inline {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
 }
 
-.db-analyze-toolbar .upload-field {
-  flex: 1 1 14rem;
+.db-analyze-toolbar--inline .upload-field {
+  flex: 0 1 16rem;
   min-width: 12rem;
 }
 
-.db-analyze-run {
-  flex: 0 0 auto;
-  min-width: 12rem;
+.db-hands-pill {
+  font-size: 0.82rem;
+  padding-bottom: 0.35rem;
 }
 
 .analysis-upload {

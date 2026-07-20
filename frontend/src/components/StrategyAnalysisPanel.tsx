@@ -995,34 +995,10 @@ export default function StrategyAnalysisPanel({
     };
   }, [strategyId, analysisSuspended, refreshKey, strategyRevision]);
 
-  /**
-   * When opening «Стратегии» — force-sync charts and reload every branch row.
-   */
+  /** When opening «Стратегии» — reload branch list (strategy paint refreshes on chart click). */
   useEffect(() => {
     if (!strategyId || analysisSuspended || tab !== "preflop") return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        await ensureConstructorChartsSynced(strategyId, { force: true });
-        if (cancelled) return;
-        setTreeTick((n) => n + 1);
-        const rev = readChartsRevision(strategyId);
-        if (rev) lastChartsRevRef.current = rev;
-        setChartsBump((n) => n + 1);
-        await reloadMissingSpots();
-        if (cancelled) return;
-        const spots = await listSpots(strategyId).catch(() => []);
-        if (!cancelled) setStrategySpots(spots);
-      } catch {
-        if (cancelled) return;
-        setTreeTick((n) => n + 1);
-        setChartsBump((n) => n + 1);
-        void reloadMissingSpots();
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    void reloadMissingSpots();
   }, [tab, strategyId, analysisSuspended, reloadMissingSpots]);
 
   // Re-pull constructor when returning from the editor (deleted / painted branches).
@@ -1363,8 +1339,18 @@ export default function StrategyAnalysisPanel({
       });
       setSelectedChartKey(`${row.pot_kind}|${row.matchup}`);
       setSelectedHand(null);
+      // Refresh constructor paint only when a chart/branch is opened.
+      void ensureConstructorChartsSynced(strategyId)
+        .then(() => {
+          setTreeTick((n) => n + 1);
+          const rev = readChartsRevision(strategyId);
+          if (rev) lastChartsRevRef.current = rev;
+        })
+        .catch(() => {
+          setTreeTick((n) => n + 1);
+        });
     },
-    [],
+    [strategyId],
   );
 
   // Auto-focus first branch when opening «Ветки» / «Ошибки».
@@ -1628,6 +1614,7 @@ export default function StrategyAnalysisPanel({
     strategyId,
     errorFilter.potKind,
     errorFilter.matchup,
+    treeTick,
   ]);
 
   const uploadBlock = showUpload ? (
@@ -2035,7 +2022,6 @@ export default function StrategyAnalysisPanel({
 
     if (preflopSub === "branches") {
       const scoreRows = branchListRows;
-      const branchErrCount = filteredDevs.length;
       const focusMu = errorFilter.matchup || "";
       const focusPot = errorFilter.potKind || "";
       const focusRow =
@@ -2051,15 +2037,35 @@ export default function StrategyAnalysisPanel({
       const vpipCells = focusMissing
         ? missingVpipCells
         : (activePlayedChart?.cells ?? []);
-      const errorCells = focusMissing ? [] : (activeChart?.cells ?? []);
       const strategyCells = focusMissing ? {} : strategyChart;
 
       return (
         <>
-          <p className="muted analysis-chart-hint">
-            Клик по ветке — диапазоны. «Реплей VPIP ветки» — все раздачи матчапа (raise/call/fold).
-            «+» — добавить open/ветку в конструктор для закраски.
-          </p>
+          <div className="preflop-errors-toolbar">
+            <p className="muted analysis-chart-hint">
+              Слева ветки. Справа Стратегия и VPIP (позиции без чарта — через «+»).
+            </p>
+            <div className="preflop-errors-actions">
+              {focusRow ? (
+                <button
+                  type="button"
+                  className="preflop-filter-clear"
+                  onClick={() => openBranchVpipReplay(focusRow)}
+                >
+                  Реплей VPIP ветки
+                </button>
+              ) : null}
+              {focusRow && (selectedHand || errorFilter.handCode) ? (
+                <button
+                  type="button"
+                  className="preflop-filter-clear"
+                  onClick={() => openSelectedComboReplay(vpipCells)}
+                >
+                  Реплей · {selectedHand || errorFilter.handCode}
+                </button>
+              ) : null}
+            </div>
+          </div>
           {spotsHint ? <p className="error">{spotsHint}</p> : null}
 
           {scoreRows.length === 0 ? (
@@ -2163,11 +2169,9 @@ export default function StrategyAnalysisPanel({
                       </span>
                       {focusMissing ? (
                         <em className="branch-missing-tag"> · нет в стратегии</em>
-                      ) : branchErrCount > 0 ? (
-                        <span className="err-count"> · {branchErrCount} ош.</span>
                       ) : null}
                     </h3>
-                    <div className="preflop-chart-compare">
+                    <div className="preflop-chart-compare preflop-chart-compare--duo">
                       <div className="preflop-chart-pane">
                         <header>
                           <strong>Стратегия</strong>
@@ -2198,33 +2202,12 @@ export default function StrategyAnalysisPanel({
                       </div>
                       <div className="preflop-chart-pane">
                         <header>
-                          <strong>Ошибки</strong>
-                          <span>raise / call / fold · клик = выбрать</span>
-                        </header>
-                        {focusMissing ? (
-                          <p className="muted analysis-chart-hint">
-                            Нет эталона — ошибок стратегии нет.
-                          </p>
-                        ) : (
-                          <DeviationErrorMatrix
-                            cells={errorCells}
-                            selectedHand={selectedHand}
-                            onSelectHand={(code) => {
-                              selectCombo(code, {
-                                spotKey: focusRow.spot_key,
-                                heroPosition: focusRow.hero_position,
-                                villainPosition: focusRow.villain_position,
-                                matchup: focusMu,
-                                potKind: focusPot,
-                              });
-                            }}
-                          />
-                        )}
-                      </div>
-                      <div className="preflop-chart-pane preflop-chart-pane--full">
-                        <header>
                           <strong>VPIP</strong>
-                          <span>raise / call / fold · клик = выбрать</span>
+                          <span>
+                            {focusMissing
+                              ? "позиция без чарта · клик = выбрать"
+                              : "raise / call / fold · клик = выбрать"}
+                          </span>
                         </header>
                         <DeviationErrorMatrix
                           cells={vpipCells}
@@ -2243,29 +2226,6 @@ export default function StrategyAnalysisPanel({
                         />
                       </div>
                     </div>
-                    {focusRow ? (
-                      <div
-                        className="preflop-errors-actions"
-                        style={{ marginTop: "0.75rem" }}
-                      >
-                        <button
-                          type="button"
-                          className="preflop-filter-clear"
-                          onClick={() => openBranchVpipReplay(focusRow)}
-                        >
-                          Реплей VPIP ветки
-                        </button>
-                        {selectedHand || errorFilter.handCode ? (
-                          <button
-                            type="button"
-                            className="preflop-filter-clear"
-                            onClick={() => openSelectedComboReplay(vpipCells)}
-                          >
-                            Реплей · {selectedHand || errorFilter.handCode}
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
                   </>
                 ) : (
                   <p className="muted">Выбери ветку слева.</p>
@@ -2527,33 +2487,6 @@ export default function StrategyAnalysisPanel({
                     />
                   </div>
                 </div>
-                {selectedHand || errorFilter.handCode || filteredDevs.length > 0 ? (
-                  <div
-                    className="preflop-errors-actions"
-                    style={{ marginTop: "0.75rem" }}
-                  >
-                    <button
-                      type="button"
-                      className="preflop-filter-clear"
-                      onClick={() => openSelectedComboReplay(activeChart.cells)}
-                    >
-                      Реплей
-                      {selectedHand || errorFilter.handCode
-                        ? ` · ${selectedHand || errorFilter.handCode}`
-                        : " · ошибки"}
-                      {" · "}
-                      <span className="err-count">
-                        {selectedHand || errorFilter.handCode
-                          ? resolveComboHandIds(
-                              selectedHand || errorFilter.handCode || "",
-                              errorFilter,
-                              activeChart.cells,
-                            ).ids.length || filteredDevs.length
-                          : filteredDevs.length}
-                      </span>
-                    </button>
-                  </div>
-                ) : null}
               </>
             ) : (
               <p className="muted">Выбери чарт слева.</p>
@@ -2656,21 +2589,7 @@ export default function StrategyAnalysisPanel({
           className={tab === "preflop" ? "active" : ""}
           onClick={() => {
             setDevError(null);
-            // Re-enter tab even if already active — force strategy reload.
-            if (tab === "preflop") {
-              setChartsBump((n) => n + 1);
-              void ensureConstructorChartsSynced(strategyId)
-                .then(() => {
-                  setTreeTick((n) => n + 1);
-                  return reloadMissingSpots();
-                })
-                .catch(() => {
-                  setTreeTick((n) => n + 1);
-                  void reloadMissingSpots();
-                });
-            } else {
-              setTab("preflop");
-            }
+            setTab("preflop");
           }}
           title="Сверка решений с вашей стратегией (чарты и ветки)"
         >
