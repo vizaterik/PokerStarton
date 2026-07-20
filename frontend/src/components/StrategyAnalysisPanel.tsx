@@ -999,6 +999,8 @@ export default function StrategyAnalysisPanel({
         const hh = lookupHh(potKind, mu);
         const hands = hh?.hands_count ?? 0;
         const decisions = acc?.decisions ?? 0;
+        // Only list branches that still have a loadable strategy chart.
+        const hasChart = Boolean(loadBranchPaintMatrix(strategyId, potKind, mu));
         return {
           ...seed,
           matchup: mu,
@@ -1007,14 +1009,16 @@ export default function StrategyAnalysisPanel({
           hands_count: hands,
           decisions,
           correct_pct: acc?.correct_pct ?? null,
+          hasChart,
         };
       })
+      .filter((r) => r.hasChart)
       .sort(
         (a, b) =>
           (b.decisions || b.hands_count) - (a.decisions || a.hands_count) ||
           a.matchup.localeCompare(b.matchup, "ru"),
       );
-  }, [liveDevs, paintedTreeBranches, sessionBranches]);
+  }, [liveDevs, paintedTreeBranches, sessionBranches, strategyId]);
 
   /** Focus a strategy branch for Strategy|Error range compare (stay on current subtab). */
   const selectBranchFocus = useCallback(

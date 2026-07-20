@@ -13,10 +13,10 @@ export default function StrategyChartPreview({
   cells,
   selected = null,
   onSelectHand,
-  emptyHint = "Нет чарта стратегии для этого спота",
+  emptyHint = "Нет чарта стратегии для этой ветки — покрась диапазон в конструкторе",
 }: Props) {
   const hasAny = Object.values(cells).some(
-    (c) => c.raise_freq > 0 || c.call_freq > 0,
+    (c) => (c.raise_freq ?? 0) > 0.02 || (c.call_freq ?? 0) > 0.02,
   );
 
   if (!hasAny) {

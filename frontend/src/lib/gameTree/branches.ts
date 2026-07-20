@@ -44,8 +44,9 @@ export function potKindTag(kind: BranchPotKind | string): string {
   return "Raise";
 }
 
+/** Real play paint only (raise/call) — pure Fold shells do not count. */
 function isPainted(mix: HandMix): boolean {
-  return mix.CALL > 0.02 || mix.RAISE > 0.02 || mix.FOLD < 0.98;
+  return (mix.CALL ?? 0) > 0.02 || (mix.RAISE ?? 0) > 0.02;
 }
 
 export function nodeHasPaintedRange(node: GameTreeNode): boolean {
@@ -152,14 +153,15 @@ export function collectBranches(root: GameTreeNode): SavedBranch[] {
     if (node.children.length === 0) {
       // Save only when preflop action is mathematically closed → flop
       if (!node.awaitingFlop || keys.length === 0) continue;
-      let paintNodeId = path[path.length - 2]?.id ?? node.id;
-      let paintedCount = 0;
-      for (const n of path) {
-        if (n.awaitingFlop) continue;
-        const c = countPaintedHands(n);
-        paintedCount += c;
-        if (c > 0) paintNodeId = n.id;
-      }
+      // Chart for this line = last preflop decision before flop tip.
+      // Do NOT inherit ancestor open paint — that made empty facing lines
+      // appear as "painted" with no chart while still collecting errors.
+      const decision = path[path.length - 2] ?? node;
+      const paintNodeId = decision.id;
+      const paintedCount =
+        decision.awaitingFlop || decision.street !== "preflop"
+          ? 0
+          : countPaintedHands(decision);
       const signature = keys.join("|");
       const potKind = inferPotKind(raiseIndex, raiseSizings);
       const candidate: SavedBranch = {
@@ -304,13 +306,28 @@ export function collectEditorBranches(root: GameTreeNode): SavedBranch[] {
 }
 
 /**
- * Analysis gate: painted opens + painted closed lines only.
+ * Analysis gate: painted opens + closed lines whose decision node has play paint.
+ * Unpainted facing shells are excluded so Errors never show «empty strategy + errors».
  */
 export function collectAnalysisBranches(root: GameTreeNode): SavedBranch[] {
-  return mergeBranchesByMatchup([
+  const merged = mergeBranchesByMatchup([
     ...collectOpenBranches(root),
     ...collectBranches(root).filter((b) => b.paintedCount > 0),
   ]);
+  return merged.filter((b) => {
+    if (b.paintedCount <= 0) return false;
+    const node = findBranchNode(root, b.paintNodeId);
+    return Boolean(node && nodeHasPlayRange(node));
+  });
+}
+
+function findBranchNode(root: GameTreeNode, id: string): GameTreeNode | null {
+  if (root.id === id) return root;
+  for (const child of root.children) {
+    const hit = findBranchNode(child, id);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /** Find which saved branch (if any) contains the active tip. */
