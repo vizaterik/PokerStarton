@@ -843,16 +843,7 @@ export default function StrategyAnalysisPanel({
     };
   }, [strategyId]);
 
-  /** Same list as trainer BranchPanel (~N готовых веток). */
-  const trainerBranches = useMemo(() => {
-    try {
-      return collectEditorBranches(loadTree(strategyId).root);
-    } catch {
-      return [];
-    }
-  }, [strategyId, refreshKey, strategyRevision, treeTick]);
-
-  /** Painted subset — used for scoring / Errors coverage. */
+  /** Painted strategy branches — source of truth for «Моя стратегия» scoring. */
   const paintedTreeBranches = useMemo(() => {
     try {
       return collectAnalysisBranches(loadTree(strategyId).root);
@@ -889,8 +880,17 @@ export default function StrategyAnalysisPanel({
         if (potKind && b.potKind !== potKind) return false;
         return spotCoveredByBranches(spot, [b], coverOpts);
       });
-    // Ветки: keep every scored HH variant (not only constructor-covered).
-    const by_branch = devs.by_branch ?? [];
+    // Accuracy / errors only for strategy (painted constructor) branches.
+    const by_branch = (devs.by_branch ?? []).filter((row) =>
+      covers(
+        {
+          spot_key: row.spot_key,
+          hero_position: row.hero_position,
+          villain_position: row.villain_position,
+        },
+        row.pot_kind || spotPotKind(row.spot_key),
+      ),
+    );
     const chart_errors = (devs.chart_errors ?? []).filter((c) =>
       covers(
         {
@@ -1171,15 +1171,6 @@ export default function StrategyAnalysisPanel({
     setReplay({ mode: "stat", stat, label });
   }
 
-  function openHuPot(potKind: string, matchup: string, label: string) {
-    setReplay({
-      mode: "hu",
-      potKind,
-      matchup,
-      label,
-    });
-  }
-
   function openErrorReplay(startFrom?: StrategyDeviation) {
     const list = filteredDevs.length > 0 ? filteredDevs : (liveDevs?.deviations ?? []);
     if (list.length === 0) return;
@@ -1416,351 +1407,156 @@ export default function StrategyAnalysisPanel({
 
     if (preflopSub === "branches") {
       const rows = liveDevs.by_branch ?? [];
-      const huRows = liveDevs.hu_pot_branches ?? [];
-      const losing = [...huRows]
-        .filter((r) => (r.profit_money ?? 0) < -0.001)
-        .slice(0, 5);
-      const winning = [...huRows]
-        .filter((r) => (r.profit_money ?? 0) > 0.001)
-        .sort((a, b) => (b.profit_money ?? 0) - (a.profit_money ?? 0))
-        .slice(0, 5);
+
+      // Accuracy map from strategy-scored branches only.
+      const accByKey = new Map<string, PreflopBranchAccuracy>();
+      for (const row of rows) {
+        const mu = analysisMatchup(
+          row.spot_key,
+          row.hero_position,
+          row.villain_position,
+          row.matchup || row.spot_label,
+        );
+        const pot = row.pot_kind || spotPotKind(row.spot_key);
+        for (const mk of matchupLookupKeys(mu)) {
+          accByKey.set(`${pot}|${mk}`, row);
+        }
+      }
+      const lookupAcc = (pot: string, mu: string) => {
+        for (const mk of matchupLookupKeys(mu)) {
+          const hit = accByKey.get(`${pot}|${mk}`);
+          if (hit) return hit;
+        }
+        return null;
+      };
+
+      const hhByKey = new Map<string, EnsuredSpotInfo>();
+      for (const s of sessionBranches) {
+        const mu = analysisMatchup(
+          s.spot_key,
+          s.hero_position,
+          s.villain_position,
+          s.label,
+        );
+        const pot = spotPotKind(s.spot_key);
+        for (const mk of matchupLookupKeys(mu)) {
+          hhByKey.set(`${pot}|${mk}`, s);
+        }
+      }
+      const lookupHh = (pot: string, mu: string) => {
+        for (const mk of matchupLookupKeys(mu)) {
+          const hit = hhByKey.get(`${pot}|${mk}`);
+          if (hit) return hit;
+        }
+        return null;
+      };
+
+      // Only painted strategy branches that appeared in this session.
+      const scoreRows = paintedTreeBranches
+        .map((b) => {
+          const mu = b.label;
+          const potKind = b.potKind as BranchPotKind;
+          const seed = constructorBranchToSpot(b);
+          const acc = lookupAcc(potKind, mu);
+          const hh = lookupHh(potKind, mu);
+          const hands = hh?.hands_count ?? 0;
+          const decisions = acc?.decisions ?? 0;
+          return {
+            ...seed,
+            matchup: mu,
+            pot_kind: potKind,
+            pot_tag: potKindTag(potKind),
+            hands_count: hands,
+            decisions,
+            correct_pct: acc?.correct_pct ?? null,
+          };
+        })
+        .filter((r) => r.hands_count > 0 || r.decisions > 0)
+        .sort(
+          (a, b) =>
+            (b.decisions || b.hands_count) - (a.decisions || a.hands_count) ||
+            a.matchup.localeCompare(b.matchup, "ru"),
+        );
 
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Ветки из тренажёра (конструктор стратегии) — те же, что в редакторе. Поверх —
-            раздачи сессии и точность сверки. HU-профит после флопа — клик откроет раздачи.
+            Сверка только по веткам из стратегии (с чартами), которые были в раздачах.
+            Клик — стратегия и ошибки этой ветки. Ситуации вне стратегии — ниже, с кнопкой
+            добавить.
           </p>
 
-          {huRows.length === 0 && trainerBranches.length === 0 ? (
+          {!paintedTreeBranches.length ? (
             <p className="muted">
-              Нет веток в тренажёре — собери линии в конструкторе стратегии, затем загрузи
-              раздачи.
+              В стратегии нет покрашенных веток — открой тренажёр, нарисуй чарты, затем
+              вернись к отчёту.
+            </p>
+          ) : scoreRows.length === 0 ? (
+            <p className="muted">
+              В сессии не было раздач по веткам стратегии ({paintedTreeBranches.length}{" "}
+              веток с чартами). Загрузи HH или проверь, что чарты совпадают с линиями.
             </p>
           ) : (
-            <>
-              {(losing.length > 0 || winning.length > 0) && (
-                <div className="branch-pl-block analysis-branch-pl">
-                  <div className="branch-pl-col">
-                    <h2>Убыточные HU</h2>
-                    <ul className="branch-pl-list">
-                      {losing.length === 0 ? (
-                        <li className="muted">Нет убыточных потов.</li>
-                      ) : (
-                        losing.map((b) => (
-                          <li key={`lose-${b.pot_kind}-${b.matchup}`}>
-                            <button
-                              type="button"
-                              className="branch-pl-row-btn"
-                              onClick={() =>
-                                openHuPot(
-                                  b.pot_kind ?? "srp",
-                                  b.matchup || b.label,
-                                  `${b.matchup || b.label} · ${b.hands_count} рук`,
-                                )
-                              }
-                            >
-                              <span className="branch-pl-label">
-                                <em className={`pot-tag pot-${b.pot_kind ?? "srp"}`}>
-                                  {b.matchup || b.label}
-                                </em>
-                              </span>
-                              <span className="branch-pl-meta">
-                                <em>{b.hands_count} рук</em>
-                                <strong className="neg">
-                                  ${b.profit_money.toFixed(2)}
-                                </strong>
-                                <span className="muted">{b.profit_bb.toFixed(1)} bb</span>
-                              </span>
-                            </button>
-                          </li>
-                        ))
-                      )}
-                    </ul>
-                  </div>
-                  <div className="branch-pl-col">
-                    <h2>Прибыльные HU</h2>
-                    <ul className="branch-pl-list">
-                      {winning.length === 0 ? (
-                        <li className="muted">Нет прибыльных потов.</li>
-                      ) : (
-                        winning.map((b) => (
-                          <li key={`win-${b.pot_kind}-${b.matchup}`}>
-                            <button
-                              type="button"
-                              className="branch-pl-row-btn"
-                              onClick={() =>
-                                openHuPot(
-                                  b.pot_kind ?? "srp",
-                                  b.matchup || b.label,
-                                  `${b.matchup || b.label} · ${b.hands_count} рук`,
-                                )
-                              }
-                            >
-                              <span className="branch-pl-label">
-                                <em className={`pot-tag pot-${b.pot_kind ?? "srp"}`}>
-                                  {b.matchup || b.label}
-                                </em>
-                              </span>
-                              <span className="branch-pl-meta">
-                                <em>{b.hands_count} рук</em>
-                                <strong className="pos">
-                                  ${b.profit_money.toFixed(2)}
-                                </strong>
-                                <span className="muted">{b.profit_bb.toFixed(1)} bb</span>
-                              </span>
-                            </button>
-                          </li>
-                        ))
-                      )}
-                    </ul>
-                  </div>
-                </div>
-              )}
-
-              {huRows.length > 0 ? (
-                <div className="analysis-table-wrap">
-                  <table className="analysis-table">
-                    <thead>
-                      <tr>
-                        <th>Матчап</th>
-                        <th>Рук</th>
-                        <th>Профит $</th>
-                        <th>bb</th>
-                        <th>bb/100</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {huRows.map((row) => (
-                        <tr
-                          key={`hu-${row.pot_kind}-${row.matchup}`}
-                          className="clickable-row"
-                          onClick={() =>
-                            openHuPot(
-                              row.pot_kind ?? "srp",
-                              row.matchup || row.label,
-                              `${row.matchup || row.label} · ${row.hands_count} рук`,
-                            )
-                          }
-                        >
-                          <td>
-                            <em className={`pot-tag pot-${row.pot_kind ?? "srp"}`}>
-                              {row.matchup || row.label}
-                            </em>
-                          </td>
-                          <td>{row.hands_count}</td>
-                          <td className={row.profit_money >= 0 ? "pos" : "neg"}>
-                            ${row.profit_money.toFixed(2)}
-                          </td>
-                          <td className={row.profit_bb >= 0 ? "pos" : "neg"}>
-                            {row.profit_bb.toFixed(1)}
-                          </td>
-                          <td className={row.winrate_bb100 >= 0 ? "pos" : "neg"}>
-                            {row.winrate_bb100.toFixed(1)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="muted">Нет HU-потов после флопа за период стратегии.</p>
-              )}
-
-              {(() => {
-                // Source of truth = trainer/constructor branches (same as BranchPanel).
-                const accByKey = new Map<string, PreflopBranchAccuracy>();
-                for (const row of rows) {
-                  const mu = analysisMatchup(
-                    row.spot_key,
-                    row.hero_position,
-                    row.villain_position,
-                    row.matchup || row.spot_label,
-                  );
-                  const pot = row.pot_kind || spotPotKind(row.spot_key);
-                  for (const mk of matchupLookupKeys(mu)) {
-                    accByKey.set(`${pot}|${mk}`, row);
-                  }
-                }
-                const lookupAcc = (pot: string, mu: string) => {
-                  for (const mk of matchupLookupKeys(mu)) {
-                    const hit = accByKey.get(`${pot}|${mk}`);
-                    if (hit) return hit;
-                  }
-                  return null;
-                };
-
-                const hhByKey = new Map<string, EnsuredSpotInfo>();
-                for (const s of sessionBranches) {
-                  const mu = analysisMatchup(
-                    s.spot_key,
-                    s.hero_position,
-                    s.villain_position,
-                    s.label,
-                  );
-                  const pot = spotPotKind(s.spot_key);
-                  for (const mk of matchupLookupKeys(mu)) {
-                    hhByKey.set(`${pot}|${mk}`, s);
-                  }
-                }
-                const lookupHh = (pot: string, mu: string) => {
-                  for (const mk of matchupLookupKeys(mu)) {
-                    const hit = hhByKey.get(`${pot}|${mk}`);
-                    if (hit) return hit;
-                  }
-                  return null;
-                };
-
-                type TrainerRow = {
-                  spot_key: string;
-                  hero_position: string;
-                  villain_position: string | null;
-                  matchup: string;
-                  pot_kind: BranchPotKind | string;
-                  pot_tag: string;
-                  decisions: number;
-                  correct_pct: number | null;
-                  hands_count: number;
-                  hasChart: boolean;
-                };
-
-                const trainerRows: TrainerRow[] = trainerBranches.map((b) => {
-                  const mu = b.label;
-                  const potKind = b.potKind;
-                  const seed = constructorBranchToSpot(b);
-                  const acc = lookupAcc(potKind, mu);
-                  const hh = lookupHh(potKind, mu);
-                  return {
-                    ...seed,
-                    matchup: mu,
-                    pot_kind: potKind,
-                    pot_tag: potKindTag(potKind),
-                    decisions: acc?.decisions ?? 0,
-                    correct_pct: acc ? acc.correct_pct : null,
-                    hands_count: hh?.hands_count ?? 0,
-                    hasChart: b.paintedCount > 0,
-                  };
-                });
-
-                const paintedN = trainerRows.filter((r) => r.hasChart).length;
-                if (!trainerRows.length) {
-                  return (
-                    <p className="muted" style={{ marginTop: "1.25rem" }}>
-                      В тренажёре пока нет веток — открой конструктор и сохрани линии.
-                    </p>
-                  );
-                }
-                return (
-                  <>
-                    <p className="muted analysis-chart-hint" style={{ marginTop: "1.25rem" }}>
-                      Тренажёр: {trainerRows.length} веток
-                      {paintedN > 0 ? ` · ${paintedN} с чартами` : ""}. Клик — сверка этой
-                      ветки. Раздачи без ветки в стратегии — в блоке ниже.
-                    </p>
-                    <div className="analysis-table-wrap">
-                      <table className="analysis-table">
-                        <thead>
-                          <tr>
-                            <th>Матчап</th>
-                            <th>Разд.</th>
-                            <th>Реш.</th>
-                            <th>Точность</th>
-                            <th />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {trainerRows.map((row) => {
-                            const potKind = row.pot_kind;
-                            const mu = row.matchup;
-                            return (
-                              <tr
-                                key={`${potKind}|${normalizeMatchupTag(mu)}`}
-                                className={row.hasChart ? "clickable-row" : ""}
-                                onClick={() => {
-                                  if (!row.hasChart) return;
-                                  goErrors({
-                                    matchup: mu,
-                                    potKind,
-                                    spotKey: row.spot_key,
-                                    heroPosition: row.hero_position,
-                                    villainPosition: row.villain_position,
-                                  });
-                                }}
-                              >
-                                <td>
-                                  <span className="err-chart-tags">
-                                    <strong className="err-chart-matchup">{mu}</strong>
-                                    <em className={`pot-tag pot-${potKind}`}>
-                                      {row.pot_tag}
-                                    </em>
-                                  </span>
-                                </td>
-                                <td>
-                                  {row.hands_count
-                                    ? row.hands_count.toLocaleString("ru-RU")
-                                    : "—"}
-                                </td>
-                                <td>{row.decisions || "—"}</td>
-                                <td
-                                  className={
-                                    !row.hasChart
-                                      ? "muted"
-                                      : row.correct_pct == null
-                                        ? "muted"
-                                        : row.correct_pct >= 80
-                                          ? "pos"
-                                          : "neg"
-                                  }
-                                >
-                                  {!row.hasChart
-                                    ? "нет чарта"
-                                    : row.correct_pct == null
-                                      ? row.hands_count
-                                        ? "—"
-                                        : "нет в сессии"
-                                      : `${row.correct_pct.toFixed(1)}%`}
-                                </td>
-                                <td onClick={(e) => e.stopPropagation()}>
-                                  {!row.hasChart ? (
-                                    <button
-                                      type="button"
-                                      className="missing-spot-add"
-                                      disabled={addingSpots}
-                                      onClick={() =>
-                                        void addOneMissingSpot({
-                                          spot_key: row.spot_key,
-                                          hero_position: row.hero_position,
-                                          villain_position: row.villain_position,
-                                          label: mu,
-                                          hands_count: row.hands_count,
-                                        })
-                                      }
-                                    >
-                                      {addingSpotKey ===
-                                      `${row.spot_key}|${row.hero_position}|${row.villain_position ?? ""}`
-                                        ? "…"
-                                        : "Добавить чарт"}
-                                    </button>
-                                  ) : null}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                );
-              })()}
-            </>
+            <div className="analysis-table-wrap">
+              <table className="analysis-table">
+                <thead>
+                  <tr>
+                    <th>Ветка стратегии</th>
+                    <th>Разд.</th>
+                    <th>Реш.</th>
+                    <th>Точность</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scoreRows.map((row) => (
+                    <tr
+                      key={`${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`}
+                      className="clickable-row"
+                      onClick={() =>
+                        goErrors({
+                          matchup: row.matchup,
+                          potKind: row.pot_kind,
+                          spotKey: row.spot_key,
+                          heroPosition: row.hero_position,
+                          villainPosition: row.villain_position,
+                        })
+                      }
+                    >
+                      <td>
+                        <span className="err-chart-tags">
+                          <strong className="err-chart-matchup">{row.matchup}</strong>
+                          <em className={`pot-tag pot-${row.pot_kind}`}>{row.pot_tag}</em>
+                        </span>
+                      </td>
+                      <td>{row.hands_count.toLocaleString("ru-RU")}</td>
+                      <td>{row.decisions || "—"}</td>
+                      <td
+                        className={
+                          row.correct_pct == null
+                            ? "muted"
+                            : row.correct_pct >= 80
+                              ? "pos"
+                              : "neg"
+                        }
+                      >
+                        {row.correct_pct == null
+                          ? "—"
+                          : `${row.correct_pct.toFixed(1)}%`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
 
           <div className="missing-spots-panel">
             <div className="missing-spots-head">
               <div>
-                <strong>Нет в тренажёре</strong>
+                <strong>Добавить в стратегию</strong>
                 <p className="muted">
-                  Ситуации из раздач, которых нет среди веток конструктора (пот + матчап).
+                  Было в раздачах, но такой ветки (пот + матчап) нет в стратегии — добавь и
+                  сразу отредактируй чарт.
                 </p>
               </div>
             </div>
@@ -1793,7 +1589,6 @@ export default function StrategyAnalysisPanel({
                               {potKindTag(potKind)}
                             </em>
                           </span>
-                          <span className="missing-spot-tag">нет чарта</span>
                           <em>{(s.hands_count ?? 0).toLocaleString("ru-RU")} разд.</em>
                           <em className={pl >= 0 ? "pos" : "neg"}>
                             ${pl.toFixed(2)}
@@ -1805,14 +1600,14 @@ export default function StrategyAnalysisPanel({
                           disabled={addingSpots}
                           onClick={() => void addOneMissingSpot(s)}
                         >
-                          {busy ? "…" : "Добавить"}
+                          {busy ? "…" : "Добавить в стратегию"}
                         </button>
                       </li>
                     );
                   })}
               </ul>
             ) : (
-              <p className="muted">Все матчапы из сессии уже есть в стратегии.</p>
+              <p className="muted">Все ситуации из сессии уже есть в стратегии.</p>
             )}
           </div>
         </>

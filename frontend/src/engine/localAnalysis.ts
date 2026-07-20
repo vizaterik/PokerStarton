@@ -817,8 +817,8 @@ async function buildDeviations(
     };
   });
 
-  // Keep every scored HH branch; remap label to constructor when pot+matchup matches.
-  // Do not drop session variants that are not (yet) in the constructor.
+  // Report accuracy only for branches that exist in the strategy (constructor).
+  // HH-only lines are not scored here — UI offers «Добавить в стратегию».
   if (treeBranches.length) {
     const coverOpts = { strictOpen: true, strictPot: true } as const;
     const branchAcc = new Map<string, PreflopBranchAccuracy>();
@@ -829,14 +829,14 @@ async function buildDeviations(
         villain_position: row.villain_position,
       };
       const sessionPot = spotPotKind(row.spot_key);
-      // Exact pot only — never remapping Raise decisions onto 3-bet (or reverse).
       const branch = treeBranches.find(
         (b) =>
           b.potKind === sessionPot &&
           spotCoveredByBranches(spotLike, [b], coverOpts),
       );
-      const mu = branch?.label || row.matchup || "—";
-      const potKind: BranchPotKind = branch?.potKind ?? sessionPot;
+      if (!branch) continue;
+      const mu = branch.label;
+      const potKind: BranchPotKind = branch.potKind;
       const accKey = constructorTagKey(potKind, mu);
       const prev = branchAcc.get(accKey);
       if (!prev) {
@@ -865,7 +865,9 @@ async function buildDeviations(
           : undefined,
       });
     }
-    by_branch = [...branchAcc.values()];
+    by_branch = [...branchAcc.values()].sort(
+      (a, b) => (b.decisions ?? 0) - (a.decisions ?? 0),
+    );
 
     const grouped = groupChartErrorsByTreeBranches(
       rawChartErrors,
@@ -878,6 +880,9 @@ async function buildDeviations(
       pot_kind: g.potKind,
       cells: g.cells,
     }));
+  } else {
+    by_branch = [];
+    rawChartErrors = [];
   }
 
   const chart_errors = rawChartErrors;
