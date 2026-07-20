@@ -5,6 +5,7 @@ import {
   putStrategyTree,
   type EnsuredSpotInfo,
 } from "../../api/client";
+import { handToSessionSpot } from "../../engine/handSpot";
 import { listHandsForStrategy } from "../../engine/localDb";
 import { listMissingSpotsLocal } from "../../engine/localMissingSpots";
 import { spotPotKind, spotPotTag, treeMatchupLabel } from "../../lib/branchLabel";
@@ -245,18 +246,25 @@ export default function BranchPanel({
         ? normalizeChartPos(spot.villain_position)
         : null;
       const spotKey = spot.spot_key.trim().toLowerCase();
-      const sample =
-        hands.find((h) => {
-          const hs = (h.detected_spot || "").trim().toLowerCase();
-          if (hs !== spotKey) return false;
-          if (normalizeChartPos(h.hero_position || "") !== heroN) return false;
-          if (!villN) return true;
-          return normalizeChartPos(h.villain_position || "") === villN;
-        }) ?? null;
-
-      let seeded = sample
-        ? seedPlayedLineIntoDoc(doc, buildPlayedLine(sample))
-        : null;
+      // Solo RFI: always open-raise preset (not HH replay).
+      let seeded =
+        spotKey === "rfi" ? seedSpotIntoDoc(doc, spot) : null;
+      if (!seeded) {
+        const sample =
+          hands.find((h) => {
+            const resolved = handToSessionSpot(h);
+            if (!resolved) return false;
+            if (resolved.spot_key.trim().toLowerCase() !== spotKey) return false;
+            if (normalizeChartPos(resolved.hero_position) !== heroN) return false;
+            if (!villN) return !resolved.villain_position;
+            return (
+              normalizeChartPos(resolved.villain_position || "") === villN
+            );
+          }) ?? null;
+        seeded = sample
+          ? seedPlayedLineIntoDoc(doc, buildPlayedLine(sample))
+          : null;
+      }
       if (!seeded) seeded = seedSpotIntoDoc(doc, spot);
       if (!seeded) {
         setHint(

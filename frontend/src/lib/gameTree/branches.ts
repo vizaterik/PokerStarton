@@ -166,15 +166,21 @@ export function collectBranches(root: GameTreeNode): SavedBranch[] {
     if (node.children.length === 0) {
       // Save only when preflop action is mathematically closed → flop
       if (!node.awaitingFlop || keys.length === 0) continue;
-      // Chart for this line = last preflop decision before flop tip.
-      // Do NOT inherit ancestor open paint — that made empty facing lines
-      // appear as "painted" with no chart while still collecting errors.
-      const decision = path[path.length - 2] ?? node;
-      const paintNodeId = decision.id;
+      // Paint = last RAISE/CALL decision (open / call / 3bet), not trailing folds.
+      // Open → fold-to-flop used to point paint at the last folder.
+      let paintNodeId = (path[path.length - 2] ?? node).id;
+      for (let i = path.length - 1; i >= 1; i -= 1) {
+        const act = path[i].actionTaken;
+        if (act === "RAISE" || act === "CALL") {
+          paintNodeId = path[i - 1].id;
+          break;
+        }
+      }
+      const paintNode = path.find((n) => n.id === paintNodeId) ?? path[path.length - 2] ?? node;
       const paintedCount =
-        decision.awaitingFlop || decision.street !== "preflop"
+        paintNode.awaitingFlop || paintNode.street !== "preflop"
           ? 0
-          : countPaintedHands(decision);
+          : countPaintedHands(paintNode);
       const signature = keys.join("|");
       let coldCallers = 0;
       let raisesSeen = 0;

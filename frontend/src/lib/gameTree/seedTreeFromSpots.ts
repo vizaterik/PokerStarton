@@ -330,6 +330,17 @@ function defaultSizing(action: PlayedLineAction, raiseCount: number, seat: Seat)
 }
 
 /**
+ * Pure RFI: one open-raise, no limps/calls in the line.
+ * Prefer the style preset so «+» always builds Open → fold to flop.
+ */
+function isPureOpenRaise(line: PlayedLine): boolean {
+  const voluntary = line.actions.filter((a) => a.action !== "FOLD");
+  if (voluntary.length !== 1) return false;
+  const only = voluntary[0];
+  return only.action === "RAISE" && Boolean(only.isHero || line.heroSeat === only.seat);
+}
+
+/**
  * Create missing tree edges for a played HH line, then fold remaining seats
  * to a closed flop tip — same paint-ready contract as style presets.
  */
@@ -338,6 +349,20 @@ export function seedPlayedLineIntoDoc(
   line: PlayedLine,
 ): SeedSpotResult | null {
   if (!line.actions.length) return null;
+
+  // Solo opens must be open-raise presets — HH fold chains often land paint on
+  // the wrong node or skip the Raise window entirely.
+  if (isPureOpenRaise(line)) {
+    const opener =
+      line.actions.find((a) => a.action === "RAISE")?.seat ?? line.heroSeat;
+    if (opener) {
+      return seedSpotIntoDoc(doc, {
+        spot_key: "rfi",
+        hero_position: opener,
+        villain_position: null,
+      });
+    }
+  }
 
   let current = doc;
   let raiseCount = 0;

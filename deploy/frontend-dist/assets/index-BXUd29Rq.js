@@ -27630,9 +27630,16 @@ function collectBranches(root) {
     const { node, path, raiseIndex, raiseSizings, keys } = frame;
     if (node.children.length === 0) {
       if (!node.awaitingFlop || keys.length === 0) continue;
-      const decision = path[path.length - 2] ?? node;
-      const paintNodeId = decision.id;
-      const paintedCount = decision.awaitingFlop || decision.street !== "preflop" ? 0 : countPaintedHands(decision);
+      let paintNodeId = (path[path.length - 2] ?? node).id;
+      for (let i = path.length - 1; i >= 1; i -= 1) {
+        const act = path[i].actionTaken;
+        if (act === "RAISE" || act === "CALL") {
+          paintNodeId = path[i - 1].id;
+          break;
+        }
+      }
+      const paintNode = path.find((n) => n.id === paintNodeId) ?? path[path.length - 2] ?? node;
+      const paintedCount = paintNode.awaitingFlop || paintNode.street !== "preflop" ? 0 : countPaintedHands(paintNode);
       const signature = keys.join("|");
       let coldCallers = 0;
       let raisesSeen = 0;
@@ -28222,7 +28229,7 @@ function raiseLabelAtIndex(raiseIndex, wasSqueeze = false) {
   return "ALL-IN";
 }
 function shortRaiseWord(label) {
-  if (label === "RAISE") return "Raise";
+  if (label === "RAISE") return "Open";
   if (label === "3-BET") return "3-bet";
   if (label === "SQUEEZE") return "Squeeze";
   if (label === "4-BET") return "4-bet";
@@ -29119,8 +29126,25 @@ function defaultSizing(action, raiseCount, seat) {
   if (raiseCount === 1) return Math.round(standardOpenSize(seat) * THREE_BET_MULT * 10) / 10;
   return Math.round(standardOpenSize(seat) * THREE_BET_MULT * FOUR_BET_MULT * 10) / 10;
 }
+function isPureOpenRaise(line) {
+  const voluntary = line.actions.filter((a) => a.action !== "FOLD");
+  if (voluntary.length !== 1) return false;
+  const only = voluntary[0];
+  return only.action === "RAISE" && Boolean(only.isHero || line.heroSeat === only.seat);
+}
 function seedPlayedLineIntoDoc(doc, line) {
+  var _a;
   if (!line.actions.length) return null;
+  if (isPureOpenRaise(line)) {
+    const opener = ((_a = line.actions.find((a) => a.action === "RAISE")) == null ? void 0 : _a.seat) ?? line.heroSeat;
+    if (opener) {
+      return seedSpotIntoDoc(doc, {
+        spot_key: "rfi",
+        hero_position: opener,
+        villain_position: null
+      });
+    }
+  }
   let current2 = doc;
   let raiseCount = 0;
   let cursorId = current2.root.id;
@@ -29340,14 +29364,18 @@ function BranchPanel({
       const heroN = normalizeChartPos(spot.hero_position);
       const villN = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
       const spotKey = spot.spot_key.trim().toLowerCase();
-      const sample = hands.find((h) => {
-        const hs = (h.detected_spot || "").trim().toLowerCase();
-        if (hs !== spotKey) return false;
-        if (normalizeChartPos(h.hero_position || "") !== heroN) return false;
-        if (!villN) return true;
-        return normalizeChartPos(h.villain_position || "") === villN;
-      }) ?? null;
-      let seeded = sample ? seedPlayedLineIntoDoc(doc, buildPlayedLine(sample)) : null;
+      let seeded = spotKey === "rfi" ? seedSpotIntoDoc(doc, spot) : null;
+      if (!seeded) {
+        const sample = hands.find((h) => {
+          const resolved = handToSessionSpot(h);
+          if (!resolved) return false;
+          if (resolved.spot_key.trim().toLowerCase() !== spotKey) return false;
+          if (normalizeChartPos(resolved.hero_position) !== heroN) return false;
+          if (!villN) return !resolved.villain_position;
+          return normalizeChartPos(resolved.villain_position || "") === villN;
+        }) ?? null;
+        seeded = sample ? seedPlayedLineIntoDoc(doc, buildPlayedLine(sample)) : null;
+      }
       if (!seeded) seeded = seedSpotIntoDoc(doc, spot);
       if (!seeded) {
         setHint(
@@ -34805,15 +34833,20 @@ function StrategyAnalysisPanel({
         const heroN = normalizeChartPos(spot.hero_position);
         const villN = spot.villain_position ? normalizeChartPos(spot.villain_position) : null;
         const spotKey = spot.spot_key.trim().toLowerCase();
-        const sample = hands.find((h) => {
-          const resolved = handToSessionSpot(h);
-          if (!resolved) return false;
-          if (resolved.spot_key.trim().toLowerCase() !== spotKey) return false;
-          if (normalizeChartPos(resolved.hero_position) !== heroN) return false;
-          if (!villN) return !resolved.villain_position;
-          return normalizeChartPos(resolved.villain_position || "") === villN;
-        }) ?? null;
-        let focus = sample ? seedPlayedLineIntoTree(strategyId, sample) : null;
+        let focus = spotKey === "rfi" ? seedSpotIntoTree(strategyId, spot) : null;
+        if (!focus) {
+          const sample = hands.find((h) => {
+            const resolved = handToSessionSpot(h);
+            if (!resolved) return false;
+            if (resolved.spot_key.trim().toLowerCase() !== spotKey) return false;
+            if (normalizeChartPos(resolved.hero_position) !== heroN) {
+              return false;
+            }
+            if (!villN) return !resolved.villain_position;
+            return normalizeChartPos(resolved.villain_position || "") === villN;
+          }) ?? null;
+          focus = sample ? seedPlayedLineIntoTree(strategyId, sample) : null;
+        }
         if (!focus) focus = seedSpotIntoTree(strategyId, spot);
         if (!focus) {
           setSpotsHint(
@@ -35605,6 +35638,33 @@ function StrategyAnalysisPanel({
       label
     });
   }
+  function openBranchVpipReplay(row) {
+    void (async () => {
+      const hands = await listHandsForStrategy(strategyId);
+      const vpipHands = hands.filter((h) => {
+        var _a2;
+        return Boolean(h.vpip || ((_a2 = h.flags) == null ? void 0 : _a2.vpip));
+      });
+      const cells = buildVpipCellsForSpot(vpipHands, {
+        spot_key: row.spot_key,
+        hero_position: row.hero_position,
+        villain_position: row.villain_position,
+        matchup: row.matchup,
+        pot_kind: row.pot_kind
+      });
+      const ids = [
+        ...new Set(cells.flatMap((c) => c.hand_ids ?? []).filter(Boolean))
+      ];
+      if (!ids.length) return;
+      const tag = row.pot_tag || potKindTag(row.pot_kind);
+      openHandsReplay(ids, `VPIP · ${tag} ${row.matchup} · ${ids.length}`);
+    })();
+  }
+  function selectComboAndReplay(code, filter, playCells) {
+    selectCombo(code, filter);
+    const { ids, label } = resolveComboHandIds(code, { ...filter, handCode: code }, playCells);
+    if (ids.length) openHandsReplay(ids, label);
+  }
   function openSelectedComboReplay(playCells) {
     const code = selectedHand || errorFilter.handCode;
     if (!code) {
@@ -35823,7 +35883,7 @@ function StrategyAnalysisPanel({
       const errorCells = focusMissing ? [] : (activeChart == null ? void 0 : activeChart.cells) ?? [];
       const strategyCells = focusMissing ? {} : strategyChart;
       return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted analysis-chart-hint", children: "Проанализированные ветки из раздач + те, которых нет в стратегии (с «+»). Клик — Стратегия · Ошибки · VPIP." }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted analysis-chart-hint", children: "Клик по ветке — реплей всего VPIP. Клик по комбо в диапазоне — реплей этой руки." }),
         scoreRows.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted", children: missingLoading ? "Проверяем раздачи…" : "Нет впипнутых веток в этой сессии — загрузи HH или выбери другую базу." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-errors-layout branches-compare-layout", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("aside", { className: "preflop-chart-list", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsxs("h3", { className: "analysis-subhead", children: [
@@ -35858,8 +35918,11 @@ function StrategyAnalysisPanel({
                       {
                         type: "button",
                         className: `branch-list-main${active ? " is-active" : ""}`,
-                        onClick: () => selectBranchFocus(row),
-                        title: "Сравнить диапазоны",
+                        onClick: () => {
+                          selectBranchFocus(row);
+                          openBranchVpipReplay(row);
+                        },
+                        title: "Реплей всего VPIP по ветке",
                         children: [
                           /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "err-chart-tags err-chart-tags--inline", children: [
                             /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: `pot-tag pot-${row.pot_kind}`, children: row.pot_tag }),
@@ -35926,13 +35989,17 @@ function StrategyAnalysisPanel({
                     selected: selectedHand,
                     emptyHint: focusMissing ? "Нет чарта — нажми + чтобы добавить ветку" : void 0,
                     onSelectHand: (code) => {
-                      selectCombo(code, {
-                        spotKey: focusRow.spot_key,
-                        heroPosition: focusRow.hero_position,
-                        villainPosition: focusRow.villain_position,
-                        matchup: focusMu2,
-                        potKind: focusPot2
-                      });
+                      selectComboAndReplay(
+                        code,
+                        {
+                          spotKey: focusRow.spot_key,
+                          heroPosition: focusRow.hero_position,
+                          villainPosition: focusRow.villain_position,
+                          matchup: focusMu2,
+                          potKind: focusPot2
+                        },
+                        vpipCells
+                      );
                     }
                   }
                 )
@@ -35940,7 +36007,7 @@ function StrategyAnalysisPanel({
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-chart-pane", children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Ошибки" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = выбрать" })
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = реплей руки" })
                 ] }),
                 focusMissing ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted analysis-chart-hint", children: "Нет эталона — ошибок стратегии нет." }) : /* @__PURE__ */ jsxRuntimeExports.jsx(
                   DeviationErrorMatrix,
@@ -35948,13 +36015,17 @@ function StrategyAnalysisPanel({
                     cells: errorCells,
                     selectedHand,
                     onSelectHand: (code) => {
-                      selectCombo(code, {
-                        spotKey: focusRow.spot_key,
-                        heroPosition: focusRow.hero_position,
-                        villainPosition: focusRow.villain_position,
-                        matchup: focusMu2,
-                        potKind: focusPot2
-                      });
+                      selectComboAndReplay(
+                        code,
+                        {
+                          spotKey: focusRow.spot_key,
+                          heroPosition: focusRow.hero_position,
+                          villainPosition: focusRow.villain_position,
+                          matchup: focusMu2,
+                          potKind: focusPot2
+                        },
+                        vpipCells
+                      );
                     }
                   }
                 )
@@ -35962,7 +36033,7 @@ function StrategyAnalysisPanel({
               /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-chart-pane preflop-chart-pane--full", children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "VPIP" }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = выбрать" })
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = реплей руки" })
                 ] }),
                 /* @__PURE__ */ jsxRuntimeExports.jsx(
                   DeviationErrorMatrix,
@@ -35972,13 +36043,17 @@ function StrategyAnalysisPanel({
                     countNoun: "разд.",
                     ariaLabel: "VPIP диапазон",
                     onSelectHand: (code) => {
-                      selectCombo(code, {
-                        spotKey: focusRow.spot_key,
-                        heroPosition: focusRow.hero_position,
-                        villainPosition: focusRow.villain_position,
-                        matchup: focusMu2,
-                        potKind: focusPot2
-                      });
+                      selectComboAndReplay(
+                        code,
+                        {
+                          spotKey: focusRow.spot_key,
+                          heroPosition: focusRow.hero_position,
+                          villainPosition: focusRow.villain_position,
+                          matchup: focusMu2,
+                          potKind: focusPot2
+                        },
+                        vpipCells
+                      );
                     }
                   }
                 )
@@ -35988,10 +36063,9 @@ function StrategyAnalysisPanel({
               const code = selectedHand || errorFilter.handCode || null;
               const playCells = vpipCells;
               const combo = code ? resolveComboHandIds(code, errorFilter, playCells) : null;
-              const count = (combo == null ? void 0 : combo.ids.length) || filteredDevs.length;
-              if (count <= 0) {
-                return /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted analysis-chart-hint", children: "Кликни комбо в диапазоне — появится кнопка реплея." });
-              }
+              const branchIds = playCells.flatMap((c) => c.hand_ids ?? []);
+              const count = (combo == null ? void 0 : combo.ids.length) || branchIds.length;
+              if (count <= 0) return null;
               return /* @__PURE__ */ jsxRuntimeExports.jsx(
                 "div",
                 {
@@ -36002,10 +36076,16 @@ function StrategyAnalysisPanel({
                     {
                       type: "button",
                       className: "preflop-filter-clear",
-                      onClick: () => openSelectedComboReplay(playCells),
+                      onClick: () => {
+                        if (code) {
+                          openSelectedComboReplay(playCells);
+                          return;
+                        }
+                        if (focusRow) openBranchVpipReplay(focusRow);
+                      },
                       children: [
                         "Реплей",
-                        code ? ` · ${code}` : "",
+                        code ? ` · ${code}` : " · VPIP ветки",
                         " ·",
                         " ",
                         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "err-count", children: count })
@@ -36116,7 +36196,11 @@ function StrategyAnalysisPanel({
               {
                 type: "button",
                 className: active ? "is-active" : "",
-                onClick: () => selectBranchFocus(row),
+                title: "Реплей всего VPIP по ветке",
+                onClick: () => {
+                  selectBranchFocus(row);
+                  openBranchVpipReplay(row);
+                },
                 children: [
                   /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "err-chart-tags err-chart-tags--inline", children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: `pot-tag pot-${row.pot_kind}`, children: row.pot_tag }),
@@ -36161,7 +36245,7 @@ function StrategyAnalysisPanel({
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-chart-pane", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Ошибки" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = выбрать" })
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = реплей руки" })
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(
                 DeviationErrorMatrix,
@@ -36176,13 +36260,17 @@ function StrategyAnalysisPanel({
                       activeChart.label
                     );
                     const pot = errorFilter.potKind || activeChart.pot_kind || spotPotKind(activeChart.spot_key);
-                    selectCombo(code, {
-                      spotKey: activeChart.spot_key,
-                      heroPosition: activeChart.hero_position,
-                      villainPosition: activeChart.villain_position,
-                      matchup: mu,
-                      potKind: pot
-                    });
+                    selectComboAndReplay(
+                      code,
+                      {
+                        spotKey: activeChart.spot_key,
+                        heroPosition: activeChart.hero_position,
+                        villainPosition: activeChart.villain_position,
+                        matchup: mu,
+                        potKind: pot
+                      },
+                      (activePlayedChart == null ? void 0 : activePlayedChart.cells) ?? activeChart.cells
+                    );
                   }
                 }
               )
@@ -36190,7 +36278,7 @@ function StrategyAnalysisPanel({
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "preflop-chart-pane", children: [
               /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { children: [
                 /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "VPIP" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = выбрать" })
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "raise / call / fold · клик = реплей руки" })
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(
                 DeviationErrorMatrix,
@@ -36207,13 +36295,17 @@ function StrategyAnalysisPanel({
                       activeChart.label
                     );
                     const pot = errorFilter.potKind || (activePlayedChart == null ? void 0 : activePlayedChart.pot_kind) || activeChart.pot_kind || spotPotKind(activeChart.spot_key);
-                    selectCombo(code, {
-                      spotKey: (activePlayedChart == null ? void 0 : activePlayedChart.spot_key) || activeChart.spot_key,
-                      heroPosition: (activePlayedChart == null ? void 0 : activePlayedChart.hero_position) || activeChart.hero_position,
-                      villainPosition: (activePlayedChart == null ? void 0 : activePlayedChart.villain_position) ?? activeChart.villain_position,
-                      matchup: mu,
-                      potKind: pot
-                    });
+                    selectComboAndReplay(
+                      code,
+                      {
+                        spotKey: (activePlayedChart == null ? void 0 : activePlayedChart.spot_key) || activeChart.spot_key,
+                        heroPosition: (activePlayedChart == null ? void 0 : activePlayedChart.hero_position) || activeChart.hero_position,
+                        villainPosition: (activePlayedChart == null ? void 0 : activePlayedChart.villain_position) ?? activeChart.villain_position,
+                        matchup: mu,
+                        potKind: pot
+                      },
+                      (activePlayedChart == null ? void 0 : activePlayedChart.cells) ?? activeChart.cells
+                    );
                   }
                 }
               )
@@ -36224,9 +36316,7 @@ function StrategyAnalysisPanel({
             const playCells = (activePlayedChart == null ? void 0 : activePlayedChart.cells) ?? activeChart.cells;
             const combo = code ? resolveComboHandIds(code, errorFilter, playCells) : null;
             const count = (combo == null ? void 0 : combo.ids.length) || filteredDevs.length;
-            if (count <= 0) {
-              return /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "muted analysis-chart-hint", children: "Кликни комбо в диапазоне — появится кнопка реплея." });
-            }
+            if (count <= 0) return null;
             return /* @__PURE__ */ jsxRuntimeExports.jsx(
               "div",
               {

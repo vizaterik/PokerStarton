@@ -29,9 +29,9 @@ export function raiseLabelAtIndex(
   return "ALL-IN";
 }
 
-/** Short word for history chips. */
+/** Short word for history chips. First aggression = Open (RFI). */
 export function shortRaiseWord(label: RaiseLabel): string {
-  if (label === "RAISE") return "Raise";
+  if (label === "RAISE") return "Open";
   if (label === "3-BET") return "3-bet";
   if (label === "SQUEEZE") return "Squeeze";
   if (label === "4-BET") return "4-bet";
