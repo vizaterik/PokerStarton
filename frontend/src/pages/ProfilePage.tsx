@@ -10,6 +10,7 @@ import {
 } from "../api/client";
 import ConfirmDialog from "../components/ConfirmDialog";
 import DatabasesPanel from "../components/DatabasesPanel";
+import EngagementIcons from "../components/EngagementIcons";
 // import SubscriptionPanel from "../components/SubscriptionPanel";
 import { BRAND } from "../lib/brand";
 import { logout } from "../lib/auth";
@@ -214,13 +215,12 @@ export default function ProfilePage() {
                               ? new Date(h.played_at).toLocaleDateString("ru-RU")
                               : "—"}
                             {net ? ` · ${net}` : ""}
-                            {" · "}
-                            <Link to={h.path} className="profile-top-link">
-                              {h.comments_count} комм.
-                            </Link>
                           </span>
                         </div>
-                        <span className="profile-top-likes">♥ {h.likes_count}</span>
+                        <EngagementIcons
+                          comments={h.comments_count}
+                          likes={h.likes_count}
+                        />
                       </li>
                     );
                   })}

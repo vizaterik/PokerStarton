@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getPublicProfile, type PublicProfile } from "../api/client";
+import EngagementIcons from "../components/EngagementIcons";
 
 function formatHandLabel(hand: string | null | undefined) {
   if (!hand || hand.length < 4) return "Раздача";
@@ -112,14 +113,9 @@ export default function PublicProfilePage() {
                   {h.played_at ? (
                     <span>{new Date(h.played_at).toLocaleDateString("ru-RU")}</span>
                   ) : null}
-                  <Link to={h.path} className="feed-top-link">
-                    {h.comments_count} комм.
-                  </Link>
                 </div>
               </div>
-              <div className="feed-top-stats">
-                <span title="Лайки">♥ {h.likes_count}</span>
-              </div>
+              <EngagementIcons comments={h.comments_count} likes={h.likes_count} />
             </li>
           ))}
         </ol>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { listTopHands, type TopHand } from "../api/client";
+import EngagementIcons from "../components/EngagementIcons";
 import PlayingCard from "../components/PlayingCard";
 
 export default function FeedPage() {
@@ -68,13 +69,12 @@ export default function FeedPage() {
               <Link to={h.author_path} className="feed-author-link" title="Профиль">
                 {h.author_display_name}
               </Link>
-              <div className="hits-engagement">
-                <span title="Уникальные просмотры">{h.views_count} просм.</span>
-                <span title="Комментарии">{h.comments_count} комм.</span>
-                <span className="hits-likes" title="Лайки">
-                  ♥ {h.likes_count}
-                </span>
-              </div>
+              <EngagementIcons
+                className="hits-engagement"
+                views={h.views_count}
+                comments={h.comments_count}
+                likes={h.likes_count}
+              />
             </div>
           </li>
         ))}

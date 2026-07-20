@@ -15836,18 +15836,42 @@ button,
   align-content: center;
 }
 
-.hits-engagement {
-  display: grid;
-  gap: 0.2rem;
-  justify-items: end;
-  font-size: 0.82rem;
+.eng-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 0.55rem;
+  font-size: 0.8rem;
   font-weight: 700;
-  color: rgba(232, 234, 239, 0.75);
+  line-height: 1;
+  color: rgba(232, 234, 239, 0.72);
+  white-space: nowrap;
 }
 
-.hits-likes {
+.eng-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+}
+
+.eng-ico {
+  width: 0.95rem;
+  height: 0.95rem;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.eng-item.eng-likes,
+.eng-likes {
   color: #fca5a5;
-  font-weight: 800;
+}
+
+.eng-ico-heart {
+  opacity: 1;
+}
+
+.hits-engagement {
+  justify-self: end;
 }
 
 .feed-back {
