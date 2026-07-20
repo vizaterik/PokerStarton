@@ -13,7 +13,7 @@ def list_top_hands(
     limit: int = Query(default=5, ge=1, le=20),
     db: Session = Depends(get_db),
 ) -> TopHandsResponse:
-    """Public hits: one most-liked hand per author."""
+    """Public hits: hands of the day by unique views, likes, comments."""
     return feed_top_svc.list_top_hands(db, limit=limit)
 
 

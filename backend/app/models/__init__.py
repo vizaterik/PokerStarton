@@ -10,6 +10,7 @@ from app.models.hand_share_social import (
     HandShareComment,
     HandShareCommentLike,
     HandShareLike,
+    HandShareView,
 )
 from app.models.page_view import PageView
 from app.models.player_stats import HudAggregationCredit, PlayerStatsAggregated
@@ -30,6 +31,7 @@ __all__ = [
     "HandShareComment",
     "HandShareCommentLike",
     "HandShareLike",
+    "HandShareView",
     "FeedSettings",
     "FeedPost",
     "HandDatabase",

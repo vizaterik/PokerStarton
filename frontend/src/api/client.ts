@@ -1040,7 +1040,18 @@ export function createHandShareFromText(payload: {
 
 /** Public replay — no auth required; does not clear tokens on failure. */
 export async function fetchPublicHandReplay(token: string) {
-  const res = await fetch(`${API_BASE}/api/public/hands/${encodeURIComponent(token)}/replay`);
+  const q = new URLSearchParams({ visitor_id: getVisitorId() });
+  const headers: Record<string, string> = {};
+  try {
+    const access = localStorage.getItem("access_token");
+    if (access) headers.Authorization = `Bearer ${access}`;
+  } catch {
+    /* ignore */
+  }
+  const res = await fetch(
+    `${API_BASE}/api/public/hands/${encodeURIComponent(token)}/replay?${q}`,
+    { headers },
+  );
   if (!res.ok) {
     let message = res.statusText;
     try {
@@ -1786,6 +1797,8 @@ export type PublicProfile = {
   registered_at: string | null;
   rating: number;
   likes_received: number;
+  unique_views: number;
+  comments_count: number;
 };
 
 export function listTopHands(limit = 5) {

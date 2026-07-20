@@ -8,23 +8,11 @@ from app.models.hand_share import HandShare
 from app.models.hand_share_social import HandShareLike
 from app.models.user import User
 from app.schemas.auth import ProfileStatsRead, ProfileTopHandRead
-
-
-def _rating(likes_received: int) -> int:
-    """Simple social rating from likes on shared hands."""
-    return 1000 + max(0, likes_received) * 10
+from app.services.social_rating import author_engagement_totals, author_rating
 
 
 def get_profile_stats(db: Session, user: User, *, limit: int = 10) -> ProfileStatsRead:
-    likes_received = int(
-        db.scalar(
-            select(func.count())
-            .select_from(HandShareLike)
-            .join(HandShare, HandShare.id == HandShareLike.share_id)
-            .where(HandShare.created_by == user.id)
-        )
-        or 0
-    )
+    _views, likes_received, _comments = author_engagement_totals(db, user.id)
     shares_count = int(
         db.scalar(
             select(func.count()).select_from(HandShare).where(HandShare.created_by == user.id)
@@ -78,7 +66,7 @@ def get_profile_stats(db: Session, user: User, *, limit: int = 10) -> ProfileSta
 
     return ProfileStatsRead(
         registered_at=user.created_at,
-        rating=_rating(likes_received),
+        rating=author_rating(db, user.id),
         likes_received=likes_received,
         shares_count=shares_count,
         top_hands=top_hands,

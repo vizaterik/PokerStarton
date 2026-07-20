@@ -26,3 +26,5 @@ class PublicProfileRead(BaseModel):
     registered_at: datetime | None = None
     rating: int = 1000
     likes_received: int = 0
+    unique_views: int = 0
+    comments_count: int = 0

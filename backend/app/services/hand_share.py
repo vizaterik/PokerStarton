@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.hand import Hand, HandAction, HandUpload, PlaySession
 from app.models.hand_share import HandShare
+from app.models.hand_share_social import HandShareView
 from app.models.user import User
 from app.parsers.pokerstars import ParsedAction, ParsedHand, parse_pokerstars
 from app.schemas.analysis import ReplayHand
@@ -341,7 +342,60 @@ def create_share_from_replay(
     return _ensure_share_row(db, user.id, hand.id)
 
 
-def get_public_hand_replay(db: Session, token: str) -> ReplayHand:
+def _viewer_key(*, user: User | None, visitor_id: str | None) -> str | None:
+    if user is not None:
+        return f"u:{user.id}"
+    vid = (visitor_id or "").strip()[:64]
+    if len(vid) >= 8:
+        return f"v:{vid}"
+    return None
+
+
+def record_unique_share_view(
+    db: Session,
+    share: HandShare,
+    *,
+    user: User | None = None,
+    visitor_id: str | None = None,
+) -> bool:
+    """Record one unique view. Returns True if this viewer was new."""
+    key = _viewer_key(user=user, visitor_id=visitor_id)
+    if not key:
+        return False
+    existing = db.scalar(
+        select(HandShareView.id).where(
+            HandShareView.share_id == share.id,
+            HandShareView.viewer_key == key,
+        )
+    )
+    if existing is not None:
+        return False
+    db.add(
+        HandShareView(
+            share_id=share.id,
+            viewer_key=key,
+            user_id=user.id if user is not None else None,
+        )
+    )
+    db.flush()
+    share.views_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(HandShareView)
+            .where(HandShareView.share_id == share.id)
+        )
+        or 0
+    )
+    return True
+
+
+def get_public_hand_replay(
+    db: Session,
+    token: str,
+    *,
+    user: User | None = None,
+    visitor_id: str | None = None,
+) -> ReplayHand:
     clean = (token or "").strip()
     if not clean or len(clean) > 64:
         raise LookupError("Ссылка недействительна")
@@ -357,6 +411,6 @@ def get_public_hand_replay(db: Session, token: str) -> ReplayHand:
     )
     if hand is None:
         raise LookupError("Раздача не найдена")
-    share.views_count = int(share.views_count or 0) + 1
-    db.commit()
+    if record_unique_share_view(db, share, user=user, visitor_id=visitor_id):
+        db.commit()
     return build_replay_hand(hand)

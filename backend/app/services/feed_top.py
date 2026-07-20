@@ -7,14 +7,16 @@ from sqlalchemy.orm import Session
 
 from app.models.hand import Hand
 from app.models.hand_share import HandShare
-from app.models.hand_share_social import HandShareComment, HandShareLike
+from app.models.hand_share_social import HandShareComment, HandShareLike, HandShareView
 from app.models.user import User
 from app.parsers.pokerstars import extract_hu_postflop_branch
 from app.schemas.feed import PublicProfileRead, TopHandItem, TopHandsResponse
-
-
-def _rating(likes_received: int) -> int:
-    return 1000 + max(0, likes_received) * 10
+from app.services.social_rating import (
+    author_engagement_totals,
+    author_rating,
+    moscow_day_end,
+    moscow_day_start,
+)
 
 
 def _hero_cards(hero_hand: str | None) -> list[str]:
@@ -57,31 +59,50 @@ def _pot_and_matchup(
     return pot_tag, matchup
 
 
-def list_top_hands(db: Session, *, limit: int = 5) -> TopHandsResponse:
-    """Best public hands by likes."""
+def _ranked_hands(
+    db: Session,
+    *,
+    limit: int,
+    since=None,
+    until=None,
+) -> list[TopHandItem]:
     lim = max(1, min(int(limit), 20))
 
-    likes_by_share = (
-        select(
-            HandShareLike.share_id.label("share_id"),
-            func.count().label("likes_count"),
-        )
-        .group_by(HandShareLike.share_id)
-        .subquery()
-    )
-    comments_by_share = (
-        select(
-            HandShareComment.share_id.label("share_id"),
-            func.count().label("comments_count"),
-        )
-        .group_by(HandShareComment.share_id)
-        .subquery()
+    likes_q = select(
+        HandShareLike.share_id.label("share_id"),
+        func.count().label("likes_count"),
+    ).group_by(HandShareLike.share_id)
+    comments_q = select(
+        HandShareComment.share_id.label("share_id"),
+        func.count().label("comments_count"),
+    ).group_by(HandShareComment.share_id)
+    views_q = select(
+        HandShareView.share_id.label("share_id"),
+        func.count().label("views_count"),
+    ).group_by(HandShareView.share_id)
+
+    if since is not None:
+        likes_q = likes_q.where(HandShareLike.created_at >= since)
+        comments_q = comments_q.where(HandShareComment.created_at >= since)
+        views_q = views_q.where(HandShareView.created_at >= since)
+    if until is not None:
+        likes_q = likes_q.where(HandShareLike.created_at < until)
+        comments_q = comments_q.where(HandShareComment.created_at < until)
+        views_q = views_q.where(HandShareView.created_at < until)
+
+    likes_by_share = likes_q.subquery()
+    comments_by_share = comments_q.subquery()
+    views_by_share = views_q.subquery()
+
+    score_expr = (
+        func.coalesce(views_by_share.c.views_count, 0) * 1
+        + func.coalesce(likes_by_share.c.likes_count, 0) * 10
+        + func.coalesce(comments_by_share.c.comments_count, 0) * 5
     )
 
     rows = db.execute(
         select(
             HandShare.token,
-            HandShare.views_count,
             Hand.hero_hand,
             Hand.raw_text,
             Hand.detected_spot,
@@ -90,27 +111,24 @@ def list_top_hands(db: Session, *, limit: int = 5) -> TopHandsResponse:
             User.display_name,
             func.coalesce(likes_by_share.c.likes_count, 0).label("likes_count"),
             func.coalesce(comments_by_share.c.comments_count, 0).label("comments_count"),
+            func.coalesce(views_by_share.c.views_count, 0).label("views_count"),
+            score_expr.label("score"),
         )
         .join(Hand, Hand.id == HandShare.hand_id)
         .join(User, User.id == HandShare.created_by)
         .outerjoin(likes_by_share, likes_by_share.c.share_id == HandShare.id)
         .outerjoin(comments_by_share, comments_by_share.c.share_id == HandShare.id)
+        .outerjoin(views_by_share, views_by_share.c.share_id == HandShare.id)
         .where(User.display_name.is_not(None))
         .where(func.length(func.trim(User.display_name)) > 0)
-        .where(func.coalesce(likes_by_share.c.likes_count, 0) > 0)
-        .order_by(
-            func.coalesce(likes_by_share.c.likes_count, 0).desc(),
-            func.coalesce(comments_by_share.c.comments_count, 0).desc(),
-            HandShare.views_count.desc(),
-            HandShare.created_at.desc(),
-        )
+        .where(score_expr > 0)
+        .order_by(score_expr.desc(), HandShare.created_at.desc())
         .limit(lim)
     ).all()
 
     items: list[TopHandItem] = []
     for (
         token,
-        views_count,
         hero_hand,
         raw_text,
         detected_spot,
@@ -119,6 +137,8 @@ def list_top_hands(db: Session, *, limit: int = 5) -> TopHandsResponse:
         display_name,
         likes_count,
         comments_count,
+        views_count,
+        _score,
     ) in rows:
         name = (display_name or "").strip()
         if not name:
@@ -143,7 +163,17 @@ def list_top_hands(db: Session, *, limit: int = 5) -> TopHandsResponse:
                 matchup=matchup,
             )
         )
+    return items
 
+
+def list_top_hands(db: Session, *, limit: int = 5) -> TopHandsResponse:
+    """Hands of the day by unique views + likes + comments (Moscow day)."""
+    day_start = moscow_day_start()
+    day_end = moscow_day_end(day_start)
+    items = _ranked_hands(db, limit=limit, since=day_start, until=day_end)
+    # Fallback: all-time best until today has engagement
+    if not items:
+        items = _ranked_hands(db, limit=limit)
     return TopHandsResponse(items=items, total=len(items))
 
 
@@ -156,19 +186,12 @@ def get_public_profile(db: Session, display_name: str) -> PublicProfileRead:
     if user is None or not (user.display_name or "").strip():
         raise LookupError("Профиль не найден")
 
-    likes_received = int(
-        db.scalar(
-            select(func.count())
-            .select_from(HandShareLike)
-            .join(HandShare, HandShare.id == HandShareLike.share_id)
-            .where(HandShare.created_by == user.id)
-        )
-        or 0
-    )
-
+    views, likes, comments = author_engagement_totals(db, user.id)
     return PublicProfileRead(
         display_name=user.display_name or nick,
         registered_at=user.created_at,
-        rating=_rating(likes_received),
-        likes_received=likes_received,
+        rating=author_rating(db, user.id),
+        likes_received=likes,
+        unique_views=views,
+        comments_count=comments,
     )

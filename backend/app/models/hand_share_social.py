@@ -59,6 +59,28 @@ class HandShareLike(Base):
     user: Mapped[User] = relationship()
 
 
+class HandShareView(Base):
+    """One unique view per visitor (user or anonymous visitor_id) on a shared hand."""
+
+    __tablename__ = "hand_share_views"
+    __table_args__ = (UniqueConstraint("share_id", "viewer_key", name="uq_share_view_viewer"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    share_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("hand_shares.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    viewer_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    share: Mapped[HandShare] = relationship()
+    user: Mapped[User | None] = relationship()
+
+
 class HandShareCommentLike(Base):
     """One like per registered user on a share comment."""
 

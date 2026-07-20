@@ -102,6 +102,30 @@ def ensure_sqlite_schema(engine: Engine) -> None:
             "ALTER TABLE hand_shares ADD COLUMN views_count INTEGER NOT NULL DEFAULT 0"
         )
 
+    tables = set(inspector.get_table_names())
+    if "hand_share_views" not in tables and "hand_shares" in tables:
+        statements.append(
+            """
+            CREATE TABLE IF NOT EXISTS hand_share_views (
+                id CHAR(32) NOT NULL,
+                share_id CHAR(32) NOT NULL,
+                viewer_key VARCHAR(80) NOT NULL,
+                user_id CHAR(32),
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                PRIMARY KEY (id),
+                UNIQUE (share_id, viewer_key),
+                FOREIGN KEY(share_id) REFERENCES hand_shares (id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE SET NULL
+            )
+            """
+        )
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS ix_hand_share_views_share_id ON hand_share_views (share_id)"
+        )
+        statements.append(
+            "CREATE INDEX IF NOT EXISTS ix_hand_share_views_created_at ON hand_share_views (created_at)"
+        )
+
     hand_db_cols = _column_names(inspector, "hand_databases")
     if hand_db_cols and "career_report" not in hand_db_cols:
         statements.append("ALTER TABLE hand_databases ADD COLUMN career_report JSON")

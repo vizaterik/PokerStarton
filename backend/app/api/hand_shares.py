@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_current_user_optional
@@ -49,9 +49,16 @@ def create_hand_share(
 
 
 @router.get("/public/hands/{token}/replay", response_model=ReplayHand)
-def get_public_hand_replay(token: str, db: Session = Depends(get_db)) -> ReplayHand:
+def get_public_hand_replay(
+    token: str,
+    visitor_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    viewer: User | None = Depends(get_current_user_optional),
+) -> ReplayHand:
     try:
-        return hand_share_svc.get_public_hand_replay(db, token)
+        return hand_share_svc.get_public_hand_replay(
+            db, token, user=viewer, visitor_id=visitor_id
+        )
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

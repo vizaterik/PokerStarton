@@ -33,7 +33,7 @@ export default function FeedPage() {
       <header className="feed-page-head">
         <div>
           <h1>Хиты</h1>
-          <p className="lead">Лучшие раздачи по лайкам.</p>
+          <p className="lead">Раздачи дня — обновляются каждый день по уникальным просмотрам, лайкам и комментам.</p>
         </div>
       </header>
 
@@ -41,7 +41,7 @@ export default function FeedPage() {
       {error ? <p className="error">{error}</p> : null}
 
       {!loading && !error && items.length === 0 ? (
-        <p className="muted">Пока нет раздач с лайками.</p>
+        <p className="muted">Пока нет раздач дня.</p>
       ) : null}
 
       <ol className="hits-list">
@@ -69,6 +69,7 @@ export default function FeedPage() {
                 {h.author_display_name}
               </Link>
               <div className="hits-engagement">
+                <span title="Уникальные просмотры">{h.views_count} просм.</span>
                 <span title="Комментарии">{h.comments_count} комм.</span>
                 <span className="hits-likes" title="Лайки">
                   ♥ {h.likes_count}
