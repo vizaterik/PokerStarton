@@ -6,8 +6,9 @@ RUN npm ci
 COPY frontend/ ./
 # Empty base → browser calls /api and /health on the same origin.
 ENV VITE_API_BASE=
-# Low-RAM VPS: skip tsc + minify (esbuild minify was hanging after transform).
-ENV NODE_OPTIONS=--max-old-space-size=768
+# Low-RAM VPS: one Rollup worker, no minify/sourcemaps (avoids hang after transform).
+ENV VITE_DOCKER_BUILD=1
+ENV NODE_OPTIONS=--max-old-space-size=512
 RUN npm run build:docker
 
 # Frontend first so BuildKit does not run apt + npm build at the same time (low-RAM VPS).

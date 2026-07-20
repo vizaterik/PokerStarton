@@ -9,6 +9,7 @@
 **/*.db-shm
 **/uploads
 frontend/dist
+frontend/src/engine/h2n
 backend/.venv
 **/.pytest_cache
 **/agent-transcripts

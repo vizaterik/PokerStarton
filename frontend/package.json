@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "build:docker": "vite build --minify false",
+    "build:docker": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
