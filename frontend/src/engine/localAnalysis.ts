@@ -1011,13 +1011,13 @@ export async function buildLocalChartDeviations(
   }
 
   // Cache write off the critical path — stringify can freeze the counter at the end.
-  const cached = peekAnalysisCache(strategyId);
-  if (cached?.analysis) {
+  const existingCache = peekAnalysisCache(strategyId);
+  if (existingCache?.analysis) {
     const rate =
-      cached.analysis.curve.length && deviations.decisions
+      existingCache.analysis.curve.length && deviations.decisions
         ? Math.round((10000 * (deviations.correct || 0)) / deviations.decisions) / 100
         : null;
-    const chartsRev = readChartsRevision(strategyId);
+    const nextChartsRev = readChartsRevision(strategyId);
     window.setTimeout(() => {
       const latest = peekAnalysisCache(strategyId);
       if (!latest?.analysis) return;
@@ -1028,7 +1028,7 @@ export async function buildLocalChartDeviations(
         ...latest,
         deviations,
         spots,
-        chartsRev,
+        chartsRev: nextChartsRev,
         strategyUpdatedAt,
       });
     }, 0);

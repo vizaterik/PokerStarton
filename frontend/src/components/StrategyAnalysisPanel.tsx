@@ -313,7 +313,9 @@ export default function StrategyAnalysisPanel({
   }, [stopAnalysisRun, strategyId]);
 
   const chartGenRef = useRef(0);
+  const hasDevsRef = useRef(false);
   const [chartProgress, setChartProgress] = useState<string | null>(null);
+  hasDevsRef.current = !!devs;
 
   /** Chart compare module — same pattern as Math tab (recalculate on each open). */
   useEffect(() => {
@@ -322,7 +324,7 @@ export default function StrategyAnalysisPanel({
     let cancelled = false;
     setDevError(null);
     // Keep previous results visible; only show spinner if nothing to show yet.
-    setDevsLoading((prev) => prev || !devs);
+    setDevsLoading((prev) => prev || !hasDevsRef.current);
     setChartProgress("Проверяем стратегию…");
 
     void buildLocalChartDeviations(strategyId, (message) => {
