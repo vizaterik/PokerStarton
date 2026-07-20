@@ -30,11 +30,15 @@ import { deriveContext } from "./turnEngine";
 import type { GameTreeDocument, GameTreeNode, HandMix } from "./types";
 import { normalizeMatchupTag } from "../spotCoverage";
 
-/** Prefer richer trees: branch count first, then painted chart jobs. */
+/**
+ * Prefer painted charts over empty seeded shells.
+ * Many unpainted «+» opens used to outrank a painted remote tree and hide charts
+ * in analysis even when the constructor showed them.
+ */
 function treeRichness(doc: GameTreeDocument): number {
   const branches = collectEditorBranches(doc.root).length;
   const jobs = collectJobs(doc.root).length;
-  return branches * 1000 + jobs;
+  return jobs * 100_000 + branches;
 }
 
 function mixToCell(mix: HandMix): CellFreq {
@@ -154,18 +158,25 @@ export async function resolveConstructorTree(
   strategyId: string,
 ): Promise<GameTreeDocument> {
   let doc = loadTree(strategyId);
+  const localJobs = collectJobs(doc.root).length;
   const localScore = treeRichness(doc);
   try {
     const remote = await getStrategyTree(strategyId);
     const remoteDoc = normalizeTree(remote.tree, strategyId);
     if (remoteDoc) {
+      const remoteJobs = collectJobs(remoteDoc.root).length;
       const remoteScore = treeRichness(remoteDoc);
       const localEmpty = doc.root.children.length === 0;
       const remoteHasData = remoteDoc.root.children.length > 0;
       const remoteNewer =
         Boolean(remoteDoc.updatedAt) &&
         (!doc.updatedAt || remoteDoc.updatedAt >= doc.updatedAt);
-      if (remoteScore > localScore) {
+      // Always take the tree with more painted charts.
+      if (remoteJobs > localJobs) {
+        doc = remoteDoc;
+      } else if (localJobs > remoteJobs) {
+        /* keep local paints */
+      } else if (remoteScore > localScore) {
         doc = remoteDoc;
       } else if (
         remoteScore === localScore &&
@@ -174,7 +185,6 @@ export async function resolveConstructorTree(
       ) {
         doc = remoteDoc;
       }
-      // Else keep local — more (or equal) branches / paints.
     }
   } catch {
     /* offline — keep local */

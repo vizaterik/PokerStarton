@@ -974,12 +974,9 @@ export default function StrategyAnalysisPanel({
     void reloadMissingSpots();
   }, [tab, preflopSub, strategyId, refreshKey, loading, reloadMissingSpots]);
 
-  /**
-   * Always pull the latest constructor tree + DB charts when opening «Стратегии»
-   * so every painted branch appears in Ветки / Ошибки / Обзор.
-   */
+  /** Pull painted constructor tree on mount / new upload so charts are ready. */
   useEffect(() => {
-    if (!strategyId || analysisSuspended || tab !== "preflop") return;
+    if (!strategyId || analysisSuspended) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -988,7 +985,29 @@ export default function StrategyAnalysisPanel({
         setTreeTick((n) => n + 1);
         const rev = readChartsRevision(strategyId);
         if (rev) lastChartsRevRef.current = rev;
-        // Rebuild Обзор / Позиции / Ветки / Ошибки against the fresh tree.
+        setChartsBump((n) => n + 1);
+      } catch {
+        if (!cancelled) setTreeTick((n) => n + 1);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [strategyId, analysisSuspended, refreshKey, strategyRevision]);
+
+  /**
+   * When opening «Стратегии» — force-sync charts and reload every branch row.
+   */
+  useEffect(() => {
+    if (!strategyId || analysisSuspended || tab !== "preflop") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await ensureConstructorChartsSynced(strategyId, { force: true });
+        if (cancelled) return;
+        setTreeTick((n) => n + 1);
+        const rev = readChartsRevision(strategyId);
+        if (rev) lastChartsRevRef.current = rev;
         setChartsBump((n) => n + 1);
         await reloadMissingSpots();
         if (cancelled) return;
@@ -1004,7 +1023,7 @@ export default function StrategyAnalysisPanel({
     return () => {
       cancelled = true;
     };
-  }, [tab, strategyId, analysisSuspended, refreshKey, strategyRevision, reloadMissingSpots]);
+  }, [tab, strategyId, analysisSuspended, reloadMissingSpots]);
 
   // Re-pull constructor when returning from the editor (deleted / painted branches).
   useEffect(() => {
