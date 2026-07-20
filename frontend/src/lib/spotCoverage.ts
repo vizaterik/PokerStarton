@@ -36,13 +36,12 @@ export function normalizeMatchupTag(label: string): string {
   return `${normalizeChartPos(m[1])}vs${normalizeChartPos(m[2])}`;
 }
 
-/** Pot aliases when HH spot_key cannot express limp/allin directly. */
+/** Pot aliases (legacy `allin` → 4bp). */
 export function potLookupKinds(pot: string): string[] {
   const p = pot.trim().toLowerCase();
   if (p === "limp") return ["limp", "srp"];
-  if (p === "allin") return ["allin", "4bp", "3bp"];
-  if (p === "4bp") return ["4bp", "allin"];
-  if (p === "3bp") return ["3bp", "allin"];
+  if (p === "allin" || p === "all_in" || p === "4bp") return ["4bp"];
+  if (p === "3bp") return ["3bp"];
   return [p];
 }
 
@@ -132,11 +131,7 @@ export function coveredByConstructorTags(
       (haveMu === wantMu ||
         haveMu.startsWith(`${wantMu}vs`) ||
         haveMu.endsWith(`vs${wantMu}`)) &&
-      (b.potKind === wantPot ||
-        b.potKind === "srp" ||
-        wantPot === "srp" ||
-        (wantPot === "4bp" && b.potKind === "allin") ||
-        (wantPot === "allin" && b.potKind === "4bp"))
+      (b.potKind === wantPot || b.potKind === "srp" || wantPot === "srp")
     ) {
       return true;
     }
@@ -147,7 +142,7 @@ export function coveredByConstructorTags(
 /** Spot → which tree pot kinds count as the same situation. */
 function potsForSpot(spotKey: string, strictPot?: boolean): BranchPotKind[] {
   const kind = spotPotKind(spotKey) as BranchPotKind;
-  // Analysis / Errors: keep pots distinct, but limp↔iso/srp and allin↔4bp aliases.
+  // Analysis / Errors: keep pots distinct; limp↔iso/srp soft match only.
   if (strictPot) {
     if (kind === "srp") {
       const key = spotKey.trim().toLowerCase();
@@ -156,24 +151,21 @@ function potsForSpot(spotKey: string, strictPot?: boolean): BranchPotKind[] {
       return ["srp"];
     }
     if (kind === "limp") return ["limp", "srp"];
-    // Jam 3bet lines are stored as allin in the tree — still cover vs_3bet HH.
-    if (kind === "3bp") return ["3bp", "allin"];
-    if (kind === "allin") return ["allin", "4bp", "3bp"];
-    if (kind === "4bp") return ["4bp", "allin"];
+    if (kind === "3bp") return ["3bp"];
+    if (kind === "4bp") return ["4bp"];
     return [kind];
   }
   // Softer set only for missing-spot discovery in the editor.
-  if (kind === "3bp") return ["3bp", "allin"];
-  if (kind === "4bp") return ["4bp", "allin"];
+  if (kind === "3bp") return ["3bp"];
+  if (kind === "4bp") return ["4bp"];
   if (kind === "srp") {
     const key = spotKey.trim().toLowerCase();
     if (key === "rfi" || key === "iso") {
-      return ["srp", "3bp", "4bp", "allin", "limp"];
+      return ["srp", "3bp", "4bp", "limp"];
     }
-    return ["srp", "allin", "limp"];
+    return ["srp", "limp"];
   }
   if (kind === "limp") return ["limp", "srp"];
-  if (kind === "allin") return ["allin", "4bp", "3bp"];
   return [kind];
 }
 
@@ -313,7 +305,7 @@ export function groupChartErrorsByTreeBranches(
   }
 
   // Prefer facing pots in natural order so soft leftovers cannot race.
-  const potOrder = ["limp", "srp", "3bp", "4bp", "allin"] as const;
+  const potOrder = ["limp", "srp", "3bp", "4bp"] as const;
   const ordered = [...painted].sort((a, b) => {
     const ia = potOrder.indexOf(a.potKind as (typeof potOrder)[number]);
     const ib = potOrder.indexOf(b.potKind as (typeof potOrder)[number]);
@@ -327,7 +319,7 @@ export function groupChartErrorsByTreeBranches(
     const related = charts.filter((c) => {
       const key = `${c.spot_key}|${c.hero_position}|${c.villain_position ?? ""}`;
       if (used.has(key)) return false;
-      // Pot aliases (4bp↔allin) but never map vs_open (srp) into 3bp.
+      // Never map vs_open (srp) into 3bp.
       const pots = potsForSpot(c.spot_key, true);
       if (!pots.includes(b.potKind)) return false;
       return spotCoveredByBranches(

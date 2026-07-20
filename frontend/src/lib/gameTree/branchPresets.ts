@@ -16,14 +16,14 @@ export type PresetAction = {
   sizingBB?: number;
 };
 
-export type LineKind = "srp" | "3bp" | "4bp" | "allin";
+export type LineKind = "srp" | "3bp" | "4bp";
 
 export type PresetLine = {
   id: string;
   label: string;
   kind: LineKind;
   opener: Seat;
-  /** Caller (SRP) or 3-bettor (3bp/4bp/allin) */
+  /** Caller (SRP) or 3-bettor (3bp/4bp) */
   villain: Seat;
   actions: PresetAction[];
 };
@@ -37,7 +37,6 @@ export type StylePreset = {
   lines: PresetLine[];
 };
 
-const STACK = 100;
 const OPENERS: Seat[] = ["UTG", "HJ", "CO", "BTN", "SB"];
 
 const threeBet = (open: number) => Math.round(open * THREE_BET_MULT * 10) / 10;
@@ -142,26 +141,7 @@ function fourBetPot(opener: Seat, threeBettor: Seat): PresetLine {
   return fourBetLine(opener, threeBettor);
 }
 
-/** Open → 3-bet → opener all-in → villain call */
-function allInPot(opener: Seat, threeBettor: Seat): PresetLine {
-  const size = openSize(opener);
-  const tb = threeBet(size);
-  return {
-    id: `allin_${opener}_${threeBettor}`,
-    label: `All-in ${opener}vs${threeBettor}`,
-    kind: "allin",
-    opener,
-    villain: threeBettor,
-    actions: [
-      { seat: opener, action: "RAISE", sizingBB: size },
-      { seat: threeBettor, action: "RAISE", sizingBB: tb },
-      { seat: opener, action: "RAISE", sizingBB: STACK },
-      { seat: threeBettor, action: "CALL" },
-    ],
-  };
-}
-
-/** All HU branches: open-call, 3-bet, 4-bet, all-in. */
+/** All HU branches: open-call, 3-bet, 4-bet (no separate all-in pot). */
 export function allHuActionBranches(): PresetLine[] {
   const lines: PresetLine[] = [];
   for (const opener of OPENERS) {
@@ -169,7 +149,6 @@ export function allHuActionBranches(): PresetLine[] {
       lines.push(srp(opener, responder));
       lines.push(threeBetPot(opener, responder));
       lines.push(fourBetPot(opener, responder));
-      lines.push(allInPot(opener, responder));
     }
   }
   return lines;
@@ -372,10 +351,7 @@ export function paintLineCharts(
         jobs.set(nodeId, vsOpen);
       } else if (line.kind === "3bp" && step.player === line.opener && vs3) {
         jobs.set(nodeId, vs3);
-      } else if (
-        (line.kind === "4bp" || line.kind === "allin") &&
-        step.player === line.villain
-      ) {
+      } else if (line.kind === "4bp" && step.player === line.villain) {
         const callSpec = vs4Villain ?? vs3;
         if (callSpec) jobs.set(nodeId, callSpec);
       }

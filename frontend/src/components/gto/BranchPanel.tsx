@@ -32,7 +32,6 @@ const POT_FILTERS: { id: PotFilter; label: string; short: string }[] = [
   { id: "srp", label: "Raise pot", short: "Raise" },
   { id: "3bp", label: "3-bet pot", short: "3-bet" },
   { id: "4bp", label: "4-bet pot", short: "4-bet" },
-  { id: "allin", label: "All-in", short: "All-in" },
   { id: "limp", label: "Limp pot", short: "Limp" },
 ];
 
@@ -195,7 +194,6 @@ export default function BranchPanel({
       srp: 0,
       "3bp": 0,
       "4bp": 0,
-      allin: 0,
     };
     for (const b of base) counts[b.potKind] += 1;
     return counts;

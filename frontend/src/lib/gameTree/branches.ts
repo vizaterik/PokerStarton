@@ -3,7 +3,7 @@ import { deriveContext } from "./turnEngine";
 import type { GameTreeNode, HandMix, Seat } from "./types";
 
 /** Pot type inferred from the preflop line (for branch filters). */
-export type BranchPotKind = "limp" | "srp" | "3bp" | "4bp" | "allin";
+export type BranchPotKind = "limp" | "srp" | "3bp" | "4bp";
 
 export type SavedBranch = {
   /** Tip node id (navigate here to open the line) */
@@ -19,28 +19,36 @@ export type SavedBranch = {
   awaitingFlop: boolean;
   /** How many sibling alternatives exist under the parent of the tip */
   siblingCount: number;
-  /** Limp / Raise / 3-bet / 4-bet / all-in */
+  /** Limp / Raise / 3-bet / 4-bet (no separate all-in pot) */
   potKind: BranchPotKind;
 };
 
+/** Legacy trees stored jam lines as `allin` — fold into 4-bet. */
+export function normalizeBranchPotKind(kind: string | null | undefined): BranchPotKind {
+  const k = String(kind || "").toLowerCase();
+  if (k === "limp") return "limp";
+  if (k === "3bp") return "3bp";
+  if (k === "4bp" || k === "allin" || k === "all_in") return "4bp";
+  return "srp";
+}
+
 export function inferPotKind(
   raiseCount: number,
-  raiseSizings: number[],
-  stackDepth = 100,
+  _raiseSizings: number[] = [],
+  _stackDepth = 100,
 ): BranchPotKind {
   if (raiseCount === 0) return "limp";
-  const jam = raiseSizings.some((sz) => sz >= stackDepth - 0.5);
-  if (jam || raiseCount >= 4) return "allin";
+  // Jam sizings stay in the tree as raises; pot tag stops at 4-bet.
   if (raiseCount >= 3) return "4bp";
   if (raiseCount === 2) return "3bp";
   return "srp";
 }
 
 export function potKindTag(kind: BranchPotKind | string): string {
-  if (kind === "limp") return "Limp";
-  if (kind === "3bp") return "3-bet";
-  if (kind === "4bp") return "4-bet";
-  if (kind === "allin") return "All-in";
+  const k = normalizeBranchPotKind(kind);
+  if (k === "limp") return "Limp";
+  if (k === "3bp") return "3-bet";
+  if (k === "4bp") return "4-bet";
   return "Raise";
 }
 
@@ -342,7 +350,11 @@ export function collectFacingBranches(root: GameTreeNode): SavedBranch[] {
 
 function mergeBranchesByMatchup(branches: SavedBranch[]): SavedBranch[] {
   const byKey = new Map<string, SavedBranch>();
-  for (const b of branches) {
+  for (const raw of branches) {
+    const b = {
+      ...raw,
+      potKind: normalizeBranchPotKind(raw.potKind),
+    };
     const key = `${b.potKind}|${b.label}`;
     const prev = byKey.get(key);
     if (!prev) {

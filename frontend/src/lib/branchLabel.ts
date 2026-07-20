@@ -10,20 +10,20 @@ const ACTION: Record<string, string> = {
 };
 
 /** Pot-style tag aligned with constructor filters. */
-export type SpotPotKind = "limp" | "srp" | "3bp" | "4bp" | "allin";
+export type SpotPotKind = "limp" | "srp" | "3bp" | "4bp";
 
 export function spotActionLabel(spotKey: string): string {
   const key = spotKey.trim().toLowerCase();
   return ACTION[key] ?? (key.replace(/_/g, " ") || "spot");
 }
 
-/** Map HH / DB spot → pot tag: Limp / Raise / 3-bet / 4-bet / All-in. */
+/** Map HH / DB spot → pot tag: Limp / Raise / 3-bet / 4-bet. */
 export function spotPotKind(spotKey: string): SpotPotKind {
   const key = spotKey.trim().toLowerCase();
   if (key === "limp") return "limp";
-  if (key === "allin" || key === "all_in") return "allin";
+  // Legacy all-in spots fold into 4-bet.
+  if (key === "allin" || key === "all_in" || key === "vs_4bet") return "4bp";
   if (key === "vs_3bet" || key === "squeeze") return "3bp";
-  if (key === "vs_4bet") return "4bp";
   return "srp";
 }
 
@@ -31,7 +31,6 @@ export function spotPotTag(spotKey: string): string {
   const kind = spotPotKind(spotKey);
   if (kind === "3bp") return "3-bet";
   if (kind === "4bp") return "4-bet";
-  if (kind === "allin") return "All-in";
   if (kind === "limp") return "Limp";
   return "Raise";
 }

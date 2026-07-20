@@ -191,7 +191,11 @@ function parseSelectedChartKey(key: string): { pot: string | null; matchup: stri
   if (!raw) return { pot: null, matchup: "" };
   const parts = raw.split("|");
   if (parts.length >= 2 && /^(limp|srp|3bp|4bp|allin)$/i.test(parts[0])) {
-    return { pot: parts[0].toLowerCase(), matchup: parts[1] };
+    const pot = parts[0].toLowerCase();
+    return {
+      pot: pot === "allin" ? "4bp" : pot,
+      matchup: parts[1],
+    };
   }
   return { pot: null, matchup: raw };
 }
@@ -221,7 +225,7 @@ function constructorBranchToSpot(b: SavedBranch): {
       villain_position: first,
     };
   }
-  if (b.potKind === "4bp" || b.potKind === "allin") {
+  if (b.potKind === "4bp") {
     return {
       spot_key: "vs_4bet",
       hero_position: second,
@@ -1133,7 +1137,7 @@ export default function StrategyAnalysisPanel({
         const defaultSpot =
           filterPot === "3bp"
             ? "vs_3bet"
-            : filterPot === "4bp" || filterPot === "allin"
+            : filterPot === "4bp"
               ? "vs_4bet"
               : filterPot === "limp"
                 ? "iso"

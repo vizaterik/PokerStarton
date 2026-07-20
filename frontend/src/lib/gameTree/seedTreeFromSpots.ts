@@ -206,7 +206,7 @@ function lineLooksReady(
   );
   // 3-bet pot → open / 3-bet / call; SRP → open / call; open → raise only.
   if (line.kind === "3bp") return spots.length >= 3;
-  if (line.kind === "4bp" || line.kind === "allin") return spots.length >= 4;
+  if (line.kind === "4bp") return spots.length >= 4;
   if (line.kind === "srp" && line.opener !== line.villain) return spots.length >= 2;
   return spots.length >= 1;
 }
