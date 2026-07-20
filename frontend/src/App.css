@@ -9330,6 +9330,40 @@ body.confirm-open #root {
   font-style: normal;
   font-weight: 800;
   color: #f87171;
+  flex-shrink: 0;
+}
+
+.err-count--split {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.05em;
+  font-variant-numeric: tabular-nums;
+}
+
+.err-count-errors {
+  color: #f87171;
+}
+
+.err-count-sep {
+  color: rgba(148, 163, 184, 0.55);
+  font-weight: 650;
+}
+
+.err-count-total {
+  color: #fff;
+  font-weight: 750;
+}
+
+.preflop-chart-list-flat .branch-list-main .err-chart-matchup {
+  color: rgba(203, 213, 225, 0.88);
+}
+
+.preflop-chart-list button:not(.is-active) .err-chart-matchup {
+  color: rgba(203, 213, 225, 0.88);
+}
+
+.preflop-chart-list-flat .branch-list-main.is-active .err-count-total {
+  color: #fff;
 }
 
 .preflop-chart-list button .pot-tag {

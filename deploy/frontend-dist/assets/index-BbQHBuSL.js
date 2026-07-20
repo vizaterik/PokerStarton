@@ -35843,12 +35843,12 @@ function StrategyAnalysisPanel({
                           /* @__PURE__ */ jsxRuntimeExports.jsxs(
                             "em",
                             {
-                              className: "err-count",
+                              className: "err-count err-count--split",
                               title: "ошибки / впипнутые раздачи",
                               children: [
-                                errForRow,
-                                "/",
-                                played
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "err-count-errors", children: errForRow }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "err-count-sep", children: "/" }),
+                                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "err-count-total", children: played })
                               ]
                             }
                           )
@@ -36097,11 +36097,18 @@ function StrategyAnalysisPanel({
                     /* @__PURE__ */ jsxRuntimeExports.jsx("em", { className: `pot-tag pot-${row.pot_kind}`, children: row.pot_tag }),
                     /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "err-chart-matchup", children: row.matchup })
                   ] }),
-                  /* @__PURE__ */ jsxRuntimeExports.jsxs("em", { className: "err-count", title: "ошибки / впипнутые раздачи", children: [
-                    errCount,
-                    "/",
-                    played
-                  ] })
+                  /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                    "em",
+                    {
+                      className: "err-count err-count--split",
+                      title: "ошибки / впипнутые раздачи",
+                      children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "err-count-errors", children: errCount }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "err-count-sep", children: "/" }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "err-count-total", children: played })
+                      ]
+                    }
+                  )
                 ]
               }
             ) }, `${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`);

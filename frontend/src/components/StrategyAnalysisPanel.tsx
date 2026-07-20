@@ -1960,10 +1960,12 @@ export default function StrategyAnalysisPanel({
                             <strong className="err-chart-matchup">{row.matchup}</strong>
                           </span>
                           <em
-                            className="err-count"
+                            className="err-count err-count--split"
                             title="ошибки / впипнутые раздачи"
                           >
-                            {errForRow}/{played}
+                            <span className="err-count-errors">{errForRow}</span>
+                            <span className="err-count-sep">/</span>
+                            <span className="err-count-total">{played}</span>
                           </em>
                         </button>
                         {row.missing && row.missingSpot ? (
@@ -2258,8 +2260,13 @@ export default function StrategyAnalysisPanel({
                           </em>
                           <strong className="err-chart-matchup">{row.matchup}</strong>
                         </span>
-                        <em className="err-count" title="ошибки / впипнутые раздачи">
-                          {errCount}/{played}
+                        <em
+                          className="err-count err-count--split"
+                          title="ошибки / впипнутые раздачи"
+                        >
+                          <span className="err-count-errors">{errCount}</span>
+                          <span className="err-count-sep">/</span>
+                          <span className="err-count-total">{played}</span>
                         </em>
                       </button>
                     </li>
