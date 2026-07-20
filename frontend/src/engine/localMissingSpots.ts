@@ -4,7 +4,7 @@
  */
 import type { EnsuredSpotInfo, StrategySpot } from "../api/client";
 import { listSpots } from "../api/client";
-import { treeMatchupLabel } from "../lib/branchLabel";
+import { spotPotKind, treeMatchupLabel } from "../lib/branchLabel";
 import { collectEditorBranches, type SavedBranch } from "../lib/gameTree/branches";
 import { resolveConstructorTree } from "../lib/gameTree/syncTreeCharts";
 import {
@@ -44,7 +44,7 @@ export async function listSessionBranches(
   strategyId: string,
 ): Promise<EnsuredSpotInfo[]> {
   const hands = await listHandsForStrategy(strategyId);
-  // Key by matchup (not pot) so vs_open / vs_3bet with the same seats collapse.
+  // Key by pot+matchup so Raise UTGvsBB and 3-bet UTGvsBB stay separate.
   const acc = new Map<
     string,
     EnsuredSpotInfo & { _hands: number; _pm: number; _pb: number }
@@ -61,7 +61,9 @@ export async function listSessionBranches(
       ),
     );
     if (!mu || mu === "—") continue;
-    let row = acc.get(mu);
+    const pot = spotPotKind(spot.spot_key);
+    const accKey = `${pot}|${mu}`;
+    let row = acc.get(accKey);
     if (!row) {
       row = {
         spot_key: spot.spot_key,
@@ -79,7 +81,7 @@ export async function listSessionBranches(
         _pm: 0,
         _pb: 0,
       };
-      acc.set(mu, row);
+      acc.set(accKey, row);
     }
     row._hands += 1;
     row._pm += h.hero_net ?? 0;

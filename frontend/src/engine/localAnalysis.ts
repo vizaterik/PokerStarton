@@ -29,10 +29,11 @@ import {
   treeMatchupLabel,
 } from "../lib/branchLabel";
 import { readChartsRevision } from "../lib/chartsRevision";
-import { collectAnalysisBranches } from "../lib/gameTree/branches";
+import { collectAnalysisBranches, potKindTag } from "../lib/gameTree/branches";
 import { loadTree } from "../lib/gameTree/persist";
 import { ensureConstructorChartsSynced } from "../lib/gameTree/syncTreeCharts";
 import {
+  constructorTagKey,
   coveredByConstructorTags,
   groupChartErrorsByTreeBranches,
   normalizeChartPos,
@@ -809,7 +810,7 @@ async function buildDeviations(
     };
   });
 
-  // Group by constructor matchup when tree branches exist; else keep spot matchups.
+  // Group by constructor pot+matchup (Raise UTGvsBB ≠ 3-bet UTGvsBB).
   if (treeBranches.length) {
     const coverOpts = { strictOpen: true } as const;
     const rowCovered = (row: {
@@ -843,13 +844,16 @@ async function buildDeviations(
           ),
       );
       const mu = branch?.label || row.matchup || "—";
-      const prev = branchAcc.get(mu);
+      const potKind = branch?.potKind ?? row.pot_kind ?? spotPotKind(row.spot_key);
+      const accKey = constructorTagKey(potKind, mu);
+      const prev = branchAcc.get(accKey);
       if (!prev) {
-        branchAcc.set(mu, {
+        branchAcc.set(accKey, {
           ...row,
           matchup: mu,
           spot_label: mu,
-          pot_tag: undefined,
+          pot_kind: potKind,
+          pot_tag: potKindTag(potKind),
         });
         continue;
       }
@@ -857,7 +861,7 @@ async function buildDeviations(
       const correct = prev.correct + row.correct;
       const profit_money = (prev.profit_money ?? 0) + (row.profit_money ?? 0);
       const profit_bb = (prev.profit_bb ?? 0) + (row.profit_bb ?? 0);
-      branchAcc.set(mu, {
+      branchAcc.set(accKey, {
         ...prev,
         decisions,
         correct,
@@ -879,6 +883,7 @@ async function buildDeviations(
     rawChartErrors = grouped.map((g) => ({
       ...g.primary,
       label: g.matchup,
+      pot_kind: g.potKind,
       cells: g.cells,
     }));
   }

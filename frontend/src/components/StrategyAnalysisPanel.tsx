@@ -113,8 +113,10 @@ type ErrorFilter = {
   heroPosition?: string | null;
   villainPosition?: string | null;
   handCode?: string | null;
-  /** Constructor matchup tag, e.g. UTGvsBB — matches all spots on that line. */
+  /** Constructor matchup tag, e.g. UTGvsBB. */
   matchup?: string | null;
+  /** Constructor pot (`srp` / `3bp` / …) — with matchup selects one branch. */
+  potKind?: string | null;
 };
 
 function fmtStat(value: number | null | undefined, unit: string) {
@@ -152,8 +154,15 @@ function freqPct(v: number | null) {
   return `${Math.round(v * 100)}%`;
 }
 
-function branchKey(b: Pick<PreflopBranchAccuracy, "spot_key" | "hero_position" | "villain_position">) {
-  return `${b.spot_key}|${b.hero_position}|${b.villain_position ?? ""}`;
+function branchKey(
+  b: Pick<
+    PreflopBranchAccuracy,
+    "spot_key" | "hero_position" | "villain_position" | "pot_kind" | "matchup"
+  >,
+) {
+  const pot = b.pot_kind || spotPotKind(b.spot_key);
+  const mu = b.matchup || `${b.hero_position}vs${b.villain_position ?? ""}`;
+  return `${pot}|${mu}|${b.spot_key}|${b.hero_position}|${b.villain_position ?? ""}`;
 }
 
 function chartKey(c: Pick<ChartErrorSpot, "spot_key" | "hero_position" | "villain_position">) {
@@ -166,7 +175,11 @@ function matchupTagsEqual(a: string, b: string) {
 
 function matchesFilter(d: StrategyDeviation, f: ErrorFilter, branches: SavedBranch[] = []) {
   if (f.matchup) {
-    const branch = branches.find((b) => matchupTagsEqual(b.label, f.matchup!));
+    const branch = branches.find(
+      (b) =>
+        matchupTagsEqual(b.label, f.matchup!) &&
+        (!f.potKind || b.potKind === f.potKind),
+    );
     if (branch) {
       if (
         !spotCoveredByBranches(
@@ -184,7 +197,8 @@ function matchesFilter(d: StrategyDeviation, f: ErrorFilter, branches: SavedBran
       !matchupTagsEqual(
         treeMatchupLabel(d.spot_key || "", d.hero_position, d.villain_position),
         f.matchup,
-      )
+      ) ||
+      (f.potKind && spotPotKind(d.spot_key || "") !== f.potKind)
     ) {
       return false;
     }
@@ -1363,7 +1377,7 @@ export default function StrategyAnalysisPanel({
                             row.villain_position,
                             row.matchup || row.spot_label,
                           );
-                          const potKind = spotPotKind(row.spot_key);
+                          const potKind = row.pot_kind || spotPotKind(row.spot_key);
                           return (
                           <tr
                             key={branchKey(row)}
@@ -1371,13 +1385,16 @@ export default function StrategyAnalysisPanel({
                             onClick={() =>
                               goErrors({
                                 matchup: mu,
+                                potKind,
                               })
                             }
                           >
                             <td>
                               <span className="err-chart-tags">
                                 <strong className="err-chart-matchup">{mu}</strong>
-                                <em className={`pot-tag pot-${potKind}`}>{potKindTag(potKind)}</em>
+                                <em className={`pot-tag pot-${potKind}`}>
+                                  {row.pot_tag || potKindTag(potKind)}
+                                </em>
                               </span>
                             </td>
                             <td>{row.decisions}</td>
@@ -1507,15 +1524,18 @@ export default function StrategyAnalysisPanel({
             ) : (
               <ul>
                 {charts.map((c) => {
-                  const key = c.label || chartKey(c);
                   const mu = c.label || analysisMatchup(
                     c.spot_key,
                     c.hero_position,
                     c.villain_position,
                     c.label,
                   );
-                  const branch = paintedTreeBranches.find((b) =>
-                    matchupTagsEqual(b.label, mu),
+                  const potKind = c.pot_kind || spotPotKind(c.spot_key);
+                  const key = `${potKind}|${mu}|${chartKey(c)}`;
+                  const branch = paintedTreeBranches.find(
+                    (b) =>
+                      matchupTagsEqual(b.label, mu) &&
+                      (!c.pot_kind || b.potKind === c.pot_kind),
                   );
                   const errCount = (liveDevs.deviations ?? []).filter((d) => {
                     if (branch) {
@@ -1534,7 +1554,6 @@ export default function StrategyAnalysisPanel({
                       (d.villain_position ?? null) === (c.villain_position ?? null)
                     );
                   }).length;
-                  const potKind = branch?.potKind ?? spotPotKind(c.spot_key);
                   return (
                     <li key={key}>
                       <button
@@ -1546,7 +1565,7 @@ export default function StrategyAnalysisPanel({
                         }
                         onClick={() => {
                           setSelectedChartKey(key);
-                          setErrorFilter({ matchup: mu });
+                          setErrorFilter({ matchup: mu, potKind });
                           setSelectedHand(null);
                         }}
                       >

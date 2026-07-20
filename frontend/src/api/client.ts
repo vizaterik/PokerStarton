@@ -734,6 +734,8 @@ export type ChartErrorSpot = {
   hero_position: string;
   villain_position: string | null;
   label: string;
+  /** Constructor pot kind when grouped by tree branch (`srp` / `3bp` / …). */
+  pot_kind?: string | null;
   /** Painted strategy spot used for scoring — load cells by this id. */
   spot_id?: string | null;
   cells: ChartErrorCell[];
