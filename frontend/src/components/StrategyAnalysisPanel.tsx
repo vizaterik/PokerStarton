@@ -30,17 +30,8 @@ import {
   writeAnalysisCache,
   type AnalysisCachePayload,
 } from "../lib/analysisCache";
-import {
-  analyzeHandsAgainstTree,
-  type HandLineAnalysis,
-  type LineAnalysisSummary,
-} from "../engine/lineAnalysis";
-import {
-  seedPlayedLineIntoTree,
-  seedSpotIntoTree,
-} from "../lib/gameTree/seedTreeFromSpots";
+import { seedSpotIntoTree } from "../lib/gameTree/seedTreeFromSpots";
 import { stashEditorFocus } from "../lib/gameTree/editorFocus";
-import HandLineDetail from "./strategyLine/HandLineDetail";
 import {
   STRATEGY_CHARTS_GAP_HINT,
   strategyHasPlayCharts,
@@ -115,7 +106,7 @@ function isAbortError(err: unknown) {
 }
 
 type AnalysisTab = "chart" | "hud" | "preflop" | "recommendations";
-type PreflopSubTab = "overview" | "positions" | "branches" | "lines" | "errors";
+type PreflopSubTab = "overview" | "positions" | "branches" | "errors";
 
 type ReplayState =
   | { mode: "stat"; stat: string; label: string }
@@ -361,10 +352,6 @@ export default function StrategyAnalysisPanel({
   const [addingSpots, setAddingSpots] = useState(false);
   /** Key of the single branch currently being added, or "all". */
   const [addingSpotKey, setAddingSpotKey] = useState<string | null>(null);
-  const [lineSummary, setLineSummary] = useState<LineAnalysisSummary | null>(null);
-  const [lineLoading, setLineLoading] = useState(false);
-  const [selectedLineHandId, setSelectedLineHandId] = useState<string | null>(null);
-  const [creatingLineBranch, setCreatingLineBranch] = useState(false);
   /** Real hand total for progress UI (sessions + last analysis). */
   const [handTotal, setHandTotal] = useState<number | null>(
     () => cachedBoot?.handTotal ?? cachedBoot?.analysis?.hands ?? null,
@@ -608,36 +595,6 @@ export default function StrategyAnalysisPanel({
     [addingSpots, navigate, strategyId],
   );
 
-  const createMissingLineBranch = useCallback(
-    async (handId: string) => {
-      if (creatingLineBranch) return;
-      setCreatingLineBranch(true);
-      try {
-        const hands = await listHandsForStrategy(strategyId);
-        const hand = hands.find((h) => h.key === handId);
-        if (!hand) {
-          setSpotsHint("Раздача не найдена в локальной базе.");
-          return;
-        }
-        const focus = seedPlayedLineIntoTree(strategyId, hand);
-        if (!focus) {
-          setSpotsHint("Не удалось создать ветку по линии этой раздачи.");
-          return;
-        }
-        clearAnalysisCache(strategyId);
-        stashEditorFocus(strategyId, focus);
-        navigate(`/strategies/${strategyId}`);
-      } catch (err: unknown) {
-        setSpotsHint(
-          err instanceof Error ? err.message : "Не удалось создать ветку",
-        );
-      } finally {
-        setCreatingLineBranch(false);
-      }
-    },
-    [creatingLineBranch, navigate, strategyId],
-  );
-
   // Cache hit → show instantly. Full recompute only when hands/cache miss (new upload).
   useEffect(() => {
     setError(null);
@@ -860,37 +817,6 @@ export default function StrategyAnalysisPanel({
     void reloadMissingSpots();
   }, [tab, preflopSub, strategyId, refreshKey, loading, reloadMissingSpots]);
 
-  // Line analysis vs constructor tree
-  useEffect(() => {
-    if (tab !== "preflop" || preflopSub !== "lines" || loading) return;
-    let cancelled = false;
-    setLineLoading(true);
-    void (async () => {
-      try {
-        const treeDoc = await resolveConstructorTree(strategyId);
-        const hands = await listHandsForStrategy(strategyId);
-        if (cancelled) return;
-        const summary = analyzeHandsAgainstTree(treeDoc, hands, 250);
-        setLineSummary(summary);
-        setSelectedLineHandId((prev) => {
-          if (prev && summary.hands.some((h) => h.handId === prev)) return prev;
-          const interesting =
-            summary.hands.find((h) => h.status === "missing_branch") ||
-            summary.hands.find((h) => h.status === "found" && !h.inRange) ||
-            summary.hands[0];
-          return interesting?.handId ?? null;
-        });
-      } catch {
-        if (!cancelled) setLineSummary(null);
-      } finally {
-        if (!cancelled) setLineLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [tab, preflopSub, strategyId, refreshKey, loading, chartsBump]);
-
   // Hydrate constructor tree (cache path may skip chart sync).
   useEffect(() => {
     let cancelled = false;
@@ -1015,6 +941,128 @@ export default function StrategyAnalysisPanel({
     );
   }, [liveDevs, errorFilter, paintedTreeBranches]);
 
+  /** All painted strategy branches — list for «Ветки» / переключение сравнения. */
+  const branchScoreRows = useMemo(() => {
+    const rows = liveDevs?.by_branch ?? [];
+    const accByKey = new Map<string, PreflopBranchAccuracy>();
+    for (const row of rows) {
+      const mu = analysisMatchup(
+        row.spot_key,
+        row.hero_position,
+        row.villain_position,
+        row.matchup || row.spot_label,
+      );
+      const pot = row.pot_kind || spotPotKind(row.spot_key);
+      for (const mk of matchupLookupKeys(mu)) {
+        accByKey.set(`${pot}|${mk}`, row);
+      }
+    }
+    const lookupAcc = (pot: string, mu: string) => {
+      for (const p of potLookupKinds(pot)) {
+        for (const mk of matchupLookupKeys(mu)) {
+          const hit = accByKey.get(`${p}|${mk}`);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    };
+
+    const hhByKey = new Map<string, EnsuredSpotInfo>();
+    for (const s of sessionBranches) {
+      const mu = analysisMatchup(
+        s.spot_key,
+        s.hero_position,
+        s.villain_position,
+        s.label,
+      );
+      const pot = spotPotKind(s.spot_key);
+      for (const mk of matchupLookupKeys(mu)) {
+        hhByKey.set(`${pot}|${mk}`, s);
+      }
+    }
+    const lookupHh = (pot: string, mu: string) => {
+      for (const p of potLookupKinds(pot)) {
+        for (const mk of matchupLookupKeys(mu)) {
+          const hit = hhByKey.get(`${p}|${mk}`);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    };
+
+    return paintedTreeBranches
+      .map((b) => {
+        const mu = b.label;
+        const potKind = b.potKind as BranchPotKind;
+        const seed = constructorBranchToSpot(b);
+        const acc = lookupAcc(potKind, mu);
+        const hh = lookupHh(potKind, mu);
+        const hands = hh?.hands_count ?? 0;
+        const decisions = acc?.decisions ?? 0;
+        return {
+          ...seed,
+          matchup: mu,
+          pot_kind: potKind,
+          pot_tag: potKindTag(potKind),
+          hands_count: hands,
+          decisions,
+          correct_pct: acc?.correct_pct ?? null,
+        };
+      })
+      .sort(
+        (a, b) =>
+          (b.decisions || b.hands_count) - (a.decisions || a.hands_count) ||
+          a.matchup.localeCompare(b.matchup, "ru"),
+      );
+  }, [liveDevs, paintedTreeBranches, sessionBranches]);
+
+  /** Focus a strategy branch for Strategy|Error range compare (stay on current subtab). */
+  const selectBranchFocus = useCallback(
+    (row: {
+      matchup: string;
+      pot_kind: string;
+      spot_key: string;
+      hero_position: string;
+      villain_position?: string | null;
+    }) => {
+      setErrorFilter({
+        matchup: row.matchup,
+        potKind: row.pot_kind,
+        spotKey: row.spot_key,
+        heroPosition: row.hero_position,
+        villainPosition: row.villain_position,
+      });
+      setSelectedChartKey(`${row.pot_kind}|${row.matchup}`);
+      setSelectedHand(null);
+    },
+    [],
+  );
+
+  // Auto-focus first branch when opening «Ветки» / «Ошибки».
+  useEffect(() => {
+    if (tab !== "preflop" || (preflopSub !== "branches" && preflopSub !== "errors")) {
+      return;
+    }
+    if (!branchScoreRows.length) return;
+    const focused = branchScoreRows.some(
+      (r) =>
+        errorFilter.matchup &&
+        errorFilter.potKind &&
+        matchupsCompatible(r.matchup, errorFilter.matchup) &&
+        (r.pot_kind === errorFilter.potKind ||
+          potLookupKinds(r.pot_kind).includes(errorFilter.potKind)),
+    );
+    if (focused) return;
+    selectBranchFocus(branchScoreRows[0]);
+  }, [
+    tab,
+    preflopSub,
+    branchScoreRows,
+    errorFilter.matchup,
+    errorFilter.potKind,
+    selectBranchFocus,
+  ]);
+
   const activeChart = useMemo((): ChartErrorSpot | null => {
     const charts = liveDevs?.chart_errors ?? [];
     const filterMu = errorFilter.matchup;
@@ -1100,9 +1148,11 @@ export default function StrategyAnalysisPanel({
     errorFilter.villainPosition,
   ]);
 
-  // Load strategy spots when viewing Errors (for side-by-side chart).
+  // Load strategy spots when viewing Branches / Errors (side-by-side strategy chart).
   useEffect(() => {
-    if (tab !== "preflop" || preflopSub !== "errors") return;
+    if (tab !== "preflop" || (preflopSub !== "errors" && preflopSub !== "branches")) {
+      return;
+    }
     let cancelled = false;
     void listSpots(strategyId)
       .then((spots) => {
@@ -1321,123 +1371,6 @@ export default function StrategyAnalysisPanel({
   }
 
   function renderPreflopBody() {
-    if (preflopSub === "lines") {
-      if (lineLoading) {
-        return <p className="muted">Сверяем линии с деревом стратегии…</p>;
-      }
-      if (!lineSummary || lineSummary.total === 0) {
-        return (
-          <p className="muted">
-            Нет локальных раздач для анализа линий. Загрузите HH на вкладке Анализ.
-          </p>
-        );
-      }
-      const selected: HandLineAnalysis | null =
-        lineSummary.hands.find((h) => h.handId === selectedLineHandId) ??
-        lineSummary.hands[0] ??
-        null;
-      const list = lineSummary.hands.filter((h) => h.status !== "empty");
-      return (
-        <>
-          <p className="muted analysis-chart-hint">
-            Полная префлоп-линия раздачи сопоставляется с деревом конструктора: найденная
-            ветка, отклонение по комбо, отсутствующие рёбра и целостность вилки.
-          </p>
-          <div className="analysis-kpis strategy-dev-kpis">
-            <div className="analysis-kpi">
-              <span>Найдено</span>
-              <strong>{lineSummary.found}</strong>
-              <em>из {lineSummary.total} рук</em>
-            </div>
-            <div className="analysis-kpi">
-              <span>В диапазоне</span>
-              <strong className={lineSummary.inRange ? "pos" : undefined}>
-                {lineSummary.inRange}
-              </strong>
-              <em>отклонений {lineSummary.deviations}</em>
-            </div>
-            <div className="analysis-kpi">
-              <span>Нет ветки</span>
-              <strong className={lineSummary.missing ? "neg" : undefined}>
-                {lineSummary.missing}
-              </strong>
-              <em>integrity {lineSummary.integrityWarnings}</em>
-            </div>
-          </div>
-          <div className="line-analysis-layout">
-            <aside className="line-analysis-list">
-              <ul>
-                {list.slice(0, 80).map((h) => {
-                  const label =
-                    h.status === "found"
-                      ? h.heroHandCode || "?"
-                      : h.status === "missing_branch"
-                        ? h.missingLabel
-                        : "—";
-                  const badge =
-                    h.status === "found"
-                      ? h.inRange
-                        ? "ok"
-                        : "bad"
-                      : h.status === "missing_branch"
-                        ? "miss"
-                        : "";
-                  return (
-                    <li key={h.handId}>
-                      <button
-                        type="button"
-                        className={
-                          selected?.handId === h.handId ? "is-active" : undefined
-                        }
-                        onClick={() => setSelectedLineHandId(h.handId)}
-                      >
-                        <span className={`line-badge ${badge}`}>
-                          {h.status === "found"
-                            ? h.inRange
-                              ? "OK"
-                              : "ERR"
-                            : "—"}
-                        </span>
-                        <strong>{label}</strong>
-                        <em className="muted">
-                          {h.status === "found" || h.status === "missing_branch"
-                            ? h.pathLabels.slice(-2).join(" → ") || "линия"
-                            : ""}
-                        </em>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </aside>
-            <div className="line-analysis-detail">
-              {selected ? (
-                <HandLineDetail
-                  analysis={selected}
-                  busy={creatingLineBranch}
-                  onCreateBranch={
-                    selected.status === "missing_branch"
-                      ? () => void createMissingLineBranch(selected.handId)
-                      : undefined
-                  }
-                  onOpenReplay={() =>
-                    setReplay({
-                      mode: "hand",
-                      handIds: [selected.handId],
-                      startIndex: 0,
-                      label: "Линия раздачи",
-                    })
-                  }
-                />
-              ) : (
-                <p className="muted">Выберите раздачу слева.</p>
-              )}
-            </div>
-          </div>
-        </>
-      );
-    }
-
     if (!liveDevs || !devs) return null;
 
     if (preflopSub === "overview") {
@@ -1624,151 +1557,182 @@ export default function StrategyAnalysisPanel({
     }
 
     if (preflopSub === "branches") {
-      const rows = liveDevs.by_branch ?? [];
-
-      // Accuracy map from strategy-scored branches only.
-      const accByKey = new Map<string, PreflopBranchAccuracy>();
-      for (const row of rows) {
-        const mu = analysisMatchup(
-          row.spot_key,
-          row.hero_position,
-          row.villain_position,
-          row.matchup || row.spot_label,
-        );
-        const pot = row.pot_kind || spotPotKind(row.spot_key);
-        for (const mk of matchupLookupKeys(mu)) {
-          accByKey.set(`${pot}|${mk}`, row);
-        }
-      }
-      const lookupAcc = (pot: string, mu: string) => {
-        for (const p of potLookupKinds(pot)) {
-          for (const mk of matchupLookupKeys(mu)) {
-            const hit = accByKey.get(`${p}|${mk}`);
-            if (hit) return hit;
-          }
-        }
-        return null;
-      };
-
-      const hhByKey = new Map<string, EnsuredSpotInfo>();
-      for (const s of sessionBranches) {
-        const mu = analysisMatchup(
-          s.spot_key,
-          s.hero_position,
-          s.villain_position,
-          s.label,
-        );
-        const pot = spotPotKind(s.spot_key);
-        for (const mk of matchupLookupKeys(mu)) {
-          hhByKey.set(`${pot}|${mk}`, s);
-        }
-      }
-      const lookupHh = (pot: string, mu: string) => {
-        for (const p of potLookupKinds(pot)) {
-          for (const mk of matchupLookupKeys(mu)) {
-            const hit = hhByKey.get(`${p}|${mk}`);
-            if (hit) return hit;
-          }
-        }
-        return null;
-      };
-
-      // Only painted strategy branches that appeared in this session.
-      const scoreRows = paintedTreeBranches
-        .map((b) => {
-          const mu = b.label;
-          const potKind = b.potKind as BranchPotKind;
-          const seed = constructorBranchToSpot(b);
-          const acc = lookupAcc(potKind, mu);
-          const hh = lookupHh(potKind, mu);
-          const hands = hh?.hands_count ?? 0;
-          const decisions = acc?.decisions ?? 0;
-          return {
-            ...seed,
-            matchup: mu,
-            pot_kind: potKind,
-            pot_tag: potKindTag(potKind),
-            hands_count: hands,
-            decisions,
-            correct_pct: acc?.correct_pct ?? null,
-          };
-        })
-        .filter((r) => r.hands_count > 0 || r.decisions > 0)
-        .sort(
-          (a, b) =>
-            (b.decisions || b.hands_count) - (a.decisions || a.hands_count) ||
-            a.matchup.localeCompare(b.matchup, "ru"),
-        );
+      const scoreRows = branchScoreRows;
+      const branchErrCount = filteredDevs.length;
+      const focusMu = errorFilter.matchup || "";
+      const focusPot = errorFilter.potKind || "";
 
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Сверка только по веткам из стратегии (с чартами), которые были в раздачах.
-            Клик — стратегия и ошибки этой ветки. Ситуации вне стратегии — ниже, с кнопкой
-            добавить.
+            Все ветки стратегии слева — клик переключает сравнение диапазонов: стратегия и
+            ошибки. Ситуации вне стратегии — ниже.
           </p>
 
-          {!paintedTreeBranches.length ? (
+          {!paintedTreeBranches.length || scoreRows.length === 0 ? (
             <p className="muted">
               В стратегии нет покрашенных веток — открой тренажёр, нарисуй чарты, затем
               вернись к отчёту.
             </p>
-          ) : scoreRows.length === 0 ? (
-            <p className="muted">
-              В сессии не было раздач по веткам стратегии ({paintedTreeBranches.length}{" "}
-              веток с чартами). Загрузи HH или проверь, что чарты совпадают с линиями.
-            </p>
           ) : (
-            <div className="analysis-table-wrap">
-              <table className="analysis-table">
-                <thead>
-                  <tr>
-                    <th>Ветка стратегии</th>
-                    <th>Разд.</th>
-                    <th>Реш.</th>
-                    <th>Точность</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {scoreRows.map((row) => (
-                    <tr
-                      key={`${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`}
-                      className="clickable-row"
-                      onClick={() =>
-                        goErrors({
+            <div className="preflop-errors-layout branches-compare-layout">
+              <aside className="preflop-chart-list">
+                <h3 className="analysis-subhead">Ветки · {scoreRows.length}</h3>
+                <ul className="preflop-chart-list-flat">
+                  {scoreRows.map((row) => {
+                    const active =
+                      Boolean(focusMu) &&
+                      Boolean(focusPot) &&
+                      matchupsCompatible(row.matchup, focusMu) &&
+                      (row.pot_kind === focusPot ||
+                        potLookupKinds(row.pot_kind).includes(focusPot));
+                    const errForRow = (liveDevs.deviations ?? []).filter((d) =>
+                      matchesFilter(
+                        d,
+                        {
                           matchup: row.matchup,
                           potKind: row.pot_kind,
                           spotKey: row.spot_key,
                           heroPosition: row.hero_position,
                           villainPosition: row.villain_position,
-                        })
-                      }
-                    >
-                      <td>
-                        <span className="err-chart-tags err-chart-tags--inline">
-                          <em className={`pot-tag pot-${row.pot_kind}`}>{row.pot_tag}</em>
-                          <strong className="err-chart-matchup">{row.matchup}</strong>
-                        </span>
-                      </td>
-                      <td>{row.hands_count.toLocaleString("ru-RU")}</td>
-                      <td>{row.decisions || "—"}</td>
-                      <td
-                        className={
-                          row.correct_pct == null
-                            ? "muted"
-                            : row.correct_pct >= 80
-                              ? "pos"
-                              : "neg"
-                        }
-                      >
-                        {row.correct_pct == null
-                          ? "—"
-                          : `${row.correct_pct.toFixed(1)}%`}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        },
+                        paintedTreeBranches,
+                      ),
+                    ).length;
+                    return (
+                      <li key={`${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`}>
+                        <button
+                          type="button"
+                          className={active ? "is-active" : ""}
+                          onClick={() => selectBranchFocus(row)}
+                        >
+                          <span className="err-chart-tags err-chart-tags--inline">
+                            <em className={`pot-tag pot-${row.pot_kind}`}>
+                              {row.pot_tag}
+                            </em>
+                            <strong className="err-chart-matchup">{row.matchup}</strong>
+                          </span>
+                          <em className="muted">
+                            {row.correct_pct != null
+                              ? `${row.correct_pct.toFixed(0)}%`
+                              : row.hands_count > 0
+                                ? `${row.hands_count} разд.`
+                                : "—"}
+                          </em>
+                          {errForRow > 0 ? (
+                            <em className="err-count">{errForRow}</em>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </aside>
+
+              <div className="preflop-chart-main">
+                {activeChart && focusMu ? (
+                  <>
+                    <h3 className="analysis-subhead">
+                      <span className="err-chart-tags err-chart-tags--inline">
+                        <em
+                          className={`pot-tag pot-${
+                            focusPot ||
+                            activeChart.pot_kind ||
+                            spotPotKind(activeChart.spot_key)
+                          }`}
+                        >
+                          {potKindTag(
+                            focusPot ||
+                              activeChart.pot_kind ||
+                              spotPotKind(activeChart.spot_key),
+                          )}
+                        </em>
+                        <strong className="err-chart-matchup">
+                          {focusMu ||
+                            activeChart.label ||
+                            analysisMatchup(
+                              activeChart.spot_key,
+                              activeChart.hero_position,
+                              activeChart.villain_position,
+                              activeChart.label,
+                            )}
+                        </strong>
+                      </span>
+                      {branchErrCount > 0 ? (
+                        <span className="err-count"> · {branchErrCount} ош.</span>
+                      ) : null}
+                    </h3>
+                    <div className="preflop-chart-compare">
+                      <div className="preflop-chart-pane">
+                        <header>
+                          <strong>Стратегия</strong>
+                          <span>raise / call / fold</span>
+                        </header>
+                        {strategyChartLoading ? (
+                          <p className="muted">Загружаем чарт…</p>
+                        ) : (
+                          <StrategyChartPreview
+                            cells={strategyChart}
+                            selected={selectedHand}
+                            onSelectHand={(code) => {
+                              setSelectedHand(code);
+                              setErrorFilter((prev) => ({
+                                ...prev,
+                                spotKey: activeChart.spot_key,
+                                heroPosition: activeChart.hero_position,
+                                villainPosition: activeChart.villain_position,
+                                handCode: code,
+                                matchup: prev.matchup || focusMu,
+                                potKind: prev.potKind || focusPot,
+                              }));
+                            }}
+                          />
+                        )}
+                      </div>
+                      <div className="preflop-chart-pane">
+                        <header>
+                          <strong>Ошибки</strong>
+                          <span>raise / call / fold · счётчик</span>
+                        </header>
+                        <DeviationErrorMatrix
+                          cells={activeChart.cells}
+                          selectedHand={selectedHand}
+                          onSelectHand={(code) => {
+                            setSelectedHand(code);
+                            setErrorFilter((prev) => ({
+                              ...prev,
+                              spotKey: activeChart.spot_key,
+                              heroPosition: activeChart.hero_position,
+                              villainPosition: activeChart.villain_position,
+                              handCode: code,
+                              matchup: prev.matchup || focusMu,
+                              potKind: prev.potKind || focusPot,
+                            }));
+                          }}
+                        />
+                      </div>
+                    </div>
+                    {filteredDevs.length > 0 ? (
+                      <div className="preflop-errors-actions" style={{ marginTop: "0.75rem" }}>
+                        <button
+                          type="button"
+                          className="preflop-filter-clear"
+                          onClick={() => openErrorReplay()}
+                        >
+                          Реплей ошибок ·{" "}
+                          <span className="err-count">{filteredDevs.length}</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="muted analysis-chart-hint">
+                        По этой ветке ошибок нет — все решения совпали с чартом.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="muted">Выбери ветку слева.</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -1836,39 +1800,50 @@ export default function StrategyAnalysisPanel({
       );
     }
 
-    // errors
-    const charts = liveDevs.chart_errors ?? [];
-    const branchFocus = Boolean(errorFilter.matchup && errorFilter.potKind);
+    // errors — list stays visible; click switches Strategy|Error compare
+    const handFilterActive = Boolean(errorFilter.handCode);
     const filterActive =
       errorFilter.spotKey ||
       errorFilter.heroPosition ||
       errorFilter.handCode ||
       errorFilter.villainPosition ||
       errorFilter.matchup;
+    const focusMu = errorFilter.matchup || "";
+    const focusPot = errorFilter.potKind || "";
+    const chartRows =
+      branchScoreRows.length > 0
+        ? branchScoreRows
+        : (liveDevs.chart_errors ?? []).map((c) => {
+            const mu =
+              c.label ||
+              analysisMatchup(
+                c.spot_key,
+                c.hero_position,
+                c.villain_position,
+                c.label,
+              );
+            const potKind = (c.pot_kind || spotPotKind(c.spot_key)) as BranchPotKind;
+            return {
+              spot_key: c.spot_key,
+              hero_position: c.hero_position,
+              villain_position: c.villain_position,
+              matchup: mu,
+              pot_kind: potKind,
+              pot_tag: potKindTag(potKind),
+              hands_count: 0,
+              decisions: 0,
+              correct_pct: null as number | null,
+            };
+          });
 
     return (
       <>
         <div className="preflop-errors-toolbar">
           <p className="muted analysis-chart-hint">
-            {branchFocus
-              ? "Сверка выбранной ветки: стратегия и ошибки. Другие чарты скрыты."
-              : "Ошибки по чартам. Реплей листает все раздачи из списка."}
+            Список веток слева всегда виден — переключайся и сравнивай диапазон стратегии с
+            ошибками.
           </p>
           <div className="preflop-errors-actions">
-            {branchFocus ? (
-              <button
-                type="button"
-                className="preflop-filter-clear"
-                onClick={() => {
-                  setErrorFilter({});
-                  setSelectedHand(null);
-                  setSelectedChartKey(null);
-                  setPreflopSub("branches");
-                }}
-              >
-                ← К веткам
-              </button>
-            ) : null}
             {filteredDevs.length > 0 ? (
               <button
                 type="button"
@@ -1878,125 +1853,71 @@ export default function StrategyAnalysisPanel({
                 Реплей · <span className="err-count">{filteredDevs.length}</span>
               </button>
             ) : null}
-            {filterActive && !branchFocus ? (
+            {handFilterActive ? (
               <button
                 type="button"
                 className="preflop-filter-clear"
                 onClick={() => {
-                  setErrorFilter({});
                   setSelectedHand(null);
+                  setErrorFilter((prev) => ({ ...prev, handCode: undefined }));
                 }}
               >
-                Сбросить фильтр
+                Сбросить фильтр руки
               </button>
             ) : null}
           </div>
         </div>
 
-        <div
-          className={
-            branchFocus
-              ? "preflop-errors-layout preflop-errors-layout--focus"
-              : "preflop-errors-layout"
-          }
-        >
-          {!branchFocus ? (
-            <aside className="preflop-chart-list">
-              <h3 className="analysis-subhead">Чарты</h3>
-              {charts.length === 0 ? (
-                <p className="muted">Нет ошибок для матрицы.</p>
-              ) : (
-                <ul className="preflop-chart-list-flat">
-                  {charts.map((c) => {
-                    const mu =
-                      c.label ||
-                      analysisMatchup(
-                        c.spot_key,
-                        c.hero_position,
-                        c.villain_position,
-                        c.label,
-                      );
-                    const potKind = c.pot_kind || spotPotKind(c.spot_key);
-                    const key = `${potKind}|${mu}|${chartKey(c)}`;
-                    const coverOpts = {
-                      strictOpen: true,
-                      strictPot: true,
-                    } as const;
-                    const branch = paintedTreeBranches.find(
-                      (b) =>
-                        matchupsCompatible(b.label, mu) &&
-                        (b.potKind === potKind ||
-                          potLookupKinds(b.potKind).includes(potKind)),
-                    );
-                    const errCount = (liveDevs.deviations ?? []).filter((d) => {
-                      const dPot = spotPotKind(d.spot_key || "");
-                      if (
-                        dPot !== potKind &&
-                        !potLookupKinds(potKind).includes(dPot)
-                      ) {
-                        return false;
-                      }
-                      if (branch) {
-                        return spotCoveredByBranches(
-                          {
-                            spot_key: d.spot_key || "",
-                            hero_position: d.hero_position || "",
-                            villain_position: d.villain_position,
-                          },
-                          [branch],
-                          coverOpts,
-                        );
-                      }
-                      return (
-                        d.spot_key === c.spot_key &&
-                        d.hero_position === c.hero_position &&
-                        (d.villain_position ?? null) === (c.villain_position ?? null)
-                      );
-                    }).length;
-                    const sel = parseSelectedChartKey(selectedChartKey || "");
-                    const active =
-                      selectedChartKey === key ||
-                      selectedChartKey === `${potKind}|${mu}` ||
-                      selectedChartKey === chartKey(c) ||
-                      (sel.matchup &&
-                        matchupsCompatible(mu, sel.matchup) &&
-                        (!sel.pot ||
-                          sel.pot === potKind ||
-                          potLookupKinds(sel.pot).includes(potKind)));
-                    return (
-                      <li key={key}>
-                        <button
-                          type="button"
-                          className={active ? "is-active" : ""}
-                          onClick={() => {
-                            setSelectedChartKey(`${potKind}|${mu}`);
-                            setErrorFilter({
-                              matchup: mu,
-                              potKind,
-                              spotKey: c.spot_key,
-                              heroPosition: c.hero_position,
-                              villainPosition: c.villain_position,
-                            });
-                            setSelectedHand(null);
-                          }}
-                        >
-                          <span className="err-chart-tags err-chart-tags--inline">
-                            <em className={`pot-tag pot-${potKind}`}>
-                              {potKindTag(potKind)}
-                            </em>
-                            <strong className="err-chart-matchup">{mu}</strong>
-                          </span>
-                          {errCount > 0 ? (
-                            <em className="err-count">{errCount}</em>
-                          ) : null}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </aside>
-          ) : null}
+        <div className="preflop-errors-layout">
+          <aside className="preflop-chart-list">
+            <h3 className="analysis-subhead">Ветки · {chartRows.length}</h3>
+            {chartRows.length === 0 ? (
+              <p className="muted">Нет веток стратегии для сравнения.</p>
+            ) : (
+              <ul className="preflop-chart-list-flat">
+                {chartRows.map((row) => {
+                  const active =
+                    Boolean(focusMu) &&
+                    Boolean(focusPot) &&
+                    matchupsCompatible(row.matchup, focusMu) &&
+                    (row.pot_kind === focusPot ||
+                      potLookupKinds(row.pot_kind).includes(focusPot));
+                  const errCount = (liveDevs.deviations ?? []).filter((d) =>
+                    matchesFilter(
+                      d,
+                      {
+                        matchup: row.matchup,
+                        potKind: row.pot_kind,
+                        spotKey: row.spot_key,
+                        heroPosition: row.hero_position,
+                        villainPosition: row.villain_position,
+                      },
+                      paintedTreeBranches,
+                    ),
+                  ).length;
+                  return (
+                    <li key={`${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`}>
+                      <button
+                        type="button"
+                        className={active ? "is-active" : ""}
+                        onClick={() => selectBranchFocus(row)}
+                      >
+                        <span className="err-chart-tags err-chart-tags--inline">
+                          <em className={`pot-tag pot-${row.pot_kind}`}>
+                            {row.pot_tag}
+                          </em>
+                          <strong className="err-chart-matchup">{row.matchup}</strong>
+                        </span>
+                        {errCount > 0 ? (
+                          <em className="err-count">{errCount}</em>
+                        ) : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </aside>
 
           <div className="preflop-chart-main">
             {activeChart ? (
@@ -2387,7 +2308,6 @@ export default function StrategyAnalysisPanel({
                   ["overview", "Обзор"],
                   ["positions", "Позиции"],
                   ["branches", "Ветки"],
-                  ["lines", "Линии"],
                   ["errors", "Ошибки"],
                 ] as const
               ).map(([id, label]) => (
@@ -2413,7 +2333,7 @@ export default function StrategyAnalysisPanel({
               </p>
             ) : null}
 
-            {preflopSub !== "lines" && devsLoading ? (
+            {devsLoading ? (
               <p className="muted">
                 {chartProgress || "Проверяем стратегию…"}
                 {!chartProgress?.includes("/") &&
@@ -2421,9 +2341,9 @@ export default function StrategyAnalysisPanel({
                   ? ` · ${(handTotal ?? pendingHandTotal ?? data?.hands ?? 0).toLocaleString("ru-RU")} рук`
                   : ""}
               </p>
-            ) : preflopSub !== "lines" && devError ? (
+            ) : devError ? (
               <p className="error">{devError}</p>
-            ) : preflopSub !== "lines" && !devs ? (
+            ) : !devs ? (
               <p className="muted">Нет данных для сверки.</p>
             ) : (
               renderPreflopBody()
