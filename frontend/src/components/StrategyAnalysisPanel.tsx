@@ -49,6 +49,7 @@ import {
   loadBranchPaintMatrix,
   resolveConstructorTree,
 } from "../lib/gameTree/syncTreeCharts";
+import { readChartsRevision } from "../lib/chartsRevision";
 import {
   coveredByConstructorTags,
   normalizeMatchupTag,
@@ -295,8 +296,11 @@ export default function StrategyAnalysisPanel({
   const [treeTick, setTreeTick] = useState(0);
   const [tab, setTab] = useState<AnalysisTab>("chart");
   const [preflopSub, setPreflopSub] = useState<PreflopSubTab>("overview");
-  /** Ветки: list of matchups → drill into one matchup's pot tags. */
-  const [focusMatchup, setFocusMatchup] = useState<string | null>(null);
+  /** Ветки: pot tag filter (`srp` / `3bp` / …). Null = все. */
+  const [branchPotFilter, setBranchPotFilter] = useState<string | null>(null);
+  /** Bumps when constructor charts fingerprint changes — rebuild Обзор/Позиции/Ветки/Ошибки. */
+  const [chartsBump, setChartsBump] = useState(0);
+  const lastChartsRevRef = useRef<string | null>(null);
   const cachedBoot = peekAnalysisCache(strategyId);
   const [data, setData] = useState<StrategyAnalysis | null>(
     () => cachedBoot?.analysis ?? null,
@@ -408,7 +412,7 @@ export default function StrategyAnalysisPanel({
     return () => {
       cancelled = true;
     };
-  }, [tab, strategyId, analysisSuspended, refreshKey]);
+  }, [tab, strategyId, analysisSuspended, refreshKey, chartsBump]);
 
   const onSessionUploaded = useCallback(
     (report: { total_hands?: number } | undefined, id: string) => {
@@ -781,19 +785,30 @@ export default function StrategyAnalysisPanel({
     };
   }, [strategyId, refreshKey, strategyRevision]);
 
-  // Re-read constructor tree when returning from the editor (deleted branches).
+  // Re-read constructor tree when returning from the editor (deleted / painted branches).
   useEffect(() => {
-    const bump = () => setTreeTick((n) => n + 1);
-    const onVis = () => {
-      if (document.visibilityState === "visible") bump();
+    const syncConstructor = () => {
+      setTreeTick((n) => n + 1);
+      const rev = readChartsRevision(strategyId);
+      if (!rev) return;
+      if (lastChartsRevRef.current != null && lastChartsRevRef.current !== rev) {
+        // Constructor charts changed — rebuild all «Моя стратегия» tabs.
+        setChartsBump((n) => n + 1);
+        setBranchPotFilter(null);
+      }
+      lastChartsRevRef.current = rev;
     };
-    window.addEventListener("focus", bump);
+    const onVis = () => {
+      if (document.visibilityState === "visible") syncConstructor();
+    };
+    window.addEventListener("focus", syncConstructor);
     document.addEventListener("visibilitychange", onVis);
+    syncConstructor();
     return () => {
-      window.removeEventListener("focus", bump);
+      window.removeEventListener("focus", syncConstructor);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, []);
+  }, [strategyId]);
 
   const paintedTreeBranches = useMemo(() => {
     try {
@@ -1258,7 +1273,7 @@ export default function StrategyAnalysisPanel({
     }
 
     if (preflopSub === "positions") {
-      const rows = devs.by_position ?? [];
+      const rows = liveDevs.by_position ?? [];
       if (rows.length === 0) {
         return (
           <p className="muted">
@@ -1473,98 +1488,138 @@ export default function StrategyAnalysisPanel({
               {rows.length > 0 ? (
                 <>
                   <p className="muted analysis-chart-hint" style={{ marginTop: "1.25rem" }}>
-                    {focusMatchup
-                      ? "Выбери тег пота — откроется сверка стратегии и ошибки."
-                      : "Матчапы стратегии. Открой матчап, затем тег Raise / 3-bet / 4-bet."}
+                    Теги сверху — только те, что есть в конструкторе и сессии. Клик по
+                    матчапу открывает сверку и ошибки.
                   </p>
                   {(() => {
-                    const groups = groupBranchesByMatchup(rows);
-                    const focused =
-                      focusMatchup &&
-                      groups.find((g) => matchupTagsEqual(g.matchup, focusMatchup));
-                    if (focused) {
-                      return (
-                        <div className="branch-matchup-group branch-matchup-focus">
-                          <div className="branch-matchup-head">
+                    const potOrder = ["srp", "3bp", "4bp", "allin", "limp"] as const;
+                    const constructorPots = new Set(
+                      paintedTreeBranches.map((b) => b.potKind),
+                    );
+                    const presentPots = potOrder.filter((p) =>
+                      rows.some((r) => {
+                        const pk = r.pot_kind || spotPotKind(r.spot_key);
+                        if (pk !== p) return false;
+                        // Only tags that exist in constructor (when tree is known).
+                        return !constructorPots.size || constructorPots.has(p);
+                      }),
+                    );
+                    const activePot =
+                      branchPotFilter && presentPots.includes(branchPotFilter as (typeof potOrder)[number])
+                        ? branchPotFilter
+                        : null;
+                    const filteredRows = activePot
+                      ? rows.filter(
+                          (r) => (r.pot_kind || spotPotKind(r.spot_key)) === activePot,
+                        )
+                      : rows;
+                    const groups = groupBranchesByMatchup(filteredRows);
+
+                    return (
+                      <>
+                        {presentPots.length > 0 ? (
+                          <div
+                            className="gto-filter-chips gto-filter-pots branch-pot-filters"
+                            role="group"
+                            aria-label="Тег пота"
+                          >
                             <button
                               type="button"
-                              className="branch-matchup-back"
-                              onClick={() => setFocusMatchup(null)}
+                              className={activePot == null ? "is-active" : ""}
+                              onClick={() => setBranchPotFilter(null)}
                             >
-                              ← Все матчапы
+                              Все
+                              <em>{rows.length}</em>
                             </button>
-                            <strong className="err-chart-matchup">{focused.matchup}</strong>
-                            <span className="branch-matchup-meta">
-                              <em>{focused.decisions} реш.</em>
-                              <em className={focused.correct_pct >= 80 ? "pos" : "neg"}>
-                                {focused.correct_pct.toFixed(1)}%
-                              </em>
-                            </span>
+                            {presentPots.map((p) => {
+                              const n = rows.filter(
+                                (r) => (r.pot_kind || spotPotKind(r.spot_key)) === p,
+                              ).length;
+                              return (
+                                <button
+                                  key={p}
+                                  type="button"
+                                  className={activePot === p ? "is-active" : ""}
+                                  onClick={() => setBranchPotFilter(p)}
+                                >
+                                  {potKindTag(p)}
+                                  <em>{n}</em>
+                                </button>
+                              );
+                            })}
                           </div>
-                          <ul className="branch-pot-tag-list">
-                            {focused.items.map((row) => {
-                              const mu = analysisMatchup(
+                        ) : null}
+
+                        <ul className="branch-matchup-list">
+                          {groups.map((group) => {
+                            const potsForGroup = group.items.map((row) => ({
+                              row,
+                              potKind: row.pot_kind || spotPotKind(row.spot_key),
+                              mu: analysisMatchup(
                                 row.spot_key,
                                 row.hero_position,
                                 row.villain_position,
                                 row.matchup || row.spot_label,
-                              );
-                              const potKind = row.pot_kind || spotPotKind(row.spot_key);
-                              return (
-                                <li key={branchKey(row)}>
-                                  <button
-                                    type="button"
-                                    className="branch-pot-tag-btn"
-                                    onClick={() =>
-                                      goErrors({
-                                        matchup: mu,
-                                        potKind,
-                                      })
-                                    }
-                                  >
-                                    <em className={`pot-tag pot-${potKind}`}>
-                                      {row.pot_tag || potKindTag(potKind)}
+                              ),
+                            }));
+                            const openMatchup = () => {
+                              // Prefer active pot filter; else the only / richest pot tag.
+                              const pick =
+                                (activePot &&
+                                  potsForGroup.find((x) => x.potKind === activePot)) ||
+                                [...potsForGroup].sort(
+                                  (a, b) =>
+                                    (b.row.decisions ?? 0) - (a.row.decisions ?? 0),
+                                )[0];
+                              if (!pick) return;
+                              goErrors({
+                                matchup: pick.mu,
+                                potKind: pick.potKind,
+                              });
+                            };
+                            return (
+                              <li key={group.key} className="branch-matchup-group">
+                                <button
+                                  type="button"
+                                  className="branch-matchup-open"
+                                  onClick={openMatchup}
+                                >
+                                  <strong className="err-chart-matchup">
+                                    {group.matchup}
+                                  </strong>
+                                  <span className="branch-matchup-meta">
+                                    <em>{group.decisions} реш.</em>
+                                    <em
+                                      className={
+                                        group.correct_pct >= 80 ? "pos" : "neg"
+                                      }
+                                    >
+                                      {group.correct_pct.toFixed(1)}%
                                     </em>
-                                    <span className="branch-pot-tag-meta">
-                                      <em>{row.decisions} реш.</em>
-                                      <strong
-                                        className={row.correct_pct >= 80 ? "pos" : "neg"}
+                                  </span>
+                                </button>
+                                {!activePot && potsForGroup.length > 1 ? (
+                                  <div className="branch-row-pots">
+                                    {potsForGroup.map(({ row, potKind, mu }) => (
+                                      <button
+                                        key={branchKey(row)}
+                                        type="button"
+                                        className={`pot-tag pot-${potKind} branch-row-pot`}
+                                        onClick={() =>
+                                          goErrors({ matchup: mu, potKind })
+                                        }
                                       >
-                                        {row.correct_pct.toFixed(1)}%
-                                      </strong>
-                                    </span>
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </div>
-                      );
-                    }
-                    return (
-                      <ul className="branch-matchup-list">
-                        {groups.map((group) => (
-                          <li key={group.key}>
-                            <button
-                              type="button"
-                              className="branch-matchup-open"
-                              onClick={() => setFocusMatchup(group.matchup)}
-                            >
-                              <strong className="err-chart-matchup">{group.matchup}</strong>
-                              <span className="branch-matchup-meta">
-                                <em>
-                                  {group.items.length}{" "}
-                                  {group.items.length === 1 ? "тег" : "тега"}
-                                </em>
-                                <em>{group.decisions} реш.</em>
-                                <em className={group.correct_pct >= 80 ? "pos" : "neg"}>
-                                  {group.correct_pct.toFixed(1)}%
-                                </em>
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
+                                        {row.pot_tag || potKindTag(potKind)}
+                                        <em>{row.correct_pct.toFixed(0)}%</em>
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </>
                     );
                   })()}
                 </>
