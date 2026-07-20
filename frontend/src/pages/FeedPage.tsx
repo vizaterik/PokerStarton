@@ -27,7 +27,7 @@ export default function FeedPage() {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Не удалось загрузить ленту");
+          setError(err instanceof Error ? err.message : "Не удалось загрузить");
         }
       })
       .finally(() => {
@@ -42,7 +42,7 @@ export default function FeedPage() {
     <section className="page feed-page">
       <header className="feed-page-head">
         <div>
-          <h1>Лента</h1>
+          <h1>Хиты</h1>
           <p className="lead">Топ‑5 публичных раздач по лайкам.</p>
         </div>
       </header>
@@ -66,7 +66,13 @@ export default function FeedPage() {
                   {p.hero_position ? ` · ${p.hero_position}` : ""}
                 </Link>
                 <div className="feed-meta">
-                  {p.author_name ? <span>{p.author_name}</span> : null}
+                  {p.author_name && p.author_path ? (
+                    <Link to={p.author_path} className="feed-author-link">
+                      {p.author_name}
+                    </Link>
+                  ) : p.author_name ? (
+                    <span>{p.author_name}</span>
+                  ) : null}
                   {p.stakes_label ? <span>{p.stakes_label}</span> : null}
                   {p.played_at ? (
                     <span>{new Date(p.played_at).toLocaleDateString("ru-RU")}</span>
@@ -74,7 +80,10 @@ export default function FeedPage() {
                   {net ? <span>{net}</span> : null}
                 </div>
               </div>
-              <span className="feed-top-likes">♥ {p.likes_count}</span>
+              <div className="feed-top-stats">
+                <span title="Просмотры">{p.views_count ?? 0} просм.</span>
+                <span title="Лайки">♥ {p.likes_count}</span>
+              </div>
             </li>
           );
         })}

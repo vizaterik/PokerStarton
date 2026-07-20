@@ -125,6 +125,15 @@ def ensure_postgres_schema(engine: Engine) -> None:
         if "game_tree" not in strategy_cols:
             _add(statements, "ALTER TABLE strategies ADD COLUMN IF NOT EXISTS game_tree JSON")
 
+    if "hand_shares" in tables:
+        share_cols = _cols(inspector, "hand_shares")
+        if "views_count" not in share_cols:
+            _add(
+                statements,
+                "ALTER TABLE hand_shares ADD COLUMN IF NOT EXISTS "
+                "views_count INTEGER NOT NULL DEFAULT 0",
+            )
+
     index_statements = [
         "CREATE INDEX IF NOT EXISTS ix_hand_uploads_database_id ON hand_uploads (database_id)",
         "CREATE INDEX IF NOT EXISTS ix_hand_uploads_session_id ON hand_uploads (session_id)",

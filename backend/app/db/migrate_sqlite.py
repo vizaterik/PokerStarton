@@ -96,6 +96,12 @@ def ensure_sqlite_schema(engine: Engine) -> None:
     if strategy_cols and "game_tree" not in strategy_cols:
         statements.append("ALTER TABLE strategies ADD COLUMN game_tree JSON")
 
+    share_cols = _column_names(inspector, "hand_shares")
+    if share_cols and "views_count" not in share_cols:
+        statements.append(
+            "ALTER TABLE hand_shares ADD COLUMN views_count INTEGER NOT NULL DEFAULT 0"
+        )
+
     hand_db_cols = _column_names(inspector, "hand_databases")
     if hand_db_cols and "career_report" not in hand_db_cols:
         statements.append("ALTER TABLE hand_databases ADD COLUMN career_report JSON")

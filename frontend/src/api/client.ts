@@ -1772,15 +1772,43 @@ export type TopLikedHand = {
   token: string;
   path: string;
   likes_count: number;
+  views_count: number;
   hero_hand: string | null;
   hero_position: string | null;
   author_name: string | null;
+  author_path: string | null;
   played_at: string | null;
   stakes_label: string | null;
   hero_net: number | null;
 };
 
+export type PublicProfileHand = {
+  token: string;
+  path: string;
+  likes_count: number;
+  views_count: number;
+  hero_hand: string | null;
+  hero_position: string | null;
+  played_at: string | null;
+  stakes_label: string | null;
+};
+
+export type PublicProfile = {
+  display_name: string;
+  registered_at: string | null;
+  rating: number;
+  likes_received: number;
+  shares_count: number;
+  top_hands: PublicProfileHand[];
+};
+
 export function listTopLikedHands(limit = 5) {
   const q = new URLSearchParams({ limit: String(limit) });
   return request<{ items: TopLikedHand[]; total: number }>(`/api/feed/top?${q}`);
+}
+
+export function getPublicProfile(displayName: string) {
+  return request<PublicProfile>(
+    `/api/public/users/${encodeURIComponent(displayName)}`,
+  );
 }

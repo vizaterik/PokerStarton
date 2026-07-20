@@ -357,4 +357,6 @@ def get_public_hand_replay(db: Session, token: str) -> ReplayHand:
     )
     if hand is None:
         raise LookupError("Раздача не найдена")
+    share.views_count = int(share.views_count or 0) + 1
+    db.commit()
     return build_replay_hand(hand)
