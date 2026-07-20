@@ -51,13 +51,16 @@ export type SeedSpotResult = SeedFocus & {
 
 function chartPosToSeat(pos: string, tableSize: TableSize): Seat | null {
   const p = pos.trim().toUpperCase().replace(/\s+/g, "");
-  if (p === "BTN" || p === "SB" || p === "BB") return p;
+  if (p === "BTN" || p === "BU" || p === "BUTTON") return "BTN";
+  if (p === "SB" || p === "BB") return p;
   if (tableSize === 2 || tableSize === 3) return null;
-  if (p === "UTG" || p === "CO") return p;
-  // 6-max middle seat is HJ in the tree; HH/charts often say MP.
-  if (p === "MP" || p === "HJ" || p === "MP1" || p === "MP+1") {
+  if (p === "UTG" || p === "EP" || p === "CO") {
+    return p === "EP" ? "UTG" : p;
+  }
+  // 6-max middle seat is HJ in the tree; HH/charts often say MP / LJ.
+  if (p === "MP" || p === "HJ" || p === "LJ" || p === "MP1" || p === "MP+1") {
     if (tableSize === 6) return "HJ";
-    if (p === "HJ") return "HJ";
+    if (p === "HJ" || p === "LJ") return "HJ";
     if (p === "MP1" || p === "MP+1") return tableSize === 9 ? "MP1" : "MP";
     return "MP";
   }

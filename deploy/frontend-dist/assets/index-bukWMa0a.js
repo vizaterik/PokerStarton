@@ -22936,16 +22936,16 @@ function resolveNextTurn(tableSize, pathToParent, actor, action) {
   if (action === "FOLD") {
     folded.add(actor);
     const alive = liveSeats(tableSize, folded);
-    if (alive.length <= 1) {
-      return { kind: "dead", nextPlayer: null, awaitingFlop: false };
-    }
     if (ctx.raiseCount > 0) {
-      if (closesFacingRaise(tableSize, actor, folded, ctx.lastAggressor)) {
+      if (alive.length <= 1 || closesFacingRaise(tableSize, actor, folded, ctx.lastAggressor)) {
         return { kind: "flop", nextPlayer: null, awaitingFlop: true };
       }
       const next3 = nextSeat(tableSize, actor, folded);
       if (!next3) return { kind: "flop", nextPlayer: null, awaitingFlop: true };
       return { kind: "continue", nextPlayer: next3, awaitingFlop: false };
+    }
+    if (alive.length <= 1) {
+      return { kind: "dead", nextPlayer: null, awaitingFlop: false };
     }
     const next2 = nextSeat(tableSize, actor, folded);
     if (!next2) return { kind: "dead", nextPlayer: null, awaitingFlop: false };
@@ -29071,12 +29071,15 @@ async function listMissingSpotsLocal(strategyId, branchesOverride) {
 }
 function chartPosToSeat(pos, tableSize) {
   const p = pos.trim().toUpperCase().replace(/\s+/g, "");
-  if (p === "BTN" || p === "SB" || p === "BB") return p;
+  if (p === "BTN" || p === "BU" || p === "BUTTON") return "BTN";
+  if (p === "SB" || p === "BB") return p;
   if (tableSize === 2 || tableSize === 3) return null;
-  if (p === "UTG" || p === "CO") return p;
-  if (p === "MP" || p === "HJ" || p === "MP1" || p === "MP+1") {
+  if (p === "UTG" || p === "EP" || p === "CO") {
+    return p === "EP" ? "UTG" : p;
+  }
+  if (p === "MP" || p === "HJ" || p === "LJ" || p === "MP1" || p === "MP+1") {
     if (tableSize === 6) return "HJ";
-    if (p === "HJ") return "HJ";
+    if (p === "HJ" || p === "LJ") return "HJ";
     if (p === "MP1" || p === "MP+1") return tableSize === 9 ? "MP1" : "MP";
     return "MP";
   }

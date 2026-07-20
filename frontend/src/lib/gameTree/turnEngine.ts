@@ -175,18 +175,25 @@ export function resolveNextTurn(
   if (action === "FOLD") {
     folded.add(actor);
     const alive = liveSeats(tableSize, folded);
-    if (alive.length <= 1) {
-      return { kind: "dead", nextPlayer: null, awaitingFlop: false };
-    }
 
-    // Facing a raise: folding can close the street (back to aggressor)
+    // Facing a raise/open: folds that leave only the aggressor (or return
+    // action to them) close a paint-ready branch — not a dead hand.
+    // Solo RFI (open → everyone folds) must end awaitingFlop so «+» can seed.
     if (ctx.raiseCount > 0) {
-      if (closesFacingRaise(tableSize, actor, folded, ctx.lastAggressor)) {
+      if (
+        alive.length <= 1 ||
+        closesFacingRaise(tableSize, actor, folded, ctx.lastAggressor)
+      ) {
         return { kind: "flop", nextPlayer: null, awaitingFlop: true };
       }
       const next = nextSeat(tableSize, actor, folded);
       if (!next) return { kind: "flop", nextPlayer: null, awaitingFlop: true };
       return { kind: "continue", nextPlayer: next, awaitingFlop: false };
+    }
+
+    // Unopened: only one seat left → no voluntary pot (walk / dead).
+    if (alive.length <= 1) {
+      return { kind: "dead", nextPlayer: null, awaitingFlop: false };
     }
 
     // Unopened: keep folding until a live seat acts (BB still gets option)
