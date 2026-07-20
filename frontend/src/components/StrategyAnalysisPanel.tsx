@@ -45,6 +45,7 @@ import {
   collectAnalysisBranches,
   collectEditorBranches,
   potKindTag,
+  type BranchPotKind,
   type SavedBranch,
 } from "../lib/gameTree/branches";
 import { loadTree } from "../lib/gameTree/persist";
@@ -180,6 +181,52 @@ function matchupLookupKeys(mu: string): string[] {
 function matchupsCompatible(a: string, b: string) {
   const keys = new Set(matchupLookupKeys(a));
   return matchupLookupKeys(b).some((k) => keys.has(k));
+}
+
+/** Trainer branch → HH spot seed for Errors / Add chart. */
+function constructorBranchToSpot(b: SavedBranch): {
+  spot_key: string;
+  hero_position: string;
+  villain_position: string | null;
+} {
+  const mu = normalizeMatchupTag(b.label);
+  const m = mu.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
+  if (!m) {
+    return {
+      spot_key: b.potKind === "limp" ? "iso" : "rfi",
+      hero_position: mu || "?",
+      villain_position: null,
+    };
+  }
+  const first = m[1];
+  const second = m[2];
+  // Constructor tag = raiser/aggressor vs caller; facing hero is the caller seat.
+  if (b.potKind === "3bp") {
+    return {
+      spot_key: "vs_3bet",
+      hero_position: second,
+      villain_position: first,
+    };
+  }
+  if (b.potKind === "4bp" || b.potKind === "allin") {
+    return {
+      spot_key: "vs_4bet",
+      hero_position: second,
+      villain_position: first,
+    };
+  }
+  if (b.potKind === "limp") {
+    return {
+      spot_key: "iso",
+      hero_position: second,
+      villain_position: first,
+    };
+  }
+  return {
+    spot_key: "vs_open",
+    hero_position: second,
+    villain_position: first,
+  };
 }
 
 function matchesFilter(d: StrategyDeviation, f: ErrorFilter, branches: SavedBranch[] = []) {
@@ -796,6 +843,16 @@ export default function StrategyAnalysisPanel({
     };
   }, [strategyId]);
 
+  /** Same list as trainer BranchPanel (~N готовых веток). */
+  const trainerBranches = useMemo(() => {
+    try {
+      return collectEditorBranches(loadTree(strategyId).root);
+    } catch {
+      return [];
+    }
+  }, [strategyId, refreshKey, strategyRevision, treeTick]);
+
+  /** Painted subset — used for scoring / Errors coverage. */
   const paintedTreeBranches = useMemo(() => {
     try {
       return collectAnalysisBranches(loadTree(strategyId).root);
@@ -1371,14 +1428,14 @@ export default function StrategyAnalysisPanel({
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Сначала все варианты веток из раздач (матчап + тег). HU-профит после флопа —
-            клик откроет раздачи. Ниже — точность, если чарт есть в стратегии.
+            Ветки из тренажёра (конструктор стратегии) — те же, что в редакторе. Поверх —
+            раздачи сессии и точность сверки. HU-профит после флопа — клик откроет раздачи.
           </p>
 
-          {huRows.length === 0 && rows.length === 0 && sessionBranches.length === 0 ? (
+          {huRows.length === 0 && trainerBranches.length === 0 ? (
             <p className="muted">
-              Нет веток для анализа — загрузи раздачи (и при необходимости задай чарты в
-              стратегии).
+              Нет веток в тренажёре — собери линии в конструкторе стратегии, затем загрузи
+              раздачи.
             </p>
           ) : (
             <>
@@ -1511,7 +1568,7 @@ export default function StrategyAnalysisPanel({
               )}
 
               {(() => {
-                // First: every branch variant parsed from HH; overlay chart accuracy when present.
+                // Source of truth = trainer/constructor branches (same as BranchPanel).
                 const accByKey = new Map<string, PreflopBranchAccuracy>();
                 for (const row of rows) {
                   const mu = analysisMatchup(
@@ -1532,20 +1589,34 @@ export default function StrategyAnalysisPanel({
                   }
                   return null;
                 };
-                const inConstructor = (pot: string, mu: string) =>
-                  paintedTreeBranches.some(
-                    (b) =>
-                      b.potKind === pot &&
-                      b.paintedCount > 0 &&
-                      matchupsCompatible(b.label, mu),
-                  );
 
-                type SessionRow = {
+                const hhByKey = new Map<string, EnsuredSpotInfo>();
+                for (const s of sessionBranches) {
+                  const mu = analysisMatchup(
+                    s.spot_key,
+                    s.hero_position,
+                    s.villain_position,
+                    s.label,
+                  );
+                  const pot = spotPotKind(s.spot_key);
+                  for (const mk of matchupLookupKeys(mu)) {
+                    hhByKey.set(`${pot}|${mk}`, s);
+                  }
+                }
+                const lookupHh = (pot: string, mu: string) => {
+                  for (const mk of matchupLookupKeys(mu)) {
+                    const hit = hhByKey.get(`${pot}|${mk}`);
+                    if (hit) return hit;
+                  }
+                  return null;
+                };
+
+                type TrainerRow = {
                   spot_key: string;
                   hero_position: string;
-                  villain_position: string | null | undefined;
+                  villain_position: string | null;
                   matchup: string;
-                  pot_kind: string;
+                  pot_kind: BranchPotKind | string;
                   pot_tag: string;
                   decisions: number;
                   correct_pct: number | null;
@@ -1553,112 +1624,38 @@ export default function StrategyAnalysisPanel({
                   hasChart: boolean;
                 };
 
-                const toRow = (
-                  spot_key: string,
-                  hero_position: string,
-                  villain_position: string | null | undefined,
-                  matchup: string,
-                  potKind: string,
-                  pot_tag: string,
-                  hands_count: number,
-                  acc: PreflopBranchAccuracy | null,
-                ): SessionRow => {
-                  const hasChart = Boolean(acc) || inConstructor(potKind, matchup);
+                const trainerRows: TrainerRow[] = trainerBranches.map((b) => {
+                  const mu = b.label;
+                  const potKind = b.potKind;
+                  const seed = constructorBranchToSpot(b);
+                  const acc = lookupAcc(potKind, mu);
+                  const hh = lookupHh(potKind, mu);
                   return {
-                    spot_key,
-                    hero_position,
-                    villain_position,
-                    matchup,
+                    ...seed,
+                    matchup: mu,
                     pot_kind: potKind,
-                    pot_tag,
+                    pot_tag: potKindTag(potKind),
                     decisions: acc?.decisions ?? 0,
                     correct_pct: acc ? acc.correct_pct : null,
-                    hands_count,
-                    hasChart,
+                    hands_count: hh?.hands_count ?? 0,
+                    hasChart: b.paintedCount > 0,
                   };
-                };
+                });
 
-                const sessionRows: SessionRow[] =
-                  sessionBranches.length > 0
-                    ? sessionBranches.map((s) => {
-                        const mu = analysisMatchup(
-                          s.spot_key,
-                          s.hero_position,
-                          s.villain_position,
-                          s.label,
-                        );
-                        const potKind = spotPotKind(s.spot_key);
-                        return toRow(
-                          s.spot_key,
-                          s.hero_position,
-                          s.villain_position,
-                          mu,
-                          potKind,
-                          potKindTag(potKind),
-                          s.hands_count ?? 0,
-                          lookupAcc(potKind, mu),
-                        );
-                      })
-                    : rows.map((row) => {
-                        const mu = analysisMatchup(
-                          row.spot_key,
-                          row.hero_position,
-                          row.villain_position,
-                          row.matchup || row.spot_label,
-                        );
-                        const potKind = row.pot_kind || spotPotKind(row.spot_key);
-                        return toRow(
-                          row.spot_key,
-                          row.hero_position,
-                          row.villain_position,
-                          mu,
-                          potKind,
-                          row.pot_tag || potKindTag(potKind),
-                          row.decisions,
-                          row,
-                        );
-                      });
-                // Also keep scored rows not yet listed in session (edge / cache).
-                for (const row of rows) {
-                  const mu = analysisMatchup(
-                    row.spot_key,
-                    row.hero_position,
-                    row.villain_position,
-                    row.matchup || row.spot_label,
-                  );
-                  const potKind = row.pot_kind || spotPotKind(row.spot_key);
-                  if (
-                    sessionRows.some(
-                      (r) =>
-                        r.pot_kind === potKind && matchupsCompatible(r.matchup, mu),
-                    )
-                  ) {
-                    continue;
-                  }
-                  sessionRows.push(
-                    toRow(
-                      row.spot_key,
-                      row.hero_position,
-                      row.villain_position,
-                      mu,
-                      potKind,
-                      row.pot_tag || potKindTag(potKind),
-                      row.decisions,
-                      row,
-                    ),
+                const paintedN = trainerRows.filter((r) => r.hasChart).length;
+                if (!trainerRows.length) {
+                  return (
+                    <p className="muted" style={{ marginTop: "1.25rem" }}>
+                      В тренажёре пока нет веток — открой конструктор и сохрани линии.
+                    </p>
                   );
                 }
-                sessionRows.sort(
-                  (a, b) =>
-                    (b.decisions || b.hands_count) - (a.decisions || a.hands_count) ||
-                    a.matchup.localeCompare(b.matchup, "ru"),
-                );
-                if (!sessionRows.length) return null;
                 return (
                   <>
                     <p className="muted analysis-chart-hint" style={{ marginTop: "1.25rem" }}>
-                      Все варианты из раздач. Клик по ветке с чартом — только её стратегия и
-                      ошибки. Нет чарта — добавь и сразу редактируй.
+                      Тренажёр: {trainerRows.length} веток
+                      {paintedN > 0 ? ` · ${paintedN} с чартами` : ""}. Клик — сверка этой
+                      ветки. Раздачи без ветки в стратегии — в блоке ниже.
                     </p>
                     <div className="analysis-table-wrap">
                       <table className="analysis-table">
@@ -1672,12 +1669,12 @@ export default function StrategyAnalysisPanel({
                           </tr>
                         </thead>
                         <tbody>
-                          {sessionRows.map((row) => {
+                          {trainerRows.map((row) => {
                             const potKind = row.pot_kind;
                             const mu = row.matchup;
                             return (
                               <tr
-                                key={`${potKind}|${mu}|${row.spot_key}|${row.hero_position}`}
+                                key={`${potKind}|${normalizeMatchupTag(mu)}`}
                                 className={row.hasChart ? "clickable-row" : ""}
                                 onClick={() => {
                                   if (!row.hasChart) return;
@@ -1686,7 +1683,7 @@ export default function StrategyAnalysisPanel({
                                     potKind,
                                     spotKey: row.spot_key,
                                     heroPosition: row.hero_position,
-                                    villainPosition: row.villain_position ?? null,
+                                    villainPosition: row.villain_position,
                                   });
                                 }}
                               >
@@ -1694,11 +1691,15 @@ export default function StrategyAnalysisPanel({
                                   <span className="err-chart-tags">
                                     <strong className="err-chart-matchup">{mu}</strong>
                                     <em className={`pot-tag pot-${potKind}`}>
-                                      {row.pot_tag || potKindTag(potKind)}
+                                      {row.pot_tag}
                                     </em>
                                   </span>
                                 </td>
-                                <td>{row.hands_count.toLocaleString("ru-RU")}</td>
+                                <td>
+                                  {row.hands_count
+                                    ? row.hands_count.toLocaleString("ru-RU")
+                                    : "—"}
+                                </td>
                                 <td>{row.decisions || "—"}</td>
                                 <td
                                   className={
@@ -1714,7 +1715,9 @@ export default function StrategyAnalysisPanel({
                                   {!row.hasChart
                                     ? "нет чарта"
                                     : row.correct_pct == null
-                                      ? "—"
+                                      ? row.hands_count
+                                        ? "—"
+                                        : "нет в сессии"
                                       : `${row.correct_pct.toFixed(1)}%`}
                                 </td>
                                 <td onClick={(e) => e.stopPropagation()}>
@@ -1727,8 +1730,7 @@ export default function StrategyAnalysisPanel({
                                         void addOneMissingSpot({
                                           spot_key: row.spot_key,
                                           hero_position: row.hero_position,
-                                          villain_position:
-                                            row.villain_position ?? null,
+                                          villain_position: row.villain_position,
                                           label: mu,
                                           hands_count: row.hands_count,
                                         })
@@ -1756,9 +1758,9 @@ export default function StrategyAnalysisPanel({
           <div className="missing-spots-panel">
             <div className="missing-spots-head">
               <div>
-                <strong>Нет в стратегии</strong>
+                <strong>Нет в тренажёре</strong>
                 <p className="muted">
-                  Матчапы из раздач без такого же тега в конструкторе (как в списке веток).
+                  Ситуации из раздач, которых нет среди веток конструктора (пот + матчап).
                 </p>
               </div>
             </div>
