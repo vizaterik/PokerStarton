@@ -174,9 +174,6 @@ export default function ProfilePage() {
               {!stats && !statsError ? (
                 <p className="muted">Загрузка…</p>
               ) : null}
-              {stats && stats.top_hands.length === 0 ? (
-                <p className="muted">Пока нет лайкнутых раздач — поделитесь рукой в реплее.</p>
-              ) : null}
               {stats && stats.top_hands.length > 0 ? (
                 <ol className="profile-top-hands-list">
                   {stats.top_hands.map((h, i) => {
