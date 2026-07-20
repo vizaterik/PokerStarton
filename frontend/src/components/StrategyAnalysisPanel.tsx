@@ -8,6 +8,7 @@ import {
   listCells,
   listSessions,
   listSpots,
+  type ChartErrorCell,
   type ChartErrorSpot,
   type EnsuredSpotInfo,
   type PreflopBranchAccuracy,
@@ -20,7 +21,7 @@ import {
   buildLocalChartDeviations,
   restoreLocalSessionReport,
 } from "../engine/localAnalysis";
-import { listHandsForStrategy } from "../engine/localDb";
+import { listHandsForStrategy, type HandRow } from "../engine/localDb";
 import type { CellFreq } from "../lib/handMatrix";
 import {
   analysisFingerprint,
@@ -254,6 +255,86 @@ function potKindsCompatible(a: string, b: string): boolean {
   return potLookupKinds(a).includes(b) || potLookupKinds(b).includes(a);
 }
 
+/** Build VPIP matrix cells for a session matchup (works without strategy charts). */
+function buildVpipCellsForSpot(
+  hands: HandRow[],
+  spot: {
+    spot_key: string;
+    hero_position: string;
+    villain_position?: string | null;
+    matchup: string;
+    pot_kind: string;
+  },
+): ChartErrorCell[] {
+  const heroN = normalizeChartPos(spot.hero_position);
+  const villN = spot.villain_position
+    ? normalizeChartPos(spot.villain_position)
+    : null;
+  const wantPot = spot.pot_kind;
+  const wantMu = normalizeMatchupTag(spot.matchup);
+  const map = new Map<
+    string,
+    {
+      errors: number;
+      raise: number;
+      call: number;
+      fold: number;
+      actual: string | null;
+      handIds: string[];
+    }
+  >();
+
+  for (const h of hands) {
+    const code = h.hero_hand_code;
+    if (!code) continue;
+    const hs = (h.detected_spot || "").trim().toLowerCase();
+    if (!hs) continue;
+    if (normalizeChartPos(h.hero_position || "") !== heroN) continue;
+    const hv = h.villain_position
+      ? normalizeChartPos(h.villain_position)
+      : null;
+    if (villN) {
+      if (hv !== villN) continue;
+    } else if (hv) {
+      continue;
+    }
+    const pot = spotPotKind(hs);
+    if (!potKindsCompatible(pot, wantPot)) continue;
+    const mu = normalizeMatchupTag(
+      analysisMatchup(hs, h.hero_position, h.villain_position, null),
+    );
+    if (!matchupsCompatible(mu, wantMu)) continue;
+
+    const act = (h.hero_preflop_action || "").toLowerCase();
+    const norm =
+      act === "bet" ? "raise" : act === "raise" || act === "call" || act === "fold"
+        ? act
+        : null;
+    let row = map.get(code);
+    if (!row) {
+      row = { errors: 0, raise: 0, call: 0, fold: 0, actual: norm, handIds: [] };
+      map.set(code, row);
+    }
+    row.errors += 1;
+    if (norm === "raise" || norm === "call" || norm === "fold") row[norm] += 1;
+    if (norm) row.actual = norm;
+    if (h.key && !row.handIds.includes(h.key)) row.handIds.push(h.key);
+  }
+
+  return [...map.entries()]
+    .map(([hand_code, e]) => ({
+      hand_code,
+      errors: e.errors,
+      raise_count: e.raise,
+      call_count: e.call,
+      fold_count: e.fold,
+      hand_ids: e.handIds,
+      actual_action: e.actual,
+      expected_action: null,
+    }))
+    .sort((a, b) => b.errors - a.errors);
+}
+
 function matchesFilter(d: StrategyDeviation, f: ErrorFilter, branches: SavedBranch[] = []) {
   const coverOpts = { strictOpen: true, strictPot: true } as const;
   if (f.potKind) {
@@ -367,6 +448,8 @@ export default function StrategyAnalysisPanel({
   const [addingSpots, setAddingSpots] = useState(false);
   /** Key of the single branch currently being added, or "all". */
   const [addingSpotKey, setAddingSpotKey] = useState<string | null>(null);
+  /** VPIP matrix for a focused missing (no-strategy) branch. */
+  const [missingVpipCells, setMissingVpipCells] = useState<ChartErrorCell[]>([]);
   /** Real hand total for progress UI (sessions + last analysis). */
   const [handTotal, setHandTotal] = useState<number | null>(
     () => cachedBoot?.handTotal ?? cachedBoot?.analysis?.hands ?? null,
@@ -1162,10 +1245,7 @@ export default function StrategyAnalysisPanel({
     if (tab !== "preflop" || (preflopSub !== "branches" && preflopSub !== "errors")) {
       return;
     }
-    const rows =
-      preflopSub === "branches"
-        ? branchListRows.filter((r) => !r.missing)
-        : branchScoreRows;
+    const rows = preflopSub === "branches" ? branchListRows : branchScoreRows;
     if (!rows.length) return;
     const focused = rows.some(
       (r) =>
@@ -1185,6 +1265,47 @@ export default function StrategyAnalysisPanel({
     errorFilter.matchup,
     errorFilter.potKind,
     selectBranchFocus,
+  ]);
+
+  // VPIP for missing branches (no strategy charts to score against).
+  useEffect(() => {
+    if (tab !== "preflop" || preflopSub !== "branches") return;
+    const focus = branchListRows.find(
+      (r) =>
+        r.missing &&
+        errorFilter.matchup &&
+        errorFilter.potKind &&
+        matchupsCompatible(r.matchup, errorFilter.matchup) &&
+        (r.pot_kind === errorFilter.potKind ||
+          potLookupKinds(r.pot_kind).includes(errorFilter.potKind)),
+    );
+    if (!focus) {
+      setMissingVpipCells([]);
+      return;
+    }
+    let cancelled = false;
+    void listHandsForStrategy(strategyId).then((hands) => {
+      if (cancelled) return;
+      setMissingVpipCells(
+        buildVpipCellsForSpot(hands, {
+          spot_key: focus.spot_key,
+          hero_position: focus.hero_position,
+          villain_position: focus.villain_position,
+          matchup: focus.matchup,
+          pot_kind: focus.pot_kind,
+        }),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    tab,
+    preflopSub,
+    branchListRows,
+    errorFilter.matchup,
+    errorFilter.potKind,
+    strategyId,
   ]);
 
   const pickFocusedChart = useCallback(
@@ -1763,21 +1884,27 @@ export default function StrategyAnalysisPanel({
       const branchErrCount = filteredDevs.length;
       const focusMu = errorFilter.matchup || "";
       const focusPot = errorFilter.potKind || "";
-      const focusIsMissing = scoreRows.some(
-        (r) =>
-          r.missing &&
-          focusMu &&
-          focusPot &&
-          matchupsCompatible(r.matchup, focusMu) &&
-          (r.pot_kind === focusPot ||
-            potLookupKinds(r.pot_kind).includes(focusPot)),
-      );
+      const focusRow =
+        scoreRows.find(
+          (r) =>
+            focusMu &&
+            focusPot &&
+            matchupsCompatible(r.matchup, focusMu) &&
+            (r.pot_kind === focusPot ||
+              potLookupKinds(r.pot_kind).includes(focusPot)),
+        ) ?? null;
+      const focusMissing = Boolean(focusRow?.missing);
+      const vpipCells = focusMissing
+        ? missingVpipCells
+        : (activePlayedChart?.cells ?? []);
+      const errorCells = focusMissing ? [] : (activeChart?.cells ?? []);
+      const strategyCells = focusMissing ? {} : strategyChart;
 
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Клик по ветке в стратегии — три диапазона: Стратегия · VPIP · Ошибки. Нет в
-            стратегии — «+» в строке добавит линию в редактор.
+            Клик по ветке — Стратегия · Ошибки · VPIP. Нет в стратегии: пустые стратегия и
+            ошибки, VPIP из сессии; зелёный «+» добавит линию в редактор.
           </p>
 
           {scoreRows.length === 0 ? (
@@ -1793,7 +1920,6 @@ export default function StrategyAnalysisPanel({
                 <ul className="preflop-chart-list-flat">
                   {scoreRows.map((row) => {
                     const active =
-                      !row.missing &&
                       Boolean(focusMu) &&
                       Boolean(focusPot) &&
                       matchupsCompatible(row.matchup, focusMu) &&
@@ -1827,15 +1953,8 @@ export default function StrategyAnalysisPanel({
                         <button
                           type="button"
                           className={`branch-list-main${active ? " is-active" : ""}`}
-                          onClick={() => {
-                            if (!row.missing) selectBranchFocus(row);
-                          }}
-                          disabled={row.missing}
-                          title={
-                            row.missing
-                              ? "Нет в стратегии — нажми +"
-                              : "Сравнить диапазоны"
-                          }
+                          onClick={() => selectBranchFocus(row)}
+                          title="Сравнить диапазоны"
                         >
                           <span className="err-chart-tags err-chart-tags--inline">
                             <em className={`pot-tag pot-${row.pot_kind}`}>
@@ -1855,13 +1974,18 @@ export default function StrategyAnalysisPanel({
                             type="button"
                             className="branch-list-plus"
                             disabled={addingSpots}
-                            title="Добавить ветку в стратегию"
+                            title="Добавить ветку и открыть редактор"
                             aria-label={`Добавить ${row.pot_tag} ${row.matchup}`}
-                            onClick={() => void addOneMissingSpot(row.missingSpot!)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void addOneMissingSpot(row.missingSpot!);
+                            }}
                           >
                             {busy ? "…" : "+"}
                           </button>
-                        ) : null}
+                        ) : (
+                          <span className="branch-list-plus-spacer" aria-hidden />
+                        )}
                       </li>
                     );
                   })}
@@ -1869,35 +1993,20 @@ export default function StrategyAnalysisPanel({
               </aside>
 
               <div className="preflop-chart-main">
-                {activeChart && focusMu && !focusIsMissing ? (
+                {focusRow && focusMu ? (
                   <>
                     <h3 className="analysis-subhead">
                       <span className="err-chart-tags err-chart-tags--inline">
-                        <em
-                          className={`pot-tag pot-${
-                            focusPot ||
-                            activeChart.pot_kind ||
-                            spotPotKind(activeChart.spot_key)
-                          }`}
-                        >
-                          {potKindTag(
-                            focusPot ||
-                              activeChart.pot_kind ||
-                              spotPotKind(activeChart.spot_key),
-                          )}
+                        <em className={`pot-tag pot-${focusRow.pot_kind}`}>
+                          {focusRow.pot_tag}
                         </em>
                         <strong className="err-chart-matchup">
-                          {focusMu ||
-                            activeChart.label ||
-                            analysisMatchup(
-                              activeChart.spot_key,
-                              activeChart.hero_position,
-                              activeChart.villain_position,
-                              activeChart.label,
-                            )}
+                          {focusRow.matchup}
                         </strong>
                       </span>
-                      {branchErrCount > 0 ? (
+                      {focusMissing ? (
+                        <em className="branch-missing-tag"> · нет в стратегии</em>
+                      ) : branchErrCount > 0 ? (
                         <span className="err-count"> · {branchErrCount} ош.</span>
                       ) : null}
                     </h3>
@@ -1907,17 +2016,47 @@ export default function StrategyAnalysisPanel({
                           <strong>Стратегия</strong>
                           <span>raise / call / fold</span>
                         </header>
-                        {strategyChartLoading ? (
+                        {strategyChartLoading && !focusMissing ? (
                           <p className="muted">Загружаем чарт…</p>
                         ) : (
                           <StrategyChartPreview
-                            cells={strategyChart}
+                            cells={strategyCells}
                             selected={selectedHand}
+                            emptyHint={
+                              focusMissing
+                                ? "Нет чарта — нажми + чтобы добавить ветку"
+                                : undefined
+                            }
                             onSelectHand={(code) => {
                               selectCombo(code, {
-                                spotKey: activeChart.spot_key,
-                                heroPosition: activeChart.hero_position,
-                                villainPosition: activeChart.villain_position,
+                                spotKey: focusRow.spot_key,
+                                heroPosition: focusRow.hero_position,
+                                villainPosition: focusRow.villain_position,
+                                matchup: focusMu,
+                                potKind: focusPot,
+                              });
+                            }}
+                          />
+                        )}
+                      </div>
+                      <div className="preflop-chart-pane">
+                        <header>
+                          <strong>Ошибки</strong>
+                          <span>raise / call / fold · клик = выбрать</span>
+                        </header>
+                        {focusMissing ? (
+                          <p className="muted analysis-chart-hint">
+                            Нет эталона — ошибок стратегии нет.
+                          </p>
+                        ) : (
+                          <DeviationErrorMatrix
+                            cells={errorCells}
+                            selectedHand={selectedHand}
+                            onSelectHand={(code) => {
+                              selectCombo(code, {
+                                spotKey: focusRow.spot_key,
+                                heroPosition: focusRow.hero_position,
+                                villainPosition: focusRow.villain_position,
                                 matchup: focusMu,
                                 potKind: focusPot,
                               });
@@ -1931,39 +2070,15 @@ export default function StrategyAnalysisPanel({
                           <span>raise / call / fold · клик = выбрать</span>
                         </header>
                         <DeviationErrorMatrix
-                          cells={activePlayedChart?.cells ?? []}
+                          cells={vpipCells}
                           selectedHand={selectedHand}
                           countNoun="разд."
                           ariaLabel="VPIP диапазон"
                           onSelectHand={(code) => {
                             selectCombo(code, {
-                              spotKey:
-                                activePlayedChart?.spot_key || activeChart.spot_key,
-                              heroPosition:
-                                activePlayedChart?.hero_position ||
-                                activeChart.hero_position,
-                              villainPosition:
-                                activePlayedChart?.villain_position ??
-                                activeChart.villain_position,
-                              matchup: focusMu,
-                              potKind: focusPot,
-                            });
-                          }}
-                        />
-                      </div>
-                      <div className="preflop-chart-pane">
-                        <header>
-                          <strong>Ошибки</strong>
-                          <span>raise / call / fold · клик = выбрать</span>
-                        </header>
-                        <DeviationErrorMatrix
-                          cells={activeChart.cells}
-                          selectedHand={selectedHand}
-                          onSelectHand={(code) => {
-                            selectCombo(code, {
-                              spotKey: activeChart.spot_key,
-                              heroPosition: activeChart.hero_position,
-                              villainPosition: activeChart.villain_position,
+                              spotKey: focusRow.spot_key,
+                              heroPosition: focusRow.hero_position,
+                              villainPosition: focusRow.villain_position,
                               matchup: focusMu,
                               potKind: focusPot,
                             });
@@ -1973,8 +2088,7 @@ export default function StrategyAnalysisPanel({
                     </div>
                     {(() => {
                       const code = selectedHand || errorFilter.handCode || null;
-                      const playCells =
-                        activePlayedChart?.cells ?? activeChart.cells;
+                      const playCells = vpipCells;
                       const combo = code
                         ? resolveComboHandIds(code, errorFilter, playCells)
                         : null;
@@ -1994,12 +2108,10 @@ export default function StrategyAnalysisPanel({
                           <button
                             type="button"
                             className="preflop-filter-clear"
-                            onClick={() =>
-                              openSelectedComboReplay(playCells)
-                            }
+                            onClick={() => openSelectedComboReplay(playCells)}
                           >
                             Реплей
-                            {code ? ` · ${code}` : " ошибок"} ·{" "}
+                            {code ? ` · ${code}` : ""} ·{" "}
                             <span className="err-count">{count}</span>
                           </button>
                         </div>
@@ -2012,7 +2124,6 @@ export default function StrategyAnalysisPanel({
               </div>
             </div>
           )}
-
         </>
       );
     }
@@ -2231,6 +2342,38 @@ export default function StrategyAnalysisPanel({
                   </div>
                   <div className="preflop-chart-pane">
                     <header>
+                      <strong>Ошибки</strong>
+                      <span>raise / call / fold · клик = выбрать</span>
+                    </header>
+                    <DeviationErrorMatrix
+                      cells={activeChart.cells}
+                      selectedHand={selectedHand}
+                      onSelectHand={(code) => {
+                        const mu =
+                          errorFilter.matchup ||
+                          activeChart.label ||
+                          analysisMatchup(
+                            activeChart.spot_key,
+                            activeChart.hero_position,
+                            activeChart.villain_position,
+                            activeChart.label,
+                          );
+                        const pot =
+                          errorFilter.potKind ||
+                          activeChart.pot_kind ||
+                          spotPotKind(activeChart.spot_key);
+                        selectCombo(code, {
+                          spotKey: activeChart.spot_key,
+                          heroPosition: activeChart.hero_position,
+                          villainPosition: activeChart.villain_position,
+                          matchup: mu,
+                          potKind: pot,
+                        });
+                      }}
+                    />
+                  </div>
+                  <div className="preflop-chart-pane">
+                    <header>
                       <strong>VPIP</strong>
                       <span>raise / call / fold · клик = выбрать</span>
                     </header>
@@ -2264,38 +2407,6 @@ export default function StrategyAnalysisPanel({
                           villainPosition:
                             activePlayedChart?.villain_position ??
                             activeChart.villain_position,
-                          matchup: mu,
-                          potKind: pot,
-                        });
-                      }}
-                    />
-                  </div>
-                  <div className="preflop-chart-pane">
-                    <header>
-                      <strong>Ошибки</strong>
-                      <span>raise / call / fold · клик = выбрать</span>
-                    </header>
-                    <DeviationErrorMatrix
-                      cells={activeChart.cells}
-                      selectedHand={selectedHand}
-                      onSelectHand={(code) => {
-                        const mu =
-                          errorFilter.matchup ||
-                          activeChart.label ||
-                          analysisMatchup(
-                            activeChart.spot_key,
-                            activeChart.hero_position,
-                            activeChart.villain_position,
-                            activeChart.label,
-                          );
-                        const pot =
-                          errorFilter.potKind ||
-                          activeChart.pot_kind ||
-                          spotPotKind(activeChart.spot_key);
-                        selectCombo(code, {
-                          spotKey: activeChart.spot_key,
-                          heroPosition: activeChart.hero_position,
-                          villainPosition: activeChart.villain_position,
                           matchup: mu,
                           potKind: pot,
                         });
