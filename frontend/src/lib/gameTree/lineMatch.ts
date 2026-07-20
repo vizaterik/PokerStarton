@@ -173,12 +173,14 @@ export function buildPlayedLine(hand: HandRow): PlayedLine {
       isHero: Boolean(a.is_hero),
       playerName: a.player_name,
     });
-    if (a.is_hero && (kind === "FOLD" || kind === "CALL" || kind === "RAISE")) {
-      break;
-    }
   }
 
+  // Score / match through hero's last voluntary preflop decision.
   const heroAct = [...actions].reverse().find((x) => x.isHero) ?? null;
+  if (heroAct) {
+    const cut = actions.lastIndexOf(heroAct);
+    if (cut >= 0) actions.splice(cut + 1);
+  }
   return {
     actions,
     heroSeat: heroAct?.seat ?? (hand.hero_position ? hhPosToSeat(hand.hero_position, tableSize) : null),

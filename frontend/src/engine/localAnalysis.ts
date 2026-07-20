@@ -116,30 +116,149 @@ function pickExpected(raiseF: number, callF: number, foldF: number): string {
   return "fold";
 }
 
+/** Seat labels from HandRow for strategy villain lookup. */
+function nameToSeatLabel(hand: HandRow): Map<string, string> {
+  const out = new Map<string, string>();
+  const seats = hand.seats ?? [];
+  if (!seats.length) {
+    if (hand.hero_name && hand.hero_position) {
+      out.set(hand.hero_name, hand.hero_position);
+    }
+    return out;
+  }
+  const seatNums = seats.map((s) => s.seat);
+  const button = hand.button_seat ?? seatNums[0];
+  const sorted = [...seatNums].sort((a, b) => a - b);
+  let btn = button;
+  if (!sorted.includes(btn)) btn = sorted[0];
+  const idx = sorted.indexOf(btn);
+  const rotated = sorted.slice(idx).concat(sorted.slice(0, idx));
+  const n = rotated.length;
+  let labels: string[];
+  if (n === 2) labels = ["SB", "BB"];
+  else if (n === 3) labels = ["BTN", "SB", "BB"];
+  else if (n <= 6) {
+    labels = ["BTN", "SB", "BB", "UTG", "HJ", "CO"].slice(0, n);
+  } else {
+    const extra = ["UTG+1", "UTG+2", "MP", "HJ", "CO"];
+    labels = ["BTN", "SB", "BB", "UTG", ...extra.slice(0, n - 4)];
+  }
+  const seatToLabel = new Map<number, string>();
+  rotated.forEach((seat, i) => seatToLabel.set(seat, labels[i]));
+  for (const s of seats) {
+    const lab = seatToLabel.get(s.seat);
+    if (lab) out.set(s.name, lab);
+  }
+  return out;
+}
+
+/**
+ * Prefer last hero preflop decision from stored actions (open → face 3bet).
+ * Falls back to HandRow.detected_spot for older trimmed imports.
+ */
+function resolveHeroStrategyDecision(hand: HandRow): {
+  spot: string;
+  action: string;
+  villain: string | null;
+} | null {
+  const acts = hand.preflop_actions?.length
+    ? hand.preflop_actions
+    : hand.actions ?? [];
+  const preflop = acts.filter((a) => (a.street || "").toLowerCase() === "preflop");
+  if (preflop.length) {
+    const pos = nameToSeatLabel(hand);
+    const before: string[] = [];
+    const beforePlayers: string[] = [];
+    let last: { action: string; spot: string; villain: string | null } | null = null;
+    for (const a of preflop) {
+      const act = (a.action || "").toLowerCase();
+      if (!["raise", "call", "fold", "bet"].includes(act)) continue;
+      const norm = act === "bet" ? "raise" : act;
+      if (a.is_hero) {
+        let raises = 0;
+        let limps = 0;
+        let callsAfterRaise = 0;
+        for (const b of before) {
+          if (b === "raise") {
+            raises += 1;
+            callsAfterRaise = 0;
+          } else if (b === "call") {
+            if (raises === 0) limps += 1;
+            else callsAfterRaise += 1;
+          }
+        }
+        let spot = "rfi";
+        if (raises === 0) spot = limps > 0 && norm === "raise" ? "iso" : "rfi";
+        else if (raises === 1) {
+          spot = callsAfterRaise >= 1 && norm === "raise" ? "squeeze" : "vs_open";
+        } else if (raises === 2) spot = "vs_3bet";
+        else spot = "vs_4bet";
+        let villain: string | null = null;
+        for (let i = 0; i < before.length; i += 1) {
+          if (before[i] === "raise") {
+            villain = pos.get(beforePlayers[i]) ?? null;
+          }
+        }
+        last = { action: norm, spot, villain };
+      }
+      before.push(norm);
+      beforePlayers.push(a.player_name);
+    }
+    if (last) return last;
+  }
+  if (!hand.detected_spot || !hand.hero_preflop_action) return null;
+  return {
+    spot: hand.detected_spot,
+    action: hand.hero_preflop_action,
+    villain: hand.villain_position,
+  };
+}
+
 /** Fast spot lookup for large session scoring. */
 function buildSpotIndex(spots: StrategySpot[]) {
   const exact = new Map<string, StrategySpot>();
+  const byHeroSpot = new Map<string, StrategySpot[]>();
   const opens = new Map<string, StrategySpot>();
   for (const s of spots) {
     const hero = normalizeChartPos(s.hero_position);
     const vill = s.villain_position ? normalizeChartPos(s.villain_position) : "";
     const g = `${s.spot_key}|${hero}`;
     exact.set(`${g}|${vill}`, s);
+    const list = byHeroSpot.get(g) ?? [];
+    list.push(s);
+    byHeroSpot.set(g, list);
     // Open charts only — never use a generic facing chart as “all folds”.
     if ((s.spot_key === "rfi" || s.spot_key === "iso") && !vill && !opens.has(g)) {
       opens.set(g, s);
     }
   }
-  return (hand: HandRow): StrategySpot | null => {
-    if (!hand.detected_spot || !hand.hero_position) return null;
+  return (
+    hand: HandRow,
+    decision?: { spot: string; villain: string | null } | null,
+  ): StrategySpot | null => {
+    const spotKey = decision?.spot || hand.detected_spot;
+    if (!spotKey || !hand.hero_position) return null;
     const hero = normalizeChartPos(hand.hero_position);
-    const vill = hand.villain_position
-      ? normalizeChartPos(hand.villain_position)
-      : "";
-    const g = `${hand.detected_spot}|${hero}`;
+    const vill = normalizeChartPos(
+      decision?.villain || hand.villain_position || "",
+    );
+    const g = `${spotKey}|${hero}`;
     const hit = exact.get(`${g}|${vill}`);
     if (hit) return hit;
-    if (hand.detected_spot === "rfi" || hand.detected_spot === "iso") {
+    // Facing pots: if villain label drifted (HJ/MP), take the only chart for hero+spot.
+    if (spotKey !== "rfi" && spotKey !== "iso") {
+      const alts = byHeroSpot.get(g) ?? [];
+      if (alts.length === 1) return alts[0];
+      if (vill) {
+        const soft = alts.find(
+          (s) =>
+            normalizeChartPos(s.villain_position || "") === vill ||
+            !s.villain_position,
+        );
+        if (soft) return soft;
+      }
+    }
+    if (spotKey === "rfi" || spotKey === "iso") {
       return opens.get(g) ?? null;
     }
     return null;
@@ -584,9 +703,11 @@ async function buildDeviations(
     while (i < totalHands && performance.now() - t0 < FRAME_MS) {
       const h = hands[i];
       i += 1;
-      if (!h.hero_hand_code || !h.hero_preflop_action) continue;
+      if (!h.hero_hand_code) continue;
+      const decision = resolveHeroStrategyDecision(h);
+      if (!decision) continue;
       // Only constructor-synced spots (exact matchup). No chart cell → skip.
-      const spot = findSpot(h);
+      const spot = findSpot(h, decision);
       if (!spot) continue;
       const cellMap = cellsBySpot.get(spot.id);
       if (!cellMap) continue;
@@ -596,7 +717,7 @@ async function buildDeviations(
       const raiseF = Number(cell.raise_freq) || 0;
       const callF = Number(cell.call_freq) || 0;
       const foldF = Number(cell.fold_freq) || 0;
-      const actual = h.hero_preflop_action;
+      const actual = decision.action;
       const deviant = isDeviation(actual, raiseF, callF, foldF);
       const expected = pickExpected(raiseF, callF, foldF);
 

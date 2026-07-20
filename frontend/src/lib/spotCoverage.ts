@@ -156,7 +156,9 @@ function potsForSpot(spotKey: string, strictPot?: boolean): BranchPotKind[] {
       return ["srp"];
     }
     if (kind === "limp") return ["limp", "srp"];
-    if (kind === "allin") return ["allin", "4bp"];
+    // Jam 3bet lines are stored as allin in the tree — still cover vs_3bet HH.
+    if (kind === "3bp") return ["3bp", "allin"];
+    if (kind === "allin") return ["allin", "4bp", "3bp"];
     if (kind === "4bp") return ["4bp", "allin"];
     return [kind];
   }

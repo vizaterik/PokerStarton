@@ -24,7 +24,7 @@ export type AnalysisCachePayload = {
 };
 
 /** Current strategy-compare cache schema (strict pot+matchup attribution). */
-export const CHART_COMPARE_VER = 5;
+export const CHART_COMPARE_VER = 6;
 
 /** v7: sync tree by painted jobs; score synced spots (exact matchup). */
 const PREFIX = "pokerledger.analysis.v7:";

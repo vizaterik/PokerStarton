@@ -242,14 +242,22 @@ function constructorBranchToSpot(b: SavedBranch): {
   };
 }
 
+function potKindsCompatible(a: string, b: string): boolean {
+  if (a === b) return true;
+  return potLookupKinds(a).includes(b) || potLookupKinds(b).includes(a);
+}
+
 function matchesFilter(d: StrategyDeviation, f: ErrorFilter, branches: SavedBranch[] = []) {
   const coverOpts = { strictOpen: true, strictPot: true } as const;
-  if (f.potKind && spotPotKind(d.spot_key || "") !== f.potKind) return false;
+  if (f.potKind) {
+    const dPot = spotPotKind(d.spot_key || "");
+    if (!potKindsCompatible(dPot, f.potKind)) return false;
+  }
   if (f.matchup) {
     const branch = branches.find(
       (b) =>
         matchupTagsEqual(b.label, f.matchup!) &&
-        (!f.potKind || b.potKind === f.potKind),
+        (!f.potKind || potKindsCompatible(b.potKind, f.potKind)),
     );
     if (branch) {
       if (

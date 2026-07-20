@@ -86,17 +86,22 @@ function handKey(strategyId: string, externalId: string) {
   return `${strategyId}::${externalId}`;
 }
 
-/** Preflop only, stop at hero's raise/call/fold — enough for Trainer. */
+/**
+ * Preflop through hero's last voluntary decision (open + face 3bet, etc.).
+ * Needed so strategy compare can score vs_3bet / vs_4bet after hero opened.
+ */
 function trimTrainerActions(actions: ParsedAction[]): ParsedAction[] {
-  const out: ParsedAction[] = [];
+  const preflop: ParsedAction[] = [];
+  let lastHeroIdx = -1;
   for (const a of actions) {
     if ((a.street || "").toLowerCase() !== "preflop") break;
-    out.push(a);
+    preflop.push(a);
     if (a.is_hero && ["raise", "call", "fold"].includes((a.action || "").toLowerCase())) {
-      break;
+      lastHeroIdx = preflop.length - 1;
     }
   }
-  return out;
+  if (lastHeroIdx < 0) return preflop;
+  return preflop.slice(0, lastHeroIdx + 1);
 }
 
 function toRow(strategyId: string, sessionId: string, h: ParsedHand): HandRow {

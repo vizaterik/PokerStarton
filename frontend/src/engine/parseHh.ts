@@ -335,6 +335,7 @@ function parseOne(block: string): ParsedHand | null {
     }
   }
 
+  // Strategy spot = hero's LAST voluntary preflop decision (vs 3bet after open, etc.).
   let heroPreflopAction: string | null = null;
   let detectedSpot: string | null = null;
   let villainPosition: string | null = null;
@@ -344,13 +345,17 @@ function parseOne(block: string): ParsedHand | null {
     if (player.toLowerCase() === heroName.toLowerCase()) {
       heroPreflopAction = act;
       detectedSpot = detectSpot(before, act);
+      villainPosition = null;
       for (let i = 0; i < before.length; i++) {
         if (before[i] === "raise") {
           const seat = nameToSeat.get(beforePlayers[i]);
           villainPosition = seat != null ? posMap[seat] ?? null : null;
         }
       }
-      break;
+      // Keep scanning — later hero decisions (face 3bet/4bet) override for strategy.
+      before.push(act);
+      beforePlayers.push(player);
+      continue;
     }
     before.push(act);
     beforePlayers.push(player);
