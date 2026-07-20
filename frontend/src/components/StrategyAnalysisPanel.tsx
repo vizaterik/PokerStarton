@@ -1162,7 +1162,10 @@ export default function StrategyAnalysisPanel({
     if (tab !== "preflop" || (preflopSub !== "branches" && preflopSub !== "errors")) {
       return;
     }
-    const rows = preflopSub === "branches" ? branchListRows : branchScoreRows;
+    const rows =
+      preflopSub === "branches"
+        ? branchListRows.filter((r) => !r.missing)
+        : branchScoreRows;
     if (!rows.length) return;
     const focused = rows.some(
       (r) =>
@@ -1760,22 +1763,21 @@ export default function StrategyAnalysisPanel({
       const branchErrCount = filteredDevs.length;
       const focusMu = errorFilter.matchup || "";
       const focusPot = errorFilter.potKind || "";
-      const focusMissing =
-        scoreRows.find(
-          (r) =>
-            r.missing &&
-            focusMu &&
-            focusPot &&
-            matchupsCompatible(r.matchup, focusMu) &&
-            (r.pot_kind === focusPot ||
-              potLookupKinds(r.pot_kind).includes(focusPot)),
-        ) ?? null;
+      const focusIsMissing = scoreRows.some(
+        (r) =>
+          r.missing &&
+          focusMu &&
+          focusPot &&
+          matchupsCompatible(r.matchup, focusMu) &&
+          (r.pot_kind === focusPot ||
+            potLookupKinds(r.pot_kind).includes(focusPot)),
+      );
 
       return (
         <>
           <p className="muted analysis-chart-hint">
-            Слева впипнутые ветки сессии: в стратегии — сравнение чартов, без стратегии —
-            подсветка и «Добавить ветку» сразу в редактор покраски.
+            Клик по ветке в стратегии — три диапазона: Стратегия · VPIP · Ошибки. Нет в
+            стратегии — «+» в строке добавит линию в редактор.
           </p>
 
           {scoreRows.length === 0 ? (
@@ -1791,6 +1793,7 @@ export default function StrategyAnalysisPanel({
                 <ul className="preflop-chart-list-flat">
                   {scoreRows.map((row) => {
                     const active =
+                      !row.missing &&
                       Boolean(focusMu) &&
                       Boolean(focusPot) &&
                       matchupsCompatible(row.matchup, focusMu) &&
@@ -1819,13 +1822,20 @@ export default function StrategyAnalysisPanel({
                     return (
                       <li
                         key={`${row.missing ? "miss" : "ok"}|${row.pot_kind}|${normalizeMatchupTag(row.matchup)}`}
+                        className={`branch-list-row${row.missing ? " is-missing" : ""}`}
                       >
                         <button
                           type="button"
-                          className={`${active ? "is-active" : ""}${
-                            row.missing ? " is-missing" : ""
-                          }`}
-                          onClick={() => selectBranchFocus(row)}
+                          className={`branch-list-main${active ? " is-active" : ""}`}
+                          onClick={() => {
+                            if (!row.missing) selectBranchFocus(row);
+                          }}
+                          disabled={row.missing}
+                          title={
+                            row.missing
+                              ? "Нет в стратегии — нажми +"
+                              : "Сравнить диапазоны"
+                          }
                         >
                           <span className="err-chart-tags err-chart-tags--inline">
                             <em className={`pot-tag pot-${row.pot_kind}`}>
@@ -1833,29 +1843,23 @@ export default function StrategyAnalysisPanel({
                             </em>
                             <strong className="err-chart-matchup">{row.matchup}</strong>
                           </span>
-                          <span className="branch-list-meta">
-                            {row.missing ? (
-                              <em className="branch-missing-tag">нет в стратегии</em>
-                            ) : null}
-                            <em
-                              className="err-count"
-                              title="ошибки / впипнутые раздачи"
-                            >
-                              {errForRow}/{played}
-                            </em>
-                          </span>
+                          <em
+                            className="err-count"
+                            title="ошибки / впипнутые раздачи"
+                          >
+                            {errForRow}/{played}
+                          </em>
                         </button>
                         {row.missing && row.missingSpot ? (
                           <button
                             type="button"
-                            className="missing-spot-add branch-list-add"
+                            className="branch-list-plus"
                             disabled={addingSpots}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void addOneMissingSpot(row.missingSpot!);
-                            }}
+                            title="Добавить ветку в стратегию"
+                            aria-label={`Добавить ${row.pot_tag} ${row.matchup}`}
+                            onClick={() => void addOneMissingSpot(row.missingSpot!)}
                           >
-                            {busy ? "…" : "Добавить ветку"}
+                            {busy ? "…" : "+"}
                           </button>
                         ) : null}
                       </li>
@@ -1865,70 +1869,7 @@ export default function StrategyAnalysisPanel({
               </aside>
 
               <div className="preflop-chart-main">
-                {focusMissing && focusMu ? (
-                  <>
-                    <h3 className="analysis-subhead">
-                      <span className="err-chart-tags err-chart-tags--inline">
-                        <em className={`pot-tag pot-${focusMissing.pot_kind}`}>
-                          {focusMissing.pot_tag}
-                        </em>
-                        <strong className="err-chart-matchup">
-                          {focusMissing.matchup}
-                        </strong>
-                      </span>
-                      <em className="branch-missing-tag"> · нет в стратегии</em>
-                    </h3>
-                    <div className="preflop-chart-compare">
-                      <div className="preflop-chart-pane preflop-chart-pane--missing">
-                        <header>
-                          <strong>Стратегия</strong>
-                          <span>ветки ещё нет</span>
-                        </header>
-                        <p className="muted analysis-chart-hint">
-                          Было {focusMissing.played} разд. во впипе. Добавь ветку — откроется
-                          редактор с готовой линией: переключение по чартам и покраска, без
-                          ручного raise/fold.
-                        </p>
-                        <button
-                          type="button"
-                          className="missing-spot-add"
-                          disabled={addingSpots || !focusMissing.missingSpot}
-                          onClick={() => {
-                            if (focusMissing.missingSpot) {
-                              void addOneMissingSpot(focusMissing.missingSpot);
-                            }
-                          }}
-                        >
-                          {addingSpotKey ===
-                          (focusMissing.missingSpot
-                            ? missingKey(focusMissing.missingSpot)
-                            : "")
-                            ? "Открываем редактор…"
-                            : "Добавить ветку → редактор"}
-                        </button>
-                      </div>
-                      <div className="preflop-chart-pane">
-                        <header>
-                          <strong>Ошибки</strong>
-                          <span>после добавления чарта</span>
-                        </header>
-                        <p className="muted analysis-chart-hint">
-                          Пока нет эталона — ошибок стратегии нет.
-                        </p>
-                      </div>
-                      <div className="preflop-chart-pane preflop-chart-pane--played">
-                        <header>
-                          <strong>Из раздач</strong>
-                          <span>{focusMissing.played} впип</span>
-                        </header>
-                        <p className="muted analysis-chart-hint">
-                          После добавления ветки и пересчёта здесь появится диапазон из
-                          сессии.
-                        </p>
-                      </div>
-                    </div>
-                  </>
-                ) : activeChart && focusMu ? (
+                {activeChart && focusMu && !focusIsMissing ? (
                   <>
                     <h3 className="analysis-subhead">
                       <span className="err-chart-tags err-chart-tags--inline">
@@ -1986,6 +1927,32 @@ export default function StrategyAnalysisPanel({
                       </div>
                       <div className="preflop-chart-pane">
                         <header>
+                          <strong>VPIP</strong>
+                          <span>raise / call / fold · клик = выбрать</span>
+                        </header>
+                        <DeviationErrorMatrix
+                          cells={activePlayedChart?.cells ?? []}
+                          selectedHand={selectedHand}
+                          countNoun="разд."
+                          ariaLabel="VPIP диапазон"
+                          onSelectHand={(code) => {
+                            selectCombo(code, {
+                              spotKey:
+                                activePlayedChart?.spot_key || activeChart.spot_key,
+                              heroPosition:
+                                activePlayedChart?.hero_position ||
+                                activeChart.hero_position,
+                              villainPosition:
+                                activePlayedChart?.villain_position ??
+                                activeChart.villain_position,
+                              matchup: focusMu,
+                              potKind: focusPot,
+                            });
+                          }}
+                        />
+                      </div>
+                      <div className="preflop-chart-pane">
+                        <header>
                           <strong>Ошибки</strong>
                           <span>raise / call / fold · клик = выбрать</span>
                         </header>
@@ -1997,32 +1964,6 @@ export default function StrategyAnalysisPanel({
                               spotKey: activeChart.spot_key,
                               heroPosition: activeChart.hero_position,
                               villainPosition: activeChart.villain_position,
-                              matchup: focusMu,
-                              potKind: focusPot,
-                            });
-                          }}
-                        />
-                      </div>
-                      <div className="preflop-chart-pane preflop-chart-pane--played">
-                        <header>
-                          <strong>Из раздач</strong>
-                          <span>raise / call / fold · клик = выбрать</span>
-                        </header>
-                        <DeviationErrorMatrix
-                          cells={activePlayedChart?.cells ?? []}
-                          selectedHand={selectedHand}
-                          countNoun="разд."
-                          ariaLabel="Диапазон из раздач"
-                          onSelectHand={(code) => {
-                            selectCombo(code, {
-                              spotKey:
-                                activePlayedChart?.spot_key || activeChart.spot_key,
-                              heroPosition:
-                                activePlayedChart?.hero_position ||
-                                activeChart.hero_position,
-                              villainPosition:
-                                activePlayedChart?.villain_position ??
-                                activeChart.villain_position,
                               matchup: focusMu,
                               potKind: focusPot,
                             });
@@ -2290,46 +2231,14 @@ export default function StrategyAnalysisPanel({
                   </div>
                   <div className="preflop-chart-pane">
                     <header>
-                      <strong>Ошибки</strong>
-                      <span>raise / call / fold · клик = выбрать</span>
-                    </header>
-                    <DeviationErrorMatrix
-                      cells={activeChart.cells}
-                      selectedHand={selectedHand}
-                      onSelectHand={(code) => {
-                        const mu =
-                          errorFilter.matchup ||
-                          activeChart.label ||
-                          analysisMatchup(
-                            activeChart.spot_key,
-                            activeChart.hero_position,
-                            activeChart.villain_position,
-                            activeChart.label,
-                          );
-                        const pot =
-                          errorFilter.potKind ||
-                          activeChart.pot_kind ||
-                          spotPotKind(activeChart.spot_key);
-                        selectCombo(code, {
-                          spotKey: activeChart.spot_key,
-                          heroPosition: activeChart.hero_position,
-                          villainPosition: activeChart.villain_position,
-                          matchup: mu,
-                          potKind: pot,
-                        });
-                      }}
-                    />
-                  </div>
-                  <div className="preflop-chart-pane preflop-chart-pane--played">
-                    <header>
-                      <strong>Из раздач</strong>
+                      <strong>VPIP</strong>
                       <span>raise / call / fold · клик = выбрать</span>
                     </header>
                     <DeviationErrorMatrix
                       cells={activePlayedChart?.cells ?? []}
                       selectedHand={selectedHand}
                       countNoun="разд."
-                      ariaLabel="Диапазон из раздач"
+                      ariaLabel="VPIP диапазон"
                       onSelectHand={(code) => {
                         const mu =
                           errorFilter.matchup ||
@@ -2355,6 +2264,38 @@ export default function StrategyAnalysisPanel({
                           villainPosition:
                             activePlayedChart?.villain_position ??
                             activeChart.villain_position,
+                          matchup: mu,
+                          potKind: pot,
+                        });
+                      }}
+                    />
+                  </div>
+                  <div className="preflop-chart-pane">
+                    <header>
+                      <strong>Ошибки</strong>
+                      <span>raise / call / fold · клик = выбрать</span>
+                    </header>
+                    <DeviationErrorMatrix
+                      cells={activeChart.cells}
+                      selectedHand={selectedHand}
+                      onSelectHand={(code) => {
+                        const mu =
+                          errorFilter.matchup ||
+                          activeChart.label ||
+                          analysisMatchup(
+                            activeChart.spot_key,
+                            activeChart.hero_position,
+                            activeChart.villain_position,
+                            activeChart.label,
+                          );
+                        const pot =
+                          errorFilter.potKind ||
+                          activeChart.pot_kind ||
+                          spotPotKind(activeChart.spot_key);
+                        selectCombo(code, {
+                          spotKey: activeChart.spot_key,
+                          heroPosition: activeChart.hero_position,
+                          villainPosition: activeChart.villain_position,
                           matchup: mu,
                           potKind: pot,
                         });
