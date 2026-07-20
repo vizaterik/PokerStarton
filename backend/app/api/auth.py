@@ -1,7 +1,7 @@
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -32,7 +32,8 @@ from app.schemas.auth import (
     UserRead,
     VerifyEmailRequest,
 )
-from app.services.profile_social import get_profile_stats
+from app.schemas.feed import ProfileCommentsResponse
+from app.services.profile_social import get_profile_stats, list_author_received_comments
 from app.services.account_delete import (
     ARCHIVE_EMAIL,
     delete_user_account,
@@ -351,6 +352,16 @@ def me_stats(
 ) -> ProfileStatsRead:
     """Registration, social rating and top liked shared hands."""
     return get_profile_stats(db, current_user)
+
+
+@router.get("/me/comments", response_model=ProfileCommentsResponse)
+def me_comments(
+    limit: int = Query(default=100, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ProfileCommentsResponse:
+    """Comments left on the current user's published hands."""
+    return list_author_received_comments(db, current_user.id, limit=limit)
 
 
 @router.delete("/account", response_model=DeleteAccountResponse)

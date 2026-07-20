@@ -10,11 +10,72 @@ from app.models.hand_share import HandShare
 from app.models.hand_share_social import HandShareComment, HandShareLike
 from app.models.user import User
 from app.schemas.auth import ProfileStatsRead, ProfileTopHandRead
+from app.schemas.feed import ProfileCommentItem, ProfileCommentsResponse
 from app.services.social_rating import (
     author_engagement_totals,
     author_rating,
     author_shares_count,
 )
+
+
+def _comment_author_name(display_name: str | None, email: str | None) -> str:
+    name = (display_name or "").strip()
+    if name:
+        return name[:40]
+    mail = (email or "").strip()
+    if mail and "@" in mail:
+        return mail.split("@", 1)[0][:40]
+    return "Игрок"
+
+
+def list_author_received_comments(
+    db: Session, user_id: UUID, *, limit: int = 100
+) -> ProfileCommentsResponse:
+    """All comments left on the author's published hands."""
+    lim = max(1, min(int(limit), 200))
+    rows = db.execute(
+        select(
+            HandShareComment.id,
+            HandShareComment.body,
+            HandShareComment.street,
+            HandShareComment.created_at,
+            HandShare.token,
+            Hand.hero_hand,
+            User.display_name,
+            User.email,
+        )
+        .join(HandShare, HandShare.id == HandShareComment.share_id)
+        .join(Hand, Hand.id == HandShare.hand_id)
+        .join(User, User.id == HandShareComment.user_id)
+        .where(HandShare.created_by == user_id)
+        .order_by(HandShareComment.created_at.desc())
+        .limit(lim)
+    ).all()
+
+    items: list[ProfileCommentItem] = []
+    for (
+        cid,
+        body,
+        street,
+        created_at,
+        token,
+        hero_hand,
+        display_name,
+        email,
+    ) in rows:
+        items.append(
+            ProfileCommentItem(
+                id=str(cid),
+                body=body,
+                street=street,
+                author_name=_comment_author_name(display_name, email),
+                created_at=created_at,
+                hand_token=token,
+                hand_path=f"/h/{token}",
+                hero_hand=hero_hand,
+            )
+        )
+    return ProfileCommentsResponse(items=items, total=len(items))
 
 
 def list_author_shared_hands(
@@ -98,3 +159,15 @@ def get_profile_stats(db: Session, user: User, *, limit: int = 20) -> ProfileSta
         shares_count=author_shares_count(db, user.id),
         top_hands=list_author_shared_hands(db, user.id, limit=limit),
     )
+
+
+def get_public_author_comments(
+    db: Session, display_name: str, *, limit: int = 100
+) -> ProfileCommentsResponse:
+    nick = (display_name or "").strip()
+    if not nick or len(nick) > 40:
+        raise LookupError("Профиль не найден")
+    user = db.scalar(select(User).where(func.lower(User.display_name) == nick.lower()))
+    if user is None or not (user.display_name or "").strip():
+        raise LookupError("Профиль не найден")
+    return list_author_received_comments(db, user.id, limit=limit)

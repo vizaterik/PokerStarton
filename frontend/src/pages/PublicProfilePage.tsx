@@ -1,7 +1,21 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { getPublicProfile, type PublicProfile } from "../api/client";
+import {
+  getPublicProfile,
+  getPublicProfileComments,
+  type ProfileComment,
+  type PublicProfile,
+} from "../api/client";
 import EngagementIcons from "../components/EngagementIcons";
+
+type Panel = "hands" | "comments" | null;
+
+const STREET_RU: Record<string, string> = {
+  preflop: "Префлоп",
+  flop: "Флоп",
+  turn: "Тёрн",
+  river: "Ривер",
+};
 
 function formatHandLabel(hand: string | null | undefined) {
   if (!hand || hand.length < 4) return "Раздача";
@@ -13,6 +27,10 @@ export default function PublicProfilePage() {
   const [data, setData] = useState<PublicProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [comments, setComments] = useState<ProfileComment[] | null>(null);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+  const [commentsLoading, setCommentsLoading] = useState(false);
 
   useEffect(() => {
     const nick = decodeURIComponent(displayName || "").trim();
@@ -23,6 +41,8 @@ export default function PublicProfilePage() {
     }
     let cancelled = false;
     setLoading(true);
+    setPanel(null);
+    setComments(null);
     void getPublicProfile(nick)
       .then((p) => {
         if (!cancelled) setData(p);
@@ -39,6 +59,26 @@ export default function PublicProfilePage() {
       cancelled = true;
     };
   }, [displayName]);
+
+  async function openComments() {
+    if (panel === "comments") {
+      setPanel(null);
+      return;
+    }
+    setPanel("comments");
+    if (comments != null || !data) return;
+    const nick = data.display_name;
+    setCommentsLoading(true);
+    setCommentsError(null);
+    try {
+      const res = await getPublicProfileComments(nick);
+      setComments(res.items);
+    } catch (err: unknown) {
+      setCommentsError(err instanceof Error ? err.message : "Не удалось загрузить");
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -87,39 +127,91 @@ export default function PublicProfilePage() {
           </div>
           <div>
             <span className="public-profile-stat-label">Комментарии</span>
-            <span>{data.comments_count}</span>
+            <button
+              type="button"
+              className={`profile-stat-link${panel === "comments" ? " is-active" : ""}`}
+              onClick={() => void openComments()}
+              disabled={data.comments_count === 0}
+              title="Все комментарии"
+            >
+              {data.comments_count}
+            </button>
           </div>
           <div>
             <span className="public-profile-stat-label">Раздач опубликовано</span>
-            <span>{data.shares_count}</span>
+            <button
+              type="button"
+              className={`profile-stat-link${panel === "hands" ? " is-active" : ""}`}
+              onClick={() => setPanel(panel === "hands" ? null : "hands")}
+              disabled={data.shares_count === 0}
+              title="Опубликованные раздачи"
+            >
+              {data.shares_count}
+            </button>
           </div>
         </div>
       </header>
 
-      <h2 className="public-profile-sub">Раздачи</h2>
-      {data.top_hands.length === 0 ? (
-        <p className="muted">Пока нет опубликованных раздач.</p>
-      ) : (
-        <ol className="feed-top-list">
-          {data.top_hands.map((h, i) => (
-            <li key={h.token}>
-              <span className="feed-top-rank">{i + 1}</span>
-              <div className="feed-top-body">
-                <Link to={h.path} className="feed-top-link">
-                  {formatHandLabel(h.hero_hand)}
-                  {h.hero_position ? ` · ${h.hero_position}` : ""}
-                </Link>
-                <div className="feed-meta">
-                  {h.played_at ? (
-                    <span>{new Date(h.played_at).toLocaleDateString("ru-RU")}</span>
-                  ) : null}
-                </div>
-              </div>
-              <EngagementIcons comments={h.comments_count} likes={h.likes_count} />
-            </li>
-          ))}
-        </ol>
-      )}
+      {panel === "hands" ? (
+        <>
+          <h2 className="public-profile-sub">Раздачи</h2>
+          {data.top_hands.length === 0 ? (
+            <p className="muted">Пока нет опубликованных раздач.</p>
+          ) : (
+            <ol className="feed-top-list">
+              {data.top_hands.map((h, i) => (
+                <li key={h.token}>
+                  <span className="feed-top-rank">{i + 1}</span>
+                  <div className="feed-top-body">
+                    <Link to={h.path} className="feed-top-link">
+                      {formatHandLabel(h.hero_hand)}
+                      {h.hero_position ? ` · ${h.hero_position}` : ""}
+                    </Link>
+                    <div className="feed-meta">
+                      {h.played_at ? (
+                        <span>{new Date(h.played_at).toLocaleDateString("ru-RU")}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  <EngagementIcons comments={h.comments_count} likes={h.likes_count} />
+                </li>
+              ))}
+            </ol>
+          )}
+        </>
+      ) : null}
+
+      {panel === "comments" ? (
+        <>
+          <h2 className="public-profile-sub">Комментарии</h2>
+          {commentsLoading ? <p className="muted">Загрузка…</p> : null}
+          {commentsError ? <p className="error">{commentsError}</p> : null}
+          {!commentsLoading && comments && comments.length === 0 ? (
+            <p className="muted">Пока нет комментариев.</p>
+          ) : null}
+          {comments && comments.length > 0 ? (
+            <ul className="profile-comments-list">
+              {comments.map((c) => (
+                <li key={c.id} className="profile-comment-card">
+                  <div className="profile-comment-head">
+                    <strong>{c.author_name}</strong>
+                    <span className="muted">
+                      {STREET_RU[c.street] || c.street}
+                      {c.created_at
+                        ? ` · ${new Date(c.created_at).toLocaleDateString("ru-RU")}`
+                        : ""}
+                    </span>
+                  </div>
+                  <p className="profile-comment-body">{c.body}</p>
+                  <Link to={c.hand_path} className="profile-comment-hand">
+                    → {formatHandLabel(c.hero_hand)}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
     </section>
   );
 }

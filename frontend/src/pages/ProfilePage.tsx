@@ -3,8 +3,10 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   deleteAccount,
   getMe,
+  getMyProfileComments,
   getProfileStats,
   isLoggedIn,
+  type ProfileComment,
   type ProfileStats,
   type User,
 } from "../api/client";
@@ -16,12 +18,20 @@ import { BRAND } from "../lib/brand";
 import { logout } from "../lib/auth";
 
 type ProfileTab = "account" | "databases"; // | "subscription";
+type StatsPanel = "hands" | "comments" | null;
 
 const TABS: { id: ProfileTab; label: string }[] = [
   { id: "account", label: "Аккаунт" },
   { id: "databases", label: "Базы" },
   // { id: "subscription", label: "Подписка" },
 ];
+
+const STREET_RU: Record<string, string> = {
+  preflop: "Префлоп",
+  flop: "Флоп",
+  turn: "Тёрн",
+  river: "Ривер",
+};
 
 function formatHandLabel(hand: string | null | undefined) {
   if (!hand || hand.length < 4) return "Раздача";
@@ -40,10 +50,33 @@ export default function ProfilePage() {
   const [stats, setStats] = useState<ProfileStats | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
   const [tab, setTab] = useState<ProfileTab>("account");
+  const [statsPanel, setStatsPanel] = useState<StatsPanel>(null);
+  const [comments, setComments] = useState<ProfileComment[] | null>(null);
+  const [commentsError, setCommentsError] = useState<string | null>(null);
+  const [commentsLoading, setCommentsLoading] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  async function openComments() {
+    if (statsPanel === "comments") {
+      setStatsPanel(null);
+      return;
+    }
+    setStatsPanel("comments");
+    if (comments != null) return;
+    setCommentsLoading(true);
+    setCommentsError(null);
+    try {
+      const res = await getMyProfileComments();
+      setComments(res.items);
+    } catch (err: unknown) {
+      setCommentsError(err instanceof Error ? err.message : "Не удалось загрузить");
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!isLoggedIn()) {
@@ -174,59 +207,114 @@ export default function ProfilePage() {
               <div className="profile-field">
                 <span className="profile-field-label">Комментарии</span>
                 <div className="profile-field-value">
-                  <strong>{stats ? stats.comments_count : "…"}</strong>
+                  {stats ? (
+                    <button
+                      type="button"
+                      className={`profile-stat-link${statsPanel === "comments" ? " is-active" : ""}`}
+                      onClick={() => void openComments()}
+                      disabled={stats.comments_count === 0}
+                      title="Все комментарии"
+                    >
+                      {stats.comments_count}
+                    </button>
+                  ) : (
+                    <strong>…</strong>
+                  )}
                 </div>
               </div>
 
               <div className="profile-field">
                 <span className="profile-field-label">Раздач опубликовано</span>
                 <div className="profile-field-value">
-                  <strong>{stats ? stats.shares_count : "…"}</strong>
+                  {stats ? (
+                    <button
+                      type="button"
+                      className={`profile-stat-link${statsPanel === "hands" ? " is-active" : ""}`}
+                      onClick={() =>
+                        setStatsPanel(statsPanel === "hands" ? null : "hands")
+                      }
+                      disabled={stats.shares_count === 0}
+                      title="Опубликованные раздачи"
+                    >
+                      {stats.shares_count}
+                    </button>
+                  ) : (
+                    <strong>…</strong>
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="profile-top-hands">
-              <h3>Опубликованные раздачи</h3>
-              <p className="muted profile-tab-lead">
-                Ссылки на раздачи и комментарии к ним.
-              </p>
-              {statsError ? <p className="error">{statsError}</p> : null}
-              {!stats && !statsError ? (
-                <p className="muted">Загрузка…</p>
-              ) : null}
-              {stats && stats.top_hands.length === 0 ? (
-                <p className="muted">Пока нет опубликованных раздач.</p>
-              ) : null}
-              {stats && stats.top_hands.length > 0 ? (
-                <ol className="profile-top-hands-list">
-                  {stats.top_hands.map((h, i) => {
-                    const net = formatNet(h.hero_net);
-                    return (
-                      <li key={h.token}>
-                        <span className="profile-top-rank">{i + 1}</span>
-                        <div className="profile-top-meta">
-                          <Link to={h.path} className="profile-top-link">
-                            {formatHandLabel(h.hero_hand)}
-                            {h.hero_position ? ` · ${h.hero_position}` : ""}
-                          </Link>
+            {statsError ? <p className="error">{statsError}</p> : null}
+
+            {statsPanel === "hands" ? (
+              <div className="profile-top-hands">
+                <h3>Опубликованные раздачи</h3>
+                {stats && stats.top_hands.length === 0 ? (
+                  <p className="muted">Пока нет опубликованных раздач.</p>
+                ) : null}
+                {stats && stats.top_hands.length > 0 ? (
+                  <ol className="profile-top-hands-list">
+                    {stats.top_hands.map((h, i) => {
+                      const net = formatNet(h.hero_net);
+                      return (
+                        <li key={h.token}>
+                          <span className="profile-top-rank">{i + 1}</span>
+                          <div className="profile-top-meta">
+                            <Link to={h.path} className="profile-top-link">
+                              {formatHandLabel(h.hero_hand)}
+                              {h.hero_position ? ` · ${h.hero_position}` : ""}
+                            </Link>
+                            <span className="muted">
+                              {h.played_at
+                                ? new Date(h.played_at).toLocaleDateString("ru-RU")
+                                : "—"}
+                              {net ? ` · ${net}` : ""}
+                            </span>
+                          </div>
+                          <EngagementIcons
+                            comments={h.comments_count}
+                            likes={h.likes_count}
+                          />
+                        </li>
+                      );
+                    })}
+                  </ol>
+                ) : null}
+              </div>
+            ) : null}
+
+            {statsPanel === "comments" ? (
+              <div className="profile-top-hands">
+                <h3>Комментарии</h3>
+                {commentsLoading ? <p className="muted">Загрузка…</p> : null}
+                {commentsError ? <p className="error">{commentsError}</p> : null}
+                {!commentsLoading && comments && comments.length === 0 ? (
+                  <p className="muted">Пока нет комментариев.</p>
+                ) : null}
+                {comments && comments.length > 0 ? (
+                  <ul className="profile-comments-list">
+                    {comments.map((c) => (
+                      <li key={c.id} className="profile-comment-card">
+                        <div className="profile-comment-head">
+                          <strong>{c.author_name}</strong>
                           <span className="muted">
-                            {h.played_at
-                              ? new Date(h.played_at).toLocaleDateString("ru-RU")
-                              : "—"}
-                            {net ? ` · ${net}` : ""}
+                            {STREET_RU[c.street] || c.street}
+                            {c.created_at
+                              ? ` · ${new Date(c.created_at).toLocaleDateString("ru-RU")}`
+                              : ""}
                           </span>
                         </div>
-                        <EngagementIcons
-                          comments={h.comments_count}
-                          likes={h.likes_count}
-                        />
+                        <p className="profile-comment-body">{c.body}</p>
+                        <Link to={c.hand_path} className="profile-comment-hand">
+                          → {formatHandLabel(c.hero_hand)}
+                        </Link>
                       </li>
-                    );
-                  })}
-                </ol>
-              ) : null}
-            </div>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
 
             <div className="profile-actions">
               <button type="button" className="cta-secondary danger-btn" onClick={logout}>

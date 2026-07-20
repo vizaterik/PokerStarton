@@ -40,3 +40,19 @@ class PublicProfileRead(BaseModel):
     unique_views: int = 0
     shares_count: int = 0
     top_hands: list[PublicProfileHand] = Field(default_factory=list)
+
+
+class ProfileCommentItem(BaseModel):
+    id: str
+    body: str
+    street: str
+    author_name: str
+    created_at: datetime | None = None
+    hand_token: str
+    hand_path: str
+    hero_hand: str | None = None
+
+
+class ProfileCommentsResponse(BaseModel):
+    items: list[ProfileCommentItem] = Field(default_factory=list)
+    total: int = 0

@@ -360,6 +360,22 @@ export function getProfileStats() {
   return request<ProfileStats>("/api/auth/me/stats");
 }
 
+export type ProfileComment = {
+  id: string;
+  body: string;
+  street: string;
+  author_name: string;
+  created_at: string | null;
+  hand_token: string;
+  hand_path: string;
+  hero_hand: string | null;
+};
+
+export function getMyProfileComments(limit = 100) {
+  const q = new URLSearchParams({ limit: String(limit) });
+  return request<{ items: ProfileComment[]; total: number }>(`/api/auth/me/comments?${q}`);
+}
+
 export type SupportTicketPayload = {
   site_nick: string;
   email: string;
@@ -1824,5 +1840,12 @@ export function listTopHands(limit = 5) {
 export function getPublicProfile(displayName: string) {
   return request<PublicProfile>(
     `/api/public/users/${encodeURIComponent(displayName)}`,
+  );
+}
+
+export function getPublicProfileComments(displayName: string, limit = 100) {
+  const q = new URLSearchParams({ limit: String(limit) });
+  return request<{ items: ProfileComment[]; total: number }>(
+    `/api/public/users/${encodeURIComponent(displayName)}/comments?${q}`,
   );
 }
