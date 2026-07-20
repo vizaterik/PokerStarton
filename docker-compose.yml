@@ -1,35 +1,38 @@
+# PokerStraton on a VPS (Beget etc.): UI + API + Postgres, one domain.
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: pokerledger
-      POSTGRES_PASSWORD: pokerledger
-      POSTGRES_DB: pokerledger
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: poker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: pokerstarton
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pokerledger -d pokerledger"]
+      test: ["CMD-SHELL", "pg_isready -U poker -d pokerstarton"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
-    environment:
-      DATABASE_URL: postgresql+psycopg://pokerledger:pokerledger@db:5432/pokerledger
-      SECRET_KEY: change-me-in-production
-      CORS_ORIGINS: http://localhost:5173
-    volumes:
-      - ./backend:/app
-      - uploads_data:/app/uploads
+  app:
+    build: .
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://poker:${POSTGRES_PASSWORD:-changeme}@db:5432/pokerstarton
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://pokerstarton.ru,http://localhost:5173}
+      DESKTOP_STATIC_DIR: /app/static
+      UPLOAD_DIR: /app/uploads
+      PORT: "8000"
+    volumes:
+      - uploads:/app/uploads
+    ports:
+      - "8000:8000"
 
 volumes:
-  postgres_data:
-  uploads_data:
+  pgdata:
+  uploads:
