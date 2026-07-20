@@ -198,8 +198,17 @@ export function loadBranchPaintMatrix(
       const m = wantMu.match(/^([A-Z0-9+]+)vs([A-Z0-9+]+)$/);
       return m ? `${m[2]}vs${m[1]}` : null;
     })();
+    const pot = String(potKind || "").toLowerCase();
+    const potAliases =
+      pot === "limp"
+        ? ["limp", "srp"]
+        : pot === "allin"
+          ? ["allin", "4bp"]
+          : pot === "4bp"
+            ? ["4bp", "allin"]
+            : [pot];
     const branch = collectAnalysisBranches(doc.root).find((b) => {
-      if (b.potKind !== potKind) return false;
+      if (!potAliases.includes(b.potKind)) return false;
       const have = normalizeMatchupTag(b.label);
       return have === wantMu || (rev != null && have === rev);
     });

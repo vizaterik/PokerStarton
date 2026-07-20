@@ -9257,9 +9257,31 @@ body.confirm-open #root {
 .err-chart-tags {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   min-width: 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.err-chart-tags--inline {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.preflop-chart-list-flat {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.preflop-chart-list-flat button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
 }
 
 .err-chart-matchup {

@@ -56,7 +56,9 @@ import {
 import { readChartsRevision } from "../lib/chartsRevision";
 import {
   coveredByConstructorTags,
+  normalizeChartPos,
   normalizeMatchupTag,
+  potLookupKinds,
   spotCoveredByBranches,
 } from "../lib/spotCoverage";
 import { isChartPainted } from "../lib/spotResolve";
@@ -181,6 +183,17 @@ function matchupLookupKeys(mu: string): string[] {
 function matchupsCompatible(a: string, b: string) {
   const keys = new Set(matchupLookupKeys(a));
   return matchupLookupKeys(b).some((k) => keys.has(k));
+}
+
+/** Parse `srp|UTGvsBB` or bare matchup from selectedChartKey. */
+function parseSelectedChartKey(key: string): { pot: string | null; matchup: string } {
+  const raw = (key || "").trim();
+  if (!raw) return { pot: null, matchup: "" };
+  const parts = raw.split("|");
+  if (parts.length >= 2 && /^(limp|srp|3bp|4bp|allin)$/i.test(parts[0])) {
+    return { pot: parts[0].toLowerCase(), matchup: parts[1] };
+  }
+  return { pot: null, matchup: raw };
 }
 
 /** Trainer branch → HH spot seed for Errors / Add chart. */
@@ -944,6 +957,7 @@ export default function StrategyAnalysisPanel({
     };
 
     if (selectedChartKey) {
+      const sel = parseSelectedChartKey(selectedChartKey);
       const hit = charts.find((c) => {
         const mu =
           c.label ||
@@ -951,10 +965,19 @@ export default function StrategyAnalysisPanel({
         const pot = c.pot_kind || spotPotKind(c.spot_key);
         const full = `${pot}|${mu}|${chartKey(c)}`;
         const short = `${pot}|${mu}`;
+        const potOk =
+          !sel.pot ||
+          pot === sel.pot ||
+          potLookupKinds(sel.pot).includes(pot) ||
+          potLookupKinds(pot).includes(sel.pot);
         return (
           chartKey(c) === selectedChartKey ||
           full === selectedChartKey ||
           short === selectedChartKey ||
+          (sel.matchup &&
+            matchupsCompatible(mu, sel.matchup) &&
+            potOk &&
+            (!filterPot || pot === filterPot || potLookupKinds(filterPot).includes(pot))) ||
           (matchupsCompatible(mu, selectedChartKey) &&
             (!filterPot || pot === filterPot))
         );
@@ -970,7 +993,7 @@ export default function StrategyAnalysisPanel({
       const defaultSpot =
         filterPot === "3bp"
           ? "vs_3bet"
-          : filterPot === "4bp"
+          : filterPot === "4bp" || filterPot === "allin"
             ? "vs_4bet"
             : filterPot === "limp"
               ? "iso"
@@ -1065,13 +1088,17 @@ export default function StrategyAnalysisPanel({
           }
         }
 
-        // 3) Exact DB spot — no vs_3bet→vs_open parent fallbacks.
-        const exact = strategySpots.find(
-          (s) =>
-            s.spot_key === activeChart.spot_key &&
-            s.hero_position === activeChart.hero_position &&
-            (s.villain_position ?? null) === (activeChart.villain_position ?? null),
-        );
+        // 3) Exact DB spot — no vs_3bet→vs_open parent fallbacks (HJ≡MP).
+        const heroN = normalizeChartPos(activeChart.hero_position || "");
+        const villN = activeChart.villain_position
+          ? normalizeChartPos(activeChart.villain_position)
+          : null;
+        const exact = strategySpots.find((s) => {
+          if (s.spot_key !== activeChart.spot_key) return false;
+          if (normalizeChartPos(s.hero_position) !== heroN) return false;
+          const sv = s.villain_position ? normalizeChartPos(s.villain_position) : null;
+          return sv === villN;
+        });
         if (exact) {
           const cells = await listCells(exact.id);
           if (cancelled) return;
@@ -1423,9 +1450,11 @@ export default function StrategyAnalysisPanel({
         }
       }
       const lookupAcc = (pot: string, mu: string) => {
-        for (const mk of matchupLookupKeys(mu)) {
-          const hit = accByKey.get(`${pot}|${mk}`);
-          if (hit) return hit;
+        for (const p of potLookupKinds(pot)) {
+          for (const mk of matchupLookupKeys(mu)) {
+            const hit = accByKey.get(`${p}|${mk}`);
+            if (hit) return hit;
+          }
         }
         return null;
       };
@@ -1444,9 +1473,11 @@ export default function StrategyAnalysisPanel({
         }
       }
       const lookupHh = (pot: string, mu: string) => {
-        for (const mk of matchupLookupKeys(mu)) {
-          const hit = hhByKey.get(`${pot}|${mk}`);
-          if (hit) return hit;
+        for (const p of potLookupKinds(pot)) {
+          for (const mk of matchupLookupKeys(mu)) {
+            const hit = hhByKey.get(`${p}|${mk}`);
+            if (hit) return hit;
+          }
         }
         return null;
       };
@@ -1523,9 +1554,9 @@ export default function StrategyAnalysisPanel({
                       }
                     >
                       <td>
-                        <span className="err-chart-tags">
-                          <strong className="err-chart-matchup">{row.matchup}</strong>
+                        <span className="err-chart-tags err-chart-tags--inline">
                           <em className={`pot-tag pot-${row.pot_kind}`}>{row.pot_tag}</em>
+                          <strong className="err-chart-matchup">{row.matchup}</strong>
                         </span>
                       </td>
                       <td>{row.hands_count.toLocaleString("ru-RU")}</td>
@@ -1583,11 +1614,11 @@ export default function StrategyAnalysisPanel({
                     return (
                       <li key={key}>
                         <div className="missing-spot-main">
-                          <span className="err-chart-tags">
-                            <strong className="err-chart-matchup">{mu}</strong>
+                          <span className="err-chart-tags err-chart-tags--inline">
                             <em className={`pot-tag pot-${potKind}`}>
                               {potKindTag(potKind)}
                             </em>
+                            <strong className="err-chart-matchup">{mu}</strong>
                           </span>
                           <em>{(s.hands_count ?? 0).toLocaleString("ru-RU")} разд.</em>
                           <em className={pl >= 0 ? "pos" : "neg"}>
@@ -1684,120 +1715,93 @@ export default function StrategyAnalysisPanel({
               {charts.length === 0 ? (
                 <p className="muted">Нет ошибок для матрицы.</p>
               ) : (
-                <ul className="err-chart-matchup-list">
-                  {(() => {
-                    const order: string[] = [];
-                    const byMu = new Map<string, typeof charts>();
-                    for (const c of charts) {
-                      const mu =
-                        c.label ||
-                        analysisMatchup(
-                          c.spot_key,
-                          c.hero_position,
-                          c.villain_position,
-                          c.label,
-                        );
-                      const nk = normalizeMatchupTag(mu) || mu;
-                      if (!byMu.has(nk)) {
-                        byMu.set(nk, []);
-                        order.push(nk);
-                      }
-                      byMu.get(nk)!.push(c);
-                    }
-                    return order.map((nk) => {
-                      const group = byMu.get(nk)!;
-                      const muLabel =
-                        group[0].label ||
-                        analysisMatchup(
-                          group[0].spot_key,
-                          group[0].hero_position,
-                          group[0].villain_position,
-                          group[0].label,
-                        );
-                      return (
-                        <li key={nk} className="err-chart-matchup-group">
-                          <strong className="err-chart-matchup">{muLabel}</strong>
-                          <ul>
-                            {group.map((c) => {
-                              const mu =
-                                c.label ||
-                                analysisMatchup(
-                                  c.spot_key,
-                                  c.hero_position,
-                                  c.villain_position,
-                                  c.label,
-                                );
-                              const potKind = c.pot_kind || spotPotKind(c.spot_key);
-                              const key = `${potKind}|${mu}|${chartKey(c)}`;
-                              const coverOpts = {
-                                strictOpen: true,
-                                strictPot: true,
-                              } as const;
-                              const branch = paintedTreeBranches.find(
-                                (b) =>
-                                  matchupsCompatible(b.label, mu) &&
-                                  b.potKind === potKind,
-                              );
-                              const errCount = (liveDevs.deviations ?? []).filter(
-                                (d) => {
-                                  if (spotPotKind(d.spot_key || "") !== potKind) {
-                                    return false;
-                                  }
-                                  if (branch) {
-                                    return spotCoveredByBranches(
-                                      {
-                                        spot_key: d.spot_key || "",
-                                        hero_position: d.hero_position || "",
-                                        villain_position: d.villain_position,
-                                      },
-                                      [branch],
-                                      coverOpts,
-                                    );
-                                  }
-                                  return (
-                                    d.spot_key === c.spot_key &&
-                                    d.hero_position === c.hero_position &&
-                                    (d.villain_position ?? null) ===
-                                      (c.villain_position ?? null)
-                                  );
-                                },
-                              ).length;
-                              const active =
-                                selectedChartKey === key ||
-                                selectedChartKey === `${potKind}|${mu}` ||
-                                selectedChartKey === chartKey(c);
-                              return (
-                                <li key={key}>
-                                  <button
-                                    type="button"
-                                    className={active ? "is-active" : ""}
-                                    onClick={() => {
-                                      setSelectedChartKey(key);
-                                      setErrorFilter({
-                                        matchup: mu,
-                                        potKind,
-                                        spotKey: c.spot_key,
-                                        heroPosition: c.hero_position,
-                                        villainPosition: c.villain_position,
-                                      });
-                                      setSelectedHand(null);
-                                    }}
-                                  >
-                                    <em className={`pot-tag pot-${potKind}`}>
-                                      {potKindTag(potKind)}
-                                    </em>
-                                    {errCount > 0 ? (
-                                      <em className="err-count">{errCount}</em>
-                                    ) : null}
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        </li>
+                <ul className="preflop-chart-list-flat">
+                  {charts.map((c) => {
+                    const mu =
+                      c.label ||
+                      analysisMatchup(
+                        c.spot_key,
+                        c.hero_position,
+                        c.villain_position,
+                        c.label,
                       );
-                    });
-                  })()}
+                    const potKind = c.pot_kind || spotPotKind(c.spot_key);
+                    const key = `${potKind}|${mu}|${chartKey(c)}`;
+                    const coverOpts = {
+                      strictOpen: true,
+                      strictPot: true,
+                    } as const;
+                    const branch = paintedTreeBranches.find(
+                      (b) =>
+                        matchupsCompatible(b.label, mu) &&
+                        (b.potKind === potKind ||
+                          potLookupKinds(b.potKind).includes(potKind)),
+                    );
+                    const errCount = (liveDevs.deviations ?? []).filter((d) => {
+                      const dPot = spotPotKind(d.spot_key || "");
+                      if (
+                        dPot !== potKind &&
+                        !potLookupKinds(potKind).includes(dPot)
+                      ) {
+                        return false;
+                      }
+                      if (branch) {
+                        return spotCoveredByBranches(
+                          {
+                            spot_key: d.spot_key || "",
+                            hero_position: d.hero_position || "",
+                            villain_position: d.villain_position,
+                          },
+                          [branch],
+                          coverOpts,
+                        );
+                      }
+                      return (
+                        d.spot_key === c.spot_key &&
+                        d.hero_position === c.hero_position &&
+                        (d.villain_position ?? null) === (c.villain_position ?? null)
+                      );
+                    }).length;
+                    const sel = parseSelectedChartKey(selectedChartKey || "");
+                    const active =
+                      selectedChartKey === key ||
+                      selectedChartKey === `${potKind}|${mu}` ||
+                      selectedChartKey === chartKey(c) ||
+                      (sel.matchup &&
+                        matchupsCompatible(mu, sel.matchup) &&
+                        (!sel.pot ||
+                          sel.pot === potKind ||
+                          potLookupKinds(sel.pot).includes(potKind)));
+                    return (
+                      <li key={key}>
+                        <button
+                          type="button"
+                          className={active ? "is-active" : ""}
+                          onClick={() => {
+                            setSelectedChartKey(`${potKind}|${mu}`);
+                            setErrorFilter({
+                              matchup: mu,
+                              potKind,
+                              spotKey: c.spot_key,
+                              heroPosition: c.hero_position,
+                              villainPosition: c.villain_position,
+                            });
+                            setSelectedHand(null);
+                          }}
+                        >
+                          <span className="err-chart-tags err-chart-tags--inline">
+                            <em className={`pot-tag pot-${potKind}`}>
+                              {potKindTag(potKind)}
+                            </em>
+                            <strong className="err-chart-matchup">{mu}</strong>
+                          </span>
+                          {errCount > 0 ? (
+                            <em className="err-count">{errCount}</em>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </aside>
@@ -1807,17 +1811,7 @@ export default function StrategyAnalysisPanel({
             {activeChart ? (
               <>
                 <h3 className="analysis-subhead">
-                  <span className="err-chart-tags">
-                    <strong className="err-chart-matchup">
-                      {errorFilter.matchup ||
-                        activeChart.label ||
-                        analysisMatchup(
-                          activeChart.spot_key,
-                          activeChart.hero_position,
-                          activeChart.villain_position,
-                          activeChart.label,
-                        )}
-                    </strong>
+                  <span className="err-chart-tags err-chart-tags--inline">
                     <em
                       className={`pot-tag pot-${
                         errorFilter.potKind ||
@@ -1831,6 +1825,16 @@ export default function StrategyAnalysisPanel({
                           spotPotKind(activeChart.spot_key),
                       )}
                     </em>
+                    <strong className="err-chart-matchup">
+                      {errorFilter.matchup ||
+                        activeChart.label ||
+                        analysisMatchup(
+                          activeChart.spot_key,
+                          activeChart.hero_position,
+                          activeChart.villain_position,
+                          activeChart.label,
+                        )}
+                    </strong>
                   </span>
                 </h3>
                 <div className="preflop-chart-compare">
@@ -1847,12 +1851,26 @@ export default function StrategyAnalysisPanel({
                         selected={selectedHand}
                         onSelectHand={(code) => {
                           setSelectedHand(code);
-                          setErrorFilter({
+                          setErrorFilter((prev) => ({
+                            ...prev,
                             spotKey: activeChart.spot_key,
                             heroPosition: activeChart.hero_position,
                             villainPosition: activeChart.villain_position,
                             handCode: code,
-                          });
+                            matchup:
+                              prev.matchup ||
+                              activeChart.label ||
+                              analysisMatchup(
+                                activeChart.spot_key,
+                                activeChart.hero_position,
+                                activeChart.villain_position,
+                                activeChart.label,
+                              ),
+                            potKind:
+                              prev.potKind ||
+                              activeChart.pot_kind ||
+                              spotPotKind(activeChart.spot_key),
+                          }));
                         }}
                       />
                     )}
@@ -1867,12 +1885,26 @@ export default function StrategyAnalysisPanel({
                       selectedHand={selectedHand}
                       onSelectHand={(code) => {
                         setSelectedHand(code);
-                        setErrorFilter({
+                        setErrorFilter((prev) => ({
+                          ...prev,
                           spotKey: activeChart.spot_key,
                           heroPosition: activeChart.hero_position,
                           villainPosition: activeChart.villain_position,
                           handCode: code,
-                        });
+                          matchup:
+                            prev.matchup ||
+                            activeChart.label ||
+                            analysisMatchup(
+                              activeChart.spot_key,
+                              activeChart.hero_position,
+                              activeChart.villain_position,
+                              activeChart.label,
+                            ),
+                          potKind:
+                            prev.potKind ||
+                            activeChart.pot_kind ||
+                            spotPotKind(activeChart.spot_key),
+                        }));
                       }}
                     />
                   </div>

@@ -17,9 +17,11 @@ export function spotActionLabel(spotKey: string): string {
   return ACTION[key] ?? (key.replace(/_/g, " ") || "spot");
 }
 
-/** Map HH spot → pot tag: Raise / 3-bet / 4-bet. */
+/** Map HH / DB spot → pot tag: Limp / Raise / 3-bet / 4-bet / All-in. */
 export function spotPotKind(spotKey: string): SpotPotKind {
   const key = spotKey.trim().toLowerCase();
+  if (key === "limp") return "limp";
+  if (key === "allin" || key === "all_in") return "allin";
   if (key === "vs_3bet" || key === "squeeze") return "3bp";
   if (key === "vs_4bet") return "4bp";
   return "srp";

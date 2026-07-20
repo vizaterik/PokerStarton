@@ -26,12 +26,24 @@ export function normalizeChartPos(pos: string): string {
 
 /** Constructor matchup tag → canonical form (`HJvsBB` ≡ `MPvsBB`). */
 export function normalizeMatchupTag(label: string): string {
-  const raw = label.trim().toUpperCase().replace(/\s+/g, "");
+  let raw = label.trim().toUpperCase().replace(/\s+/g, "");
+  // Strip pot|matchup keys: "SRP|UTGVSBB".
+  raw = raw.replace(/^(LIMP|SRP|3BP|4BP|ALLIN|ALL-IN)\|/, "");
   // Strip leading pot words if a full tag slipped in: "RAISE UTGVSBB".
   const stripped = raw.replace(/^(RAISE|3-BET|4-BET|LIMP|ALL-IN|ALLIN)/, "");
   const m = stripped.match(/^([A-Z0-9+]+)VS([A-Z0-9+]+)$/);
   if (!m) return normalizeChartPos(stripped || raw);
   return `${normalizeChartPos(m[1])}vs${normalizeChartPos(m[2])}`;
+}
+
+/** Pot aliases when HH spot_key cannot express limp/allin directly. */
+export function potLookupKinds(pot: string): string[] {
+  const p = pot.trim().toLowerCase();
+  if (p === "limp") return ["limp", "srp"];
+  if (p === "allin") return ["allin", "4bp", "3bp"];
+  if (p === "4bp") return ["4bp", "allin"];
+  if (p === "3bp") return ["3bp", "allin"];
+  return [p];
 }
 
 function reverseMatchup(label: string): string | null {
@@ -135,8 +147,19 @@ export function coveredByConstructorTags(
 /** Spot → which tree pot kinds count as the same situation. */
 function potsForSpot(spotKey: string, strictPot?: boolean): BranchPotKind[] {
   const kind = spotPotKind(spotKey) as BranchPotKind;
-  // Analysis / Errors: Raise ≠ 3-bet ≠ 4-bet (no soft cross-pot claim).
-  if (strictPot) return [kind];
+  // Analysis / Errors: keep pots distinct, but limp↔iso/srp and allin↔4bp aliases.
+  if (strictPot) {
+    if (kind === "srp") {
+      const key = spotKey.trim().toLowerCase();
+      // HH limp pots are often tagged iso/vs_open — allow limp branches to cover.
+      if (key === "iso" || key === "vs_open") return ["srp", "limp"];
+      return ["srp"];
+    }
+    if (kind === "limp") return ["limp", "srp"];
+    if (kind === "allin") return ["allin", "4bp"];
+    if (kind === "4bp") return ["4bp", "allin"];
+    return [kind];
+  }
   // Softer set only for missing-spot discovery in the editor.
   if (kind === "3bp") return ["3bp", "allin"];
   if (kind === "4bp") return ["4bp", "allin"];
@@ -147,6 +170,8 @@ function potsForSpot(spotKey: string, strictPot?: boolean): BranchPotKind[] {
     }
     return ["srp", "allin", "limp"];
   }
+  if (kind === "limp") return ["limp", "srp"];
+  if (kind === "allin") return ["allin", "4bp", "3bp"];
   return [kind];
 }
 
