@@ -133,6 +133,21 @@ export function buildSeatWindows(
     const info = acted.get(seat);
     let status: WindowStatus = "waiting";
 
+    /**
+     * Prior raiser/caller still live after a later re-raise — show facing
+     * Fold/Call/4-bet pills instead of locking the old open/3-bet.
+     * (UTG open → HJ 3-bet → UTG needs vs-3bet buttons while CO would be next.)
+     */
+    const facesReRaise =
+      Boolean(info) &&
+      !folded.has(seat) &&
+      seat !== activeSeat &&
+      seat !== ctx.lastAggressor &&
+      ((info!.action === "RAISE" && info!.raiseIndex < ctx.raiseCount) ||
+        (info!.action === "CALL" &&
+          info!.raiseIndex > 0 &&
+          info!.raiseIndex < ctx.raiseCount));
+
     if (info?.autoFold || (info?.action === "FOLD" && info.autoFold)) {
       status = "auto-folded";
     } else if (folded.has(seat) || info?.action === "FOLD") {
@@ -140,12 +155,14 @@ export function buildSeatWindows(
     } else if (activeSeat === seat) {
       // Ход этой позиции СЕЙЧАС — даже если раньше она уже рейзила/коллила
       status = "active";
+    } else if (facesReRaise) {
+      status = "waiting";
     } else if (info) {
       status = "locked";
     }
 
     /**
-     * Active: нет lockedAction — создаём НОВЫЙ ответ на текущую линию
+     * Active / waiting (incl. facesReRaise): нет lockedAction — новый ответ
      * (UTG open уже в истории; сейчас UTG выбирает Fold/Call/4-bet vs 3-bet).
      */
     const lockedAction: TreeAction | null =
@@ -178,7 +195,7 @@ export function buildSeatWindows(
           : "CALL";
 
     const statusLabel =
-      status === "active"
+      status === "active" || (status === "waiting" && facesReRaise)
         ? ctx.raiseCount === 0
           ? "Active"
           : ctx.raiseCount === 1
@@ -203,7 +220,7 @@ export function buildSeatWindows(
               : "Waiting";
 
     let borderTone: SeatWindow["borderTone"] = "none";
-    if (status === "active") borderTone = "active";
+    if (status === "active" || facesReRaise) borderTone = "active";
     else if (info?.action === "RAISE") borderTone = "raise";
     else if (info?.action === "CALL") borderTone = "call";
     else if (info?.action === "FOLD" || status === "auto-folded") borderTone = "fold";
@@ -216,7 +233,9 @@ export function buildSeatWindows(
       nodeId:
         status === "active"
           ? activeNode.id
-          : (info?.nodeId ?? null),
+          : facesReRaise
+            ? null
+            : (info?.nodeId ?? null),
       lockedAction,
       lockedSizing: lockedAction === "RAISE" ? (info?.sizingBB ?? null) : null,
       autoFold: Boolean(info?.autoFold),

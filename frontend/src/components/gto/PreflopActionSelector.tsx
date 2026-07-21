@@ -162,7 +162,8 @@ export default function PreflopActionSelector({
                         ? win.callPillText
                         : "FOLD"}
                   </span>
-                ) : win.status === "active" ? (
+                ) : win.status === "active" ||
+                  (win.status === "waiting" && win.facingRaiseCount > 0 && !win.lockedAction) ? (
                   <span className="mwb-locked-meta mwb-locked-hint">
                     {win.facingRaiseCount === 0
                       ? "ответ · open"

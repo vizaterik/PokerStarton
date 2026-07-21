@@ -26,6 +26,13 @@ export function actorsAlongPath(
   return out;
 }
 
+/** Second-to-last raiser on the path (opener facing a 3-bet, 3-bettor facing a 4-bet, …). */
+export function previousAggressor(path: GameTreeNode[]): Seat | null {
+  const raises = actorsAlongPath(path).filter((s) => s.action === "RAISE");
+  if (raises.length < 2) return null;
+  return raises[raises.length - 2]?.player ?? null;
+}
+
 export function deriveContext(path: GameTreeNode[]): SpotContext {
   const folded: Seat[] = [];
   let raiseCount = 0;

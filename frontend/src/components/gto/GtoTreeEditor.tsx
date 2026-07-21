@@ -41,7 +41,7 @@ import { branchRangeSpots } from "../../lib/gameTree/rangeSpots";
 import { buildSeatWindows, historyChainText, resumeNodeAfterSeat } from "../../lib/gameTree/seatView";
 import { syncTreeChartsToDb } from "../../lib/gameTree/syncTreeCharts";
 import { standardRaiseSize } from "../../lib/gameTree/standardSizings";
-import { deriveContext } from "../../lib/gameTree/turnEngine";
+import { deriveContext, previousAggressor } from "../../lib/gameTree/turnEngine";
 import {
   raiseBrushLabel,
   raiseColorForTier,
@@ -559,7 +559,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
   /**
    * Active / waiting: commit forward (with auto-folds if skip-ahead).
    * Past seat: switch sibling edge under that seat's decision node only.
-   * Raise sizing = стандарт GTO Wizard (без запроса у пользователя).
+   * After a re-raise (3-bet+): jump to previous aggressor for Fold/Call/4-bet
+   * — cold seats auto-fold in one batch (no seat-by-seat clicking).
    */
   function onWindowAction(
     position: Seat,
@@ -598,6 +599,10 @@ export default function GtoTreeEditor({ strategy }: Props) {
       }
     }
 
+    let nextDoc = doc;
+    let childId: string | null = null;
+    let paintAfter: string | null = null;
+
     if (
       win.nodeId &&
       (win.status === "locked" ||
@@ -605,30 +610,53 @@ export default function GtoTreeEditor({ strategy }: Props) {
         win.status === "auto-folded")
     ) {
       const result = commitAction(doc, win.nodeId, action, raiseSize);
-      setDoc(result.doc);
-      if (result.childId) {
-        setActiveId(result.childId);
-        setPaintNodeId(win.nodeId);
-        setSelectedHand(null);
+      nextDoc = result.doc;
+      childId = result.childId;
+      if (childId) paintAfter = win.nodeId;
+    } else {
+      const result = commitWithAutoFolds(
+        doc,
+        activeId,
+        position,
+        action,
+        raiseSize,
+      );
+      nextDoc = result.doc;
+      childId = result.childId;
+      if (childId) {
+        const p = pathToNode(nextDoc.root, childId);
+        const actedNode = p && p.length >= 2 ? p[p.length - 2] : null;
+        paintAfter = actedNode?.id ?? childId;
       }
+    }
+
+    if (!childId) {
+      setDoc(nextDoc);
       return;
     }
 
-    const { doc: next, childId } = commitWithAutoFolds(
-      doc,
-      activeId,
-      position,
-      action,
-      raiseSize,
-    );
-    setDoc(next);
-    if (childId) {
-      setActiveId(childId);
-      const p = pathToNode(next.root, childId);
-      const actedNode = p && p.length >= 2 ? p[p.length - 2] : null;
-      setPaintNodeId(actedNode?.id ?? childId);
-      setSelectedHand(null);
+    // After 3-bet / 4-bet: focus previous aggressor (opener vs 3-bet, …).
+    // Intervening seats auto-fold — no need to click CO→BTN→SB→BB.
+    if (action === "RAISE") {
+      const tip = findNode(nextDoc.root, childId);
+      if (tip && !tip.awaitingFlop) {
+        const tipPath = pathToNode(nextDoc.root, childId) ?? [];
+        const prev = previousAggressor(tipPath);
+        if (prev && tip.activePlayer !== prev) {
+          const focused = focusSeatWithAutoFolds(nextDoc, childId, prev);
+          setDoc(focused.doc);
+          setActiveId(focused.nodeId);
+          setPaintNodeId(focused.nodeId);
+          setSelectedHand(null);
+          return;
+        }
+      }
     }
+
+    setDoc(nextDoc);
+    setActiveId(childId);
+    setPaintNodeId(paintAfter ?? childId);
+    setSelectedHand(null);
   }
 
   /** Open full seat range — и вернуть построение после этой позиции. */

@@ -351,7 +351,9 @@ export function commitAction(
 
 /**
  * Live seats from the current actor through `targetSeat` (inclusive).
- * Empty if target is not reachable clockwise before looping.
+ * Walks clockwise and may wrap past BB (e.g. CO → … → BB → UTG after a 3-bet)
+ * so the prior aggressor can answer without seat-by-seat clicking.
+ * Empty if target is not reachable before a full loop.
  */
 export function seatsFromActiveToTarget(
   tableSize: TableSize,
@@ -360,6 +362,7 @@ export function seatsFromActiveToTarget(
   targetSeat: Seat,
 ): Seat[] {
   const folded = new Set(deriveContext(path).folded);
+  if (folded.has(targetSeat)) return [];
   const chain: Seat[] = [];
   let cursor: Seat | null = activeSeat;
 
@@ -369,8 +372,8 @@ export function seatsFromActiveToTarget(
       if (cursor === targetSeat) return chain;
     }
     const nxt = nextSeat(tableSize, cursor, folded);
-    // Refuse full-table wrap — skip-ahead only moves forward to later seats.
-    if (!nxt || nxt === activeSeat) break;
+    // Full loop without hitting target
+    if (!nxt || (nxt === activeSeat && cursor !== activeSeat)) break;
     cursor = nxt;
   }
   return [];
