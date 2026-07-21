@@ -1,4 +1,4 @@
-import { CSSProperties, useRef } from "react";
+import { CSSProperties, useEffect, useRef } from "react";
 import { handCodeAt, RANKS } from "../../lib/handMatrix";
 import { handMatchesBrush } from "../../lib/gameTree/engine";
 import type { HandMix, PaintAction } from "../../lib/gameTree/types";
@@ -14,6 +14,8 @@ type Props = {
   readOnly?: boolean;
   /** When push_fold, RAISE band is treated as All-in visually (same colors). */
   actionMode?: "standard" | "push_fold";
+  onBrushStart?: () => void;
+  onBrushEnd?: () => void;
 };
 
 /** Raise=red, Call=green, Fold=blue — fixed palette */
@@ -44,6 +46,15 @@ function badge(mix: HandMix): string | null {
   return String(Math.round(c * 100));
 }
 
+function handUnderPoint(clientX: number, clientY: number, root: HTMLElement | null): string | null {
+  if (!root) return null;
+  const el = document.elementFromPoint(clientX, clientY);
+  if (!el || !(el instanceof Element)) return null;
+  const cell = el.closest("[data-hand]");
+  if (!cell || !root.contains(cell)) return null;
+  return (cell as HTMLElement).dataset.hand || null;
+}
+
 export default function GtoMatrix({
   ranges,
   paintAction,
@@ -53,20 +64,52 @@ export default function GtoMatrix({
   onSelect,
   readOnly = false,
   actionMode = "standard",
+  onBrushStart,
+  onBrushEnd,
 }: Props) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const painting = useRef(false);
   /** Locked for the whole drag stroke so drag doesn't flicker paint/erase. */
   const strokeErase = useRef(false);
+  const lastHand = useRef<string | null>(null);
+  const onPaintRef = useRef(onPaint);
+  const onSelectRef = useRef(onSelect);
+  const onBrushStartRef = useRef(onBrushStart);
+  const onBrushEndRef = useRef(onBrushEnd);
+  onPaintRef.current = onPaint;
+  onSelectRef.current = onSelect;
+  onBrushStartRef.current = onBrushStart;
+  onBrushEndRef.current = onBrushEnd;
+
+  function endStroke() {
+    if (!painting.current) return;
+    painting.current = false;
+    lastHand.current = null;
+    onBrushEndRef.current?.();
+  }
+
+  function strokeHand(code: string, select = false) {
+    if (lastHand.current === code) return;
+    lastHand.current = code;
+    if (select) onSelectRef.current?.(code);
+    onPaintRef.current?.(code, strokeErase.current);
+  }
+
+  useEffect(() => {
+    const onUp = () => endStroke();
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, []);
 
   return (
     <div
+      ref={rootRef}
       className={`gto-matrix brush-${paintAction.toLowerCase()}${readOnly ? " is-readonly" : ""}${actionMode === "push_fold" ? " is-push-fold" : ""}`}
-      onMouseLeave={() => {
-        painting.current = false;
-      }}
-      onMouseUp={() => {
-        painting.current = false;
-      }}
+      style={{ touchAction: readOnly ? undefined : "none" }}
     >
       <div className="gto-matrix-corner" />
       {RANKS.map((rank) => (
@@ -85,27 +128,35 @@ export default function GtoMatrix({
               <button
                 key={code}
                 type="button"
+                data-hand={code}
                 className={`gto-matrix-cell${isSelected ? " selected" : ""}`}
                 style={cellStyle(mix)}
                 title={`${code} — R ${Math.round(mix.RAISE * 100)}% · C ${Math.round(mix.CALL * 100)}% · F ${Math.round(mix.FOLD * 100)}% · повторный клик = fold`}
-                onMouseDown={(e) => {
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
                   e.preventDefault();
                   if (readOnly) {
                     onSelect?.(code);
                     return;
                   }
+                  try {
+                    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                  } catch {
+                    /* older browsers */
+                  }
                   painting.current = true;
+                  lastHand.current = null;
                   // Second click on the same brush paint → erase back to fold
                   strokeErase.current =
                     paintAction !== "FOLD" &&
                     handMatchesBrush(mix, paintAction, weight / 100);
-                  onSelect?.(code);
-                  onPaint?.(code, strokeErase.current);
+                  onBrushStartRef.current?.();
+                  strokeHand(code, true);
                 }}
-                onMouseEnter={() => {
-                  if (!readOnly && painting.current) {
-                    onPaint?.(code, strokeErase.current);
-                  }
+                onPointerMove={(e) => {
+                  if (readOnly || !painting.current) return;
+                  const next = handUnderPoint(e.clientX, e.clientY, rootRef.current);
+                  if (next) strokeHand(next, false);
                 }}
               >
                 <span className="gto-matrix-code">{code}</span>

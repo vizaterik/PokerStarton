@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { StrategyDetail } from "../../api/client";
 import { getStrategyTree, putStrategyTree } from "../../api/client";
@@ -9,7 +9,7 @@ import {
   deleteBranch,
   findNode,
   focusSeatWithAutoFolds,
-  paintHand,
+  paintHandBatch,
   pathToNode,
   resetBranches,
 } from "../../lib/gameTree/engine";
@@ -128,6 +128,20 @@ export default function GtoTreeEditor({ strategy }: Props) {
   const [hydrated, setHydrated] = useState(false);
   /** Branch list updates in a transition so paint stays snappy. */
   const [branchList, setBranchList] = useState<SavedBranch[]>([]);
+  /** Skip heavy sync / branch collect while the brush stroke is active. */
+  const brushActiveRef = useRef(false);
+  const docRef = useRef(doc);
+  docRef.current = doc;
+  const paintActionRef = useRef(paintAction);
+  paintActionRef.current = paintAction;
+  const weightRef = useRef(weight);
+  weightRef.current = weight;
+  /** Pending cells for the current rAF flush, keyed by nodeId. */
+  const pendingStrokesRef = useRef(
+    new Map<string, Map<string, boolean>>(),
+  );
+  const paintRafRef = useRef(0);
+  const [brushTick, setBrushTick] = useState(0);
 
   // Hydrate from server (source of truth) + local/IDB cache; never wipe painted branches.
   useEffect(() => {
@@ -210,6 +224,10 @@ export default function GtoTreeEditor({ strategy }: Props) {
     saveTree(doc);
     setSavedFlash(true);
     const flashT = window.setTimeout(() => setSavedFlash(false), 500);
+    // During a brush stroke: memory-only. Persist/API after brushTick bumps.
+    if (brushActiveRef.current) {
+      return () => window.clearTimeout(flashT);
+    }
     const saveT = window.setTimeout(() => {
       void putStrategyTree(strategyId, doc as unknown as Record<string, unknown>).catch(
         () => undefined,
@@ -219,15 +237,15 @@ export default function GtoTreeEditor({ strategy }: Props) {
       window.clearTimeout(flashT);
       window.clearTimeout(saveT);
     };
-  }, [doc, strategyId, hydrated]);
+  }, [doc, strategyId, hydrated, brushTick]);
 
   // Keep DB charts in sync on idle — worker computes jobs so paint stays free.
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || brushActiveRef.current) return;
     let idleId = 0;
     let timeoutId = 0;
     const run = () => {
-      void syncTreeChartsToDb(strategyId, doc).catch(() => {
+      void syncTreeChartsToDb(strategyId, docRef.current).catch(() => {
         /* offline / validation — tree still saved locally + on strategy */
       });
     };
@@ -245,14 +263,15 @@ export default function GtoTreeEditor({ strategy }: Props) {
         window.cancelIdleCallback(idleId);
       }
     };
-  }, [doc, strategyId, hydrated]);
+  }, [doc, strategyId, hydrated, brushTick]);
 
   // Branch sidebar — deferred so brush strokes don't wait on collectEditorBranches.
   useEffect(() => {
+    if (brushActiveRef.current) return;
     startTransition(() => {
       setBranchList(collectEditorBranches(doc.root));
     });
-  }, [doc.root]);
+  }, [doc.root, brushTick]);
 
   const active = findNode(doc.root, activeId) ?? doc.root;
   const rawPaint = findNode(doc.root, paintNodeId) ?? active;
@@ -399,18 +418,58 @@ export default function GtoTreeEditor({ strategy }: Props) {
     };
   }, [pushFold, rangeSpotViews, activeRangeSpot, doc.root]);
 
+  function flushPendingPaints() {
+    paintRafRef.current = 0;
+    const pending = pendingStrokesRef.current;
+    if (!pending.size) return;
+    pendingStrokesRef.current = new Map();
+    const action = paintActionRef.current;
+    const w = weightRef.current / 100;
+    setDoc((prev) => {
+      let next = prev;
+      for (const [nodeId, hands] of pending) {
+        const strokes = [...hands.entries()].map(([hand, erase]) => ({
+          hand,
+          erase,
+        }));
+        next = paintHandBatch(next, nodeId, strokes, action, w);
+      }
+      return next;
+    });
+  }
+
+  function queuePaint(nodeId: string, hand: string, erase = false) {
+    let bucket = pendingStrokesRef.current.get(nodeId);
+    if (!bucket) {
+      bucket = new Map();
+      pendingStrokesRef.current.set(nodeId, bucket);
+    }
+    bucket.set(hand, erase);
+    if (!paintRafRef.current) {
+      paintRafRef.current = window.requestAnimationFrame(flushPendingPaints);
+    }
+  }
+
+  function onBrushStart() {
+    brushActiveRef.current = true;
+  }
+
+  function onBrushEnd() {
+    if (paintRafRef.current) {
+      window.cancelAnimationFrame(paintRafRef.current);
+      flushPendingPaints();
+    }
+    brushActiveRef.current = false;
+    setBrushTick((n) => n + 1);
+  }
+
   function onPaint(hand: string, erase = false) {
-    // Keep brush on urgent path; branch list / sync catch up in transitions.
-    setDoc((prev) =>
-      paintHand(prev, paintNode.id, hand, paintAction, weight / 100, erase),
-    );
+    queuePaint(paintNode.id, hand, erase);
   }
 
   function onPaintNode(nodeId: string, hand: string, erase = false) {
-    setPaintNodeId(nodeId);
-    setDoc((prev) =>
-      paintHand(prev, nodeId, hand, paintAction, weight / 100, erase),
-    );
+    if (paintNodeId !== nodeId) setPaintNodeId(nodeId);
+    queuePaint(nodeId, hand, erase);
   }
 
   /**
@@ -875,6 +934,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
                           setPaintNodeId(dualRanges.raise.nodeId);
                           setSelectedHand(hand);
                         }}
+                        onBrushStart={onBrushStart}
+                        onBrushEnd={onBrushEnd}
                         actionMode={pushFold ? "push_fold" : "standard"}
                       />
                     </div>
@@ -906,6 +967,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
                           setPaintNodeId(dualRanges.call.nodeId);
                           setSelectedHand(hand);
                         }}
+                        onBrushStart={onBrushStart}
+                        onBrushEnd={onBrushEnd}
                         actionMode={pushFold ? "push_fold" : "standard"}
                       />
                     </div>
@@ -930,6 +993,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
                       selected={selectedHand}
                       onPaint={onPaint}
                       onSelect={setSelectedHand}
+                      onBrushStart={onBrushStart}
+                      onBrushEnd={onBrushEnd}
                       actionMode={pushFold ? "push_fold" : "standard"}
                     />
                   </div>

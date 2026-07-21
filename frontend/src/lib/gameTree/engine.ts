@@ -567,6 +567,46 @@ export function paintHands(
   });
 }
 
+/** One immer pass for a drag stroke (paint + erase mixed). */
+export function paintHandBatch(
+  doc: GameTreeDocument,
+  nodeId: string,
+  strokes: Array<{ hand: HandCode; erase?: boolean }>,
+  action: PaintAction,
+  weight = 1,
+): GameTreeDocument {
+  if (!strokes.length) return doc;
+  return produce(doc, (draft) => {
+    const node = findNode(draft.root, nodeId);
+    if (!node || node.awaitingFlop) return;
+    const w = Math.min(1, Math.max(0, weight));
+    let changed = false;
+    for (const { hand, erase } of strokes) {
+      if (erase || action === "FOLD") {
+        if (hand in node.ranges) {
+          delete node.ranges[hand];
+          changed = true;
+        }
+        continue;
+      }
+      if (!handPaintableOnNode(draft.root, node, hand)) continue;
+      const mix: HandMix = { FOLD: 0, CALL: 0, RAISE: 0 };
+      mix[action] = w;
+      if (w < 1) mix.FOLD = 1 - w;
+      if (isPureFold(mix)) {
+        if (hand in node.ranges) {
+          delete node.ranges[hand];
+          changed = true;
+        }
+      } else {
+        node.ranges[hand] = mix;
+        changed = true;
+      }
+    }
+    if (changed) draft.updatedAt = new Date().toISOString();
+  });
+}
+
 /** Update raise sizing on a branch edge; child contextual text re-derives from path. */
 export function updateBranchSizing(
   doc: GameTreeDocument,
