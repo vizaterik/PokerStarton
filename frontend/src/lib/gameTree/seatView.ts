@@ -194,34 +194,41 @@ export function buildSeatWindows(
           ? "LIMP"
           : "CALL";
 
+    // Any live seat that still chooses Fold/Call/Raise (incl. cold seats vs 3-bet).
+    const facingSpot = status === "active" || status === "waiting";
+
     const statusLabel =
-      status === "active" || (status === "waiting" && facesReRaise)
-        ? ctx.raiseCount === 0
+      facingSpot && ctx.raiseCount === 0
+        ? status === "active"
           ? "Active"
-          : ctx.raiseCount === 1
-            ? ctx.callersAfterRaise >= 1
-              ? "vs Open+Call · SQUEEZE"
-              : "vs Open · 3-BET"
-            : ctx.raiseCount === 2
-              ? "vs 3-bet · 4-BET / ALL-IN"
-              : `vs 4-bet · ${upcoming}`
-        : status === "auto-folded"
-          ? "Auto-Folded"
-          : status === "folded"
-            ? "Folded"
-            : status === "locked" && info
-              ? lockedStatusLabel(
-                  info.action,
-                  info.raiseIndex,
-                  info.sizingBB,
-                  stackDepth,
-                  info.wasSqueeze,
-                )
-              : "Waiting";
+          : "Waiting"
+        : facingSpot && ctx.raiseCount === 1
+          ? ctx.callersAfterRaise >= 1
+            ? "vs Open+Call · SQUEEZE"
+            : "vs Open · 3-BET"
+          : facingSpot && ctx.raiseCount === 2
+            ? "vs 3-bet · 4-BET / ALL-IN"
+            : facingSpot && ctx.raiseCount > 2
+              ? `vs 4-bet · ${upcoming}`
+              : status === "auto-folded"
+                ? "Auto-Folded"
+                : status === "folded"
+                  ? "Folded"
+                  : status === "locked" && info
+                    ? lockedStatusLabel(
+                        info.action,
+                        info.raiseIndex,
+                        info.sizingBB,
+                        stackDepth,
+                        info.wasSqueeze,
+                      )
+                    : "Waiting";
 
     let borderTone: SeatWindow["borderTone"] = "none";
-    if (status === "active" || facesReRaise) borderTone = "active";
-    else if (info?.action === "RAISE") borderTone = "raise";
+    // Live seats that can still answer (active, cold waiting, opener facing 3-bet)
+    if (status === "active" || facesReRaise || (status === "waiting" && ctx.raiseCount > 0)) {
+      borderTone = "active";
+    } else if (info?.action === "RAISE") borderTone = "raise";
     else if (info?.action === "CALL") borderTone = "call";
     else if (info?.action === "FOLD" || status === "auto-folded") borderTone = "fold";
 

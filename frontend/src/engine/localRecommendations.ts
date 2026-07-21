@@ -551,12 +551,12 @@ function buildEvaluation(
     focus.push(`Префлоп-математика: ${preflop.length} −EV входов.`);
   }
   if (pot.length) {
-    focus.push(`Математика банка: ${pot.length} −EV коллов с дро.`);
+    focus.push(`Банк: ${pot.length} −EV коллов с дро.`);
   }
   return {
     score,
     label,
-    summary: `Оценка ${score.toFixed(1)}/10 — ${label}. Математика: ${mathScore.toFixed(1)}/10 на ${n.toLocaleString("ru-RU")} раздачах текущей сессии.`,
+    summary: `Оценка ${score.toFixed(1)}/10 — ${label}. Отчёт: ${mathScore.toFixed(1)}/10 на ${n.toLocaleString("ru-RU")} раздачах текущей сессии.`,
     hands: n,
     confidence,
     math_score: mathScore,
