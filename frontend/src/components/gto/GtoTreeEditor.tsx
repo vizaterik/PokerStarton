@@ -42,7 +42,7 @@ import { branchRangeSpots } from "../../lib/gameTree/rangeSpots";
 import { buildSeatWindows, historyChainText, resumeNodeAfterSeat } from "../../lib/gameTree/seatView";
 import { syncTreeChartsToDb } from "../../lib/gameTree/syncTreeCharts";
 import { standardRaiseSize } from "../../lib/gameTree/standardSizings";
-import { deriveContext, previousAggressor } from "../../lib/gameTree/turnEngine";
+import { deriveContext } from "../../lib/gameTree/turnEngine";
 import {
   raiseBrushLabel,
   raiseColorForTier,
@@ -596,8 +596,9 @@ export default function GtoTreeEditor({ strategy }: Props) {
   /**
    * Active / waiting: commit forward (with auto-folds if skip-ahead).
    * Past seat: switch sibling edge under that seat's decision node only.
-   * After a re-raise (3-bet+): jump to previous aggressor for Fold/Call/4-bet
-   * — cold seats auto-fold in one batch (no seat-by-seat clicking).
+   * GTO Wizard skip-ahead: if opener answers a 3-bet before cold seats act,
+   * commitWithAutoFolds folds only the skipped seats in that one click —
+   * never auto-fold everyone the moment a 3-bet is made.
    */
   function onWindowAction(
     position: Seat,
@@ -651,6 +652,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
       childId = result.childId;
       if (childId) paintAfter = win.nodeId;
     } else {
+      // Skip-ahead: folds only seats between current actor and the seat you click.
       const result = commitWithAutoFolds(
         doc,
         activeId,
@@ -670,24 +672,6 @@ export default function GtoTreeEditor({ strategy }: Props) {
     if (!childId) {
       setDoc(nextDoc);
       return;
-    }
-
-    // After 3-bet / 4-bet: focus previous aggressor (opener vs 3-bet, …).
-    // Intervening seats auto-fold — no need to click CO→BTN→SB→BB.
-    if (action === "RAISE") {
-      const tip = findNode(nextDoc.root, childId);
-      if (tip && !tip.awaitingFlop) {
-        const tipPath = pathToNode(nextDoc.root, childId) ?? [];
-        const prev = previousAggressor(tipPath);
-        if (prev && tip.activePlayer !== prev) {
-          const focused = focusSeatWithAutoFolds(nextDoc, childId, prev);
-          setDoc(focused.doc);
-          setActiveId(focused.nodeId);
-          setPaintNodeId(focused.nodeId);
-          setSelectedHand(null);
-          return;
-        }
-      }
     }
 
     setDoc(nextDoc);
