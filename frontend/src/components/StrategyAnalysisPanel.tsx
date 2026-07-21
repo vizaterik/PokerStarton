@@ -1743,17 +1743,21 @@ export default function StrategyAnalysisPanel({
   ) : null;
 
   const waitingOnBgJob = analysisSuspended || jobBusy || uploadSuspended;
+  const hasReport = Boolean(data && data.hands > 0);
+  const progressHands = pendingHandTotal ?? localPendingHands ?? handTotal ?? data?.hands ?? null;
 
-  if (waitingOnBgJob) {
+  // Full-screen wait only when there is nothing to show yet.
+  // If a report already exists, keep it visible and put progress above.
+  if (waitingOnBgJob && !hasReport) {
     return (
       <AnalysisBgWait
         uploadBlock={uploadBlock}
-        pendingHands={pendingHandTotal ?? localPendingHands ?? handTotal}
+        pendingHands={progressHands}
       />
     );
   }
 
-  if (loading && !backgroundJobMode) {
+  if (loading && !backgroundJobMode && !hasReport) {
     const progressHands =
       pendingHandTotal ?? localPendingHands ?? handTotal ?? data?.hands ?? null;
     return (
@@ -1770,7 +1774,7 @@ export default function StrategyAnalysisPanel({
     );
   }
 
-  if (error) {
+  if (error && !hasReport) {
     return (
       <div className="analysis-panel">
         {uploadBlock}
@@ -2011,11 +2015,6 @@ export default function StrategyAnalysisPanel({
           {liveDevs.opens && (
             <div className="preflop-open-detail">
               <h3 className="analysis-subhead">Открытия подробно</h3>
-              <p className="muted analysis-chart-hint">
-                По факту: открыл {liveDevs.opens.opened}, не открыл (fold) {liveDevs.opens.folded}
-                {liveDevs.opens.called > 0 ? `, call/limp ${liveDevs.opens.called}` : ""} — всего{" "}
-                {liveDevs.opens.decisions} RFI-решений.
-              </p>
               <div className="analysis-kpis strategy-dev-kpis">
                 <div className="analysis-kpi">
                   <span>Чарт: открывать</span>
@@ -2070,10 +2069,6 @@ export default function StrategyAnalysisPanel({
       }
       return (
         <>
-          <p className="muted analysis-chart-hint">
-            С какой позиции открывал / не открывал относительно чарта RFI. Клик по строке → реплей
-            ошибок этой позиции.
-          </p>
           <div className="analysis-table-wrap">
             <table className="analysis-table">
               <thead>
@@ -2154,9 +2149,6 @@ export default function StrategyAnalysisPanel({
       return (
         <>
           <div className="preflop-errors-toolbar">
-            <p className="muted analysis-chart-hint">
-              Слева ветки. Справа Стратегия и VPIP (позиции без чарта — через «+»).
-            </p>
             <div className="preflop-errors-actions">
               {focusRow ? (
                 <button
@@ -2191,9 +2183,6 @@ export default function StrategyAnalysisPanel({
               <aside className="preflop-chart-list">
                 <h3 className="analysis-subhead">
                   Ветки · {scoreRows.length}
-                  {scoreRows.length > 10 ? (
-                    <em className="branch-list-scroll-hint"> · скролл</em>
-                  ) : null}
                 </h3>
                 <ul className="preflop-chart-list-flat">
                   {scoreRows.map((row) => {
@@ -2402,9 +2391,6 @@ export default function StrategyAnalysisPanel({
     return (
       <>
         <div className="preflop-errors-toolbar">
-          <p className="muted analysis-chart-hint">
-            Слева ветки стратегии. Справа два диапазона: Стратегия и Ошибки.
-          </p>
           <div className="preflop-errors-actions">
             {(() => {
               const code = selectedHand || errorFilter.handCode || null;
@@ -2448,9 +2434,6 @@ export default function StrategyAnalysisPanel({
           <aside className="preflop-chart-list">
             <h3 className="analysis-subhead">
               Ветки · {chartRows.length}
-              {chartRows.length > 10 ? (
-                <em className="branch-list-scroll-hint"> · скролл</em>
-              ) : null}
             </h3>
             {chartRows.length === 0 ? (
               <p className="muted">Нет веток стратегии для сравнения.</p>
@@ -2695,6 +2678,13 @@ export default function StrategyAnalysisPanel({
   return (
     <div className="analysis-panel">
       {uploadBlock}
+      {waitingOnBgJob ? (
+        <AnalysisBgWait
+          compact
+          pendingHands={progressHands}
+        />
+      ) : null}
+      {error ? <p className="error">{error}</p> : null}
       <div className="analysis-tabs" role="tablist" aria-label="Разделы анализа">
         <button
           type="button"
@@ -2789,9 +2779,6 @@ export default function StrategyAnalysisPanel({
             <div className="analysis-block-head">
               <h2>График профита</h2>
             </div>
-            <p className="muted analysis-chart-hint">
-              Выигрыш · All-In EV · SD / non-SD. Сверка с вашими чартами — во вкладке «Стратегии».
-            </p>
             <H2nPerformanceChart
               curve={analysisCurveToH2n(data.curve)}
               initialUnit="bb"
@@ -2809,9 +2796,6 @@ export default function StrategyAnalysisPanel({
         <div className="analysis-tab-pane" role="tabpanel">
           <section className="analysis-block">
             <h2>HUD</h2>
-            <p className="muted analysis-chart-hint">
-              Нажми на стат — откроется реплей раздач за столом.
-            </p>
             <div className="hud-grid">
               {data.stats.map((s) => (
                 <button
@@ -2840,9 +2824,6 @@ export default function StrategyAnalysisPanel({
           {data.by_position.length > 0 && (
             <section className="analysis-block">
               <h2>По позициям</h2>
-              <p className="muted analysis-chart-hint">
-                Клик по строке — реплей VPIP-раздач с этой позиции.
-              </p>
               <div className="analysis-table-wrap">
                 <table className="analysis-table">
                   <thead>
@@ -2910,12 +2891,6 @@ export default function StrategyAnalysisPanel({
         <div className="analysis-tab-pane" role="tabpanel">
           <section className="analysis-block">
             <h2>Стратегии · сравнение веток</h2>
-            <p className="muted analysis-chart-hint">
-              Сверка с вашим регламентом: каждое префлоп-решение сравнивается с вашими чартами
-              (raise / call / fold). Если чарт говорит raise, а вы сфолдили — это ошибка
-              (пропущенное открытие). Это не GTO и не «общий» эталон — только дисциплина
-              относительно своих диапазонов.
-            </p>
             {!hasPlayCharts ? (
               <p className="strategy-gap-banner" role="status">
                 {STRATEGY_CHARTS_GAP_HINT}{" "}

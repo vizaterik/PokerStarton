@@ -367,11 +367,7 @@ export default function AnalysisPage() {
           onUploaded={onUploaded}
         />
 
-        {waiting ? (
-          <div className="analysis-page-results">
-            <AnalysisBgWait pendingHands={pendingHandTotal ?? job.hands ?? localHands} />
-          </div>
-        ) : !strategyId ? (
+        {!strategyId ? (
           <div className="analysis-empty panel analysis-page-results">
             <h2>Выберите стратегию</h2>
             <p className="muted">
@@ -385,6 +381,7 @@ export default function AnalysisPage() {
           </div>
         ) : (
           <div className="analysis-page-results">
+            {/* Keep panel mounted during job — progress lives inside, report does not vanish. */}
             <StrategyAnalysisPanel
               strategyId={strategyId}
               strategyRevision={revision + dedupeBump}
@@ -394,7 +391,7 @@ export default function AnalysisPage() {
               backgroundJobMode
               dayFilter={dayFilter}
             />
-            {sessionDays.length > 0 ? (
+            {sessionDays.length > 0 && !waiting ? (
               <div className="analysis-day-after-report">
                 <div className="analysis-day-icon-wrap" ref={dayMenuRef}>
                   <button

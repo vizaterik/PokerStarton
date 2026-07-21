@@ -149,9 +149,11 @@ export default function PreflopActionSelector({
                 onClick={() => openRange(win.seat)}
               >
                 <h3 className="mwb-seat">{win.label}</h3>
-                <span className={`mwb-badge mwb-badge-${win.status}`}>
-                  {win.statusLabel}
-                </span>
+                {win.statusLabel ? (
+                  <span className={`mwb-badge mwb-badge-${win.status}`}>
+                    {win.statusLabel}
+                  </span>
+                ) : null}
                 {past && win.lockedAction ? (
                   <span className="mwb-locked-meta">
                     {win.lockedAction === "RAISE"
@@ -162,22 +164,7 @@ export default function PreflopActionSelector({
                         ? win.callPillText
                         : "FOLD"}
                   </span>
-                ) : win.status === "active" ||
-                  (win.status === "waiting" && win.facingRaiseCount > 0 && !win.lockedAction) ? (
-                  <span className="mwb-locked-meta mwb-locked-hint">
-                    {win.facingRaiseCount === 0
-                      ? "ответ · open"
-                      : win.raiseLabel === "SQUEEZE"
-                        ? "ответ · squeeze"
-                        : win.facingRaiseCount === 1
-                          ? "ответ · vs open"
-                          : win.facingRaiseCount === 2
-                            ? "ответ · vs 3-bet"
-                            : "ответ · vs 4-bet"}
-                  </span>
-                ) : (
-                  <span className="mwb-locked-meta mwb-locked-hint">рендж</span>
-                )}
+                ) : null}
               </button>
 
               <div className="mwb-pills" role="group" aria-label={`${win.label} actions`}>

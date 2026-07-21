@@ -8379,7 +8379,7 @@ body.confirm-open #root {
   color: var(--accent);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  transition: left 0.12s linear;
+  transition: left 0.5s cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
   text-shadow: 0 0 12px rgba(136, 249, 145, 0.35);
 }
@@ -8409,7 +8409,8 @@ body.confirm-open #root {
   border-radius: inherit;
   background: linear-gradient(90deg, #3dd68c 0%, var(--accent) 55%, #5b8def 100%);
   box-shadow: 0 0 14px rgba(136, 249, 145, 0.35);
-  transition: width 0.12s linear;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: width;
 }
 
 .analysis-calc__shimmer {
@@ -8534,6 +8535,25 @@ body.confirm-open #root {
 
 .analysis-bg-wait {
   margin-top: 1.25rem;
+  animation: none;
+}
+
+.analysis-bg-wait-banner {
+  margin-bottom: 0.85rem;
+}
+
+.analysis-bg-wait-banner .analysis-bg-wait {
+  margin-top: 0;
+}
+
+.analysis-bg-wait--compact {
+  padding: 0.85rem 1rem 0.75rem;
+}
+
+.analysis-bg-wait--compact .analysis-calc__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
 }
 
 .analysis-bg-wait__kicker {

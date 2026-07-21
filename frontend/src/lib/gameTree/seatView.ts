@@ -194,41 +194,28 @@ export function buildSeatWindows(
           ? "LIMP"
           : "CALL";
 
-    // Any live seat that still chooses Fold/Call/Raise (incl. cold seats vs 3-bet).
-    const facingSpot = status === "active" || status === "waiting";
-
+    // Badge: only current actor says «Ход»; no «vs Open · 3-BET» commentary.
     const statusLabel =
-      facingSpot && ctx.raiseCount === 0
-        ? status === "active"
-          ? "Active"
-          : "Waiting"
-        : facingSpot && ctx.raiseCount === 1
-          ? ctx.callersAfterRaise >= 1
-            ? "vs Open+Call · SQUEEZE"
-            : "vs Open · 3-BET"
-          : facingSpot && ctx.raiseCount === 2
-            ? "vs 3-bet · 4-BET / ALL-IN"
-            : facingSpot && ctx.raiseCount > 2
-              ? `vs 4-bet · ${upcoming}`
-              : status === "auto-folded"
-                ? "Auto-Folded"
-                : status === "folded"
-                  ? "Folded"
-                  : status === "locked" && info
-                    ? lockedStatusLabel(
-                        info.action,
-                        info.raiseIndex,
-                        info.sizingBB,
-                        stackDepth,
-                        info.wasSqueeze,
-                      )
-                    : "Waiting";
+      status === "active"
+        ? "Ход"
+        : status === "auto-folded"
+          ? "Fold"
+          : status === "folded"
+            ? "Fold"
+            : status === "locked" && info
+              ? lockedStatusLabel(
+                  info.action,
+                  info.raiseIndex,
+                  info.sizingBB,
+                  stackDepth,
+                  info.wasSqueeze,
+                )
+              : "";
 
     let borderTone: SeatWindow["borderTone"] = "none";
-    // Live seats that can still answer (active, cold waiting, opener facing 3-bet)
-    if (status === "active" || facesReRaise || (status === "waiting" && ctx.raiseCount > 0)) {
-      borderTone = "active";
-    } else if (info?.action === "RAISE") borderTone = "raise";
+    // White highlight only for the seat to act now.
+    if (status === "active") borderTone = "active";
+    else if (info?.action === "RAISE") borderTone = "raise";
     else if (info?.action === "CALL") borderTone = "call";
     else if (info?.action === "FOLD" || status === "auto-folded") borderTone = "fold";
 
@@ -355,21 +342,10 @@ export function historyChainText(
     parts.push({ nodeId: parent.id, text, current: false });
   }
 
-  // Текущий ход: подпись vs Open / squeeze / vs 3-bet …
-  const ctx = deriveContext(path);
-  const facing =
-    ctx.raiseCount <= 0
-      ? "ход"
-      : ctx.raiseCount === 1
-        ? ctx.callersAfterRaise >= 1
-          ? "vs open+call · squeeze"
-          : "vs open"
-        : ctx.raiseCount === 2
-          ? "vs 3-bet"
-          : "vs 4-bet";
+  // Current actor chip — just «Ход», no vs-open commentary.
   parts.push({
     nodeId: activeNode.id,
-    text: `${seatLabel(activeNode.activePlayer)} ${facing}`,
+    text: `${seatLabel(activeNode.activePlayer)} Ход`,
     current: true,
   });
   return parts;

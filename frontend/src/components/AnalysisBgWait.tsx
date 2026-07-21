@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   getAnalysisJob,
   subscribeAnalysisJob,
@@ -8,44 +8,22 @@ import {
 type Props = {
   uploadBlock?: ReactNode;
   pendingHands?: number | null;
+  /** Slim banner above existing results (does not replace the report). */
+  compact?: boolean;
 };
 
 const STEPS = [
   "Разбор истории",
   "HUD и график",
   "Проверяем стратегию",
-  "Загрузка в базу",
+  "Сохранение",
 ] as const;
 
-function stepIndexFor(job: AnalysisJobState): number {
-  if (job.status === "done") return STEPS.length;
-  if (job.status === "error") return 0;
-  const msg = (job.message || "").toLowerCase();
-  const pct = job.progress || 0;
-  if (
-    pct >= 72 ||
-    msg.includes("баз") ||
-    msg.includes("сервер") ||
-    msg.includes("отправляем") ||
-    msg.includes("мб") ||
-    msg.includes("кб")
-  ) {
-    return 3;
-  }
-  if (
-    msg.includes("стратег") ||
-    msg.includes("проверяем") ||
-    msg.includes("разбор сессии") ||
-    msg.includes("отклон") ||
-    msg.includes("сверк") ||
-    pct >= 68
-  ) {
-    return 2;
-  }
-  if (msg.includes("hud") || msg.includes("график") || pct >= 55 || (job.step ?? 0) >= 1) {
-    return 1;
-  }
-  if (job.status === "uploading" || job.status === "running") return 0;
+/** Ordered steps from a single % — never jumps backward. */
+function stepFromPct(pct: number): number {
+  if (pct >= 78) return 3;
+  if (pct >= 52) return 2;
+  if (pct >= 28) return 1;
   return 0;
 }
 
@@ -56,24 +34,101 @@ function titleFor(job: AnalysisJobState): string {
   return "Разбор сессии";
 }
 
-/** In-page status while analysis runs — live % and current stage. */
-export default function AnalysisBgWait({ uploadBlock, pendingHands }: Props) {
+/** In-page status while analysis runs — one continuous % bar, ordered steps. */
+export default function AnalysisBgWait({
+  uploadBlock,
+  pendingHands,
+  compact = false,
+}: Props) {
   const [job, setJob] = useState<AnalysisJobState>(() => getAnalysisJob());
+  const [displayPct, setDisplayPct] = useState(() =>
+    Math.min(99, Math.max(0, getAnalysisJob().progress || 0)),
+  );
+  const [stepIndex, setStepIndex] = useState(() =>
+    stepFromPct(getAnalysisJob().progress || 0),
+  );
+  const displayRef = useRef(displayPct);
+  const maxStepRef = useRef(stepIndex);
+  const jobGenRef = useRef(0);
 
-  useEffect(() => subscribeAnalysisJob(() => setJob(getAnalysisJob())), []);
+  useEffect(() => {
+    let prevStatus = getAnalysisJob().status;
+    return subscribeAnalysisJob(() => {
+      const next = getAnalysisJob();
+      // New upload → reset bar once (never mid-job).
+      if (
+        (next.status === "uploading" || next.status === "running") &&
+        (prevStatus === "idle" || prevStatus === "done" || prevStatus === "error")
+      ) {
+        jobGenRef.current += 1;
+        displayRef.current = Math.max(0, next.progress || 2);
+        maxStepRef.current = 0;
+        setDisplayPct(displayRef.current);
+        setStepIndex(0);
+      }
+      prevStatus = next.status;
+      setJob(next);
+    });
+  }, []);
+
+  // Smooth chase of job.progress — monotonic while busy, no integer jumps.
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const busy = job.status === "uploading" || job.status === "running";
+      const target =
+        job.status === "done"
+          ? 100
+          : job.status === "error"
+            ? displayRef.current
+            : Math.min(99, Math.max(0, job.progress || 0));
+
+      let cur = displayRef.current;
+      if (busy || job.status === "done") {
+        const goal = Math.max(cur, target);
+        const delta = goal - cur;
+        cur = delta < 0.08 ? goal : cur + delta * 0.14;
+      }
+      displayRef.current = cur;
+      setDisplayPct(cur);
+
+      const nextStep = Math.max(maxStepRef.current, stepFromPct(cur));
+      if (nextStep !== maxStepRef.current) {
+        maxStepRef.current = nextStep;
+        setStepIndex(nextStep);
+      } else if (job.status === "done") {
+        maxStepRef.current = STEPS.length;
+        setStepIndex(STEPS.length);
+      }
+
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [job.progress, job.status]);
 
   const progressHands = pendingHands ?? job.hands;
-  const rawPct = Math.min(100, Math.max(0, job.progress || 0));
-  const pct = Math.min(99, Math.round(rawPct));
-  const stepIndex = stepIndexFor(job);
+  const pct = Math.min(100, Math.round(displayPct));
+  const barPct = Math.min(100, displayPct);
   const title = titleFor(job);
   const busy = job.status === "uploading" || job.status === "running";
+  const activeLabel =
+    job.error ||
+    (job.status === "done"
+      ? "Готово"
+      : STEPS[Math.min(stepIndex, STEPS.length - 1)]);
 
   return (
-    <div className="analysis-panel">
+    <div
+      className={
+        compact
+          ? "analysis-bg-wait-banner"
+          : "analysis-panel"
+      }
+    >
       {uploadBlock}
       <div
-        className={`analysis-calc analysis-bg-wait${busy ? "" : " is-idle"}`}
+        className={`analysis-calc analysis-bg-wait${compact ? " analysis-bg-wait--compact" : ""}${busy ? "" : " is-idle"}`}
         role="status"
         aria-live="polite"
         aria-busy={busy}
@@ -88,12 +143,7 @@ export default function AnalysisBgWait({ uploadBlock, pendingHands }: Props) {
               {title}
               {pct > 0 ? ` · ${pct}%` : ""}
             </strong>
-            <span className="analysis-calc__phase">
-              {job.error || job.message || "Обработка…"}
-              {progressHands
-                ? ` · ${progressHands.toLocaleString("ru-RU")} рук`
-                : ""}
-            </span>
+            <span className="analysis-calc__phase">{activeLabel}</span>
           </div>
         </div>
 
@@ -114,16 +164,16 @@ export default function AnalysisBgWait({ uploadBlock, pendingHands }: Props) {
         </ol>
 
         <div className="analysis-calc__bar">
-          <div className="analysis-calc__pct" style={{ left: `${Math.min(99, rawPct)}%` }}>
+          <div
+            className="analysis-calc__pct"
+            style={{ left: `${Math.min(99.5, Math.max(2, barPct))}%` }}
+          >
             {pct}%
           </div>
           <div className="analysis-calc__track">
             <div
               className="analysis-calc__fill"
-              style={{
-                width: `${Math.min(100, rawPct)}%`,
-                transition: "width 0.12s linear",
-              }}
+              style={{ width: `${barPct}%` }}
             />
             {busy ? <div className="analysis-calc__shimmer" aria-hidden /> : null}
           </div>
@@ -132,10 +182,10 @@ export default function AnalysisBgWait({ uploadBlock, pendingHands }: Props) {
         <div className="analysis-calc__meta">
           {progressHands != null && progressHands > 0 ? (
             <span>
-              <em>{progressHands.toLocaleString("ru-RU")}</em> раздач в работе
+              <em>{progressHands.toLocaleString("ru-RU")}</em> раздач
             </span>
           ) : (
-            <span className="muted">Можно переключать разделы — разбор продолжится</span>
+            <span className="muted">{activeLabel}</span>
           )}
           {job.error ? <span className="error">{job.error}</span> : null}
         </div>

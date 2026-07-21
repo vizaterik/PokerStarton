@@ -58,7 +58,6 @@ let progressRaf = 0;
 let progressStartedAt = 0;
 let lastTickAt = 0;
 let lastEmittedPct = -1;
-let lastElapsedSec = -1;
 let progressEmitTimer = 0;
 /** When true, Worker/client callbacks own the % — skip fake rAF crawl. */
 let externalProgress = false;
@@ -88,19 +87,11 @@ function stripElapsed(msg: string): string {
   return msg.replace(/\s*\(\d+\s*с\)\s*$/u, "").trim();
 }
 
-function withElapsed(base: string, sec: number): string {
-  const clean = stripElapsed(base || "Обработка…");
-  return `${clean} (${sec} с)`;
-}
-
-/** Soft ceiling for the current server phase — bar may crawl past it slowly. */
+/** Soft ceiling — one continuous ramp, no step-based jumps. */
 function phaseSoftCap(): number {
-  if (state.status === "uploading") return 58;
+  if (state.status === "uploading") return 62;
   if (state.status !== "running") return 99;
-  if (state.step <= 0) return 72;
-  if (state.step === 1) return 84;
-  if (state.step === 2) return 94;
-  return 99;
+  return 96;
 }
 
 function stopProgressTicker() {
@@ -124,7 +115,6 @@ function startProgressTicker(resetClock: boolean) {
   if (resetClock) {
     progressStartedAt = performance.now();
     lastEmittedPct = -1;
-    lastElapsedSec = -1;
   }
 
   const tick = (now: number) => {
@@ -144,35 +134,39 @@ function startProgressTicker(resetClock: boolean) {
     const soft = phaseSoftCap();
     const total = state.hands != null && state.hands > 0 ? state.hands : null;
     // Larger files → slower early ramp (feels proportional on the PC).
-    const tau = total ? Math.max(3.5, Math.min(14, total / 90)) : 5;
+    const tau = total ? Math.max(4, Math.min(16, total / 85)) : 5.5;
     const approach = 3 + (soft - 3) * (1 - Math.exp(-t / tau));
-    // After ~soft, keep crawling on the client toward 99 over several minutes.
-    const over = Math.max(0, t - tau * 1.2);
-    const crawl = (99 - soft) * (1 - Math.exp(-over / 110));
+    // After ~soft, crawl toward 99 without jumping between phase caps.
+    const over = Math.max(0, t - tau * 1.15);
+    const crawl = (99 - soft) * (1 - Math.exp(-over / 140));
     let next = Math.min(99, Math.max(state.progress, approach + crawl));
-    // Time-based floor: ~0.25%/s so the integer % keeps ticking even if server stalls.
+    // Gentle floor so % never freezes — no big leaps.
     if (dt > 0 && next < 99) {
-      next = Math.min(99, Math.max(next, state.progress + dt * 0.25));
+      next = Math.min(99, Math.max(next, state.progress + dt * 0.18));
     }
     const rounded = Math.min(99, Math.round(next * 10) / 10);
-    const sec = Math.floor(t);
+    // Derive step from % only (ordered checklist in UI).
+    const step =
+      rounded >= 78 ? 3 : rounded >= 52 ? 2 : rounded >= 28 ? 1 : 0;
     const base = phaseLabel || state.message || "Обработка…";
-    const msg = withElapsed(base, sec);
 
     const pctChanged = Math.round(rounded) !== lastEmittedPct;
-    const secChanged = sec !== lastElapsedSec;
-    if (pctChanged || secChanged) {
+    if (pctChanged || state.step !== step) {
       lastEmittedPct = Math.round(rounded);
-      lastElapsedSec = sec;
-      state = { ...state, progress: rounded, message: msg };
+      state = {
+        ...state,
+        progress: rounded,
+        step,
+        message: stripElapsed(base),
+      };
       if (!progressEmitTimer) {
         progressEmitTimer = window.setTimeout(() => {
           progressEmitTimer = 0;
           emit();
-        }, 120);
+        }, 160);
       }
     } else {
-      state = { ...state, progress: rounded };
+      state = { ...state, progress: rounded, step };
     }
 
     progressRaf = requestAnimationFrame(tick);
@@ -256,16 +250,16 @@ export function updateClientImportProgress(
     externalProgress = true;
     stopProgressTicker();
   }
-  const next = Math.min(99, Math.max(0, Math.round(pct)));
+  const next = Math.min(99, Math.max(state.progress || 0, Math.round(pct)));
   phaseLabel = stripElapsed(message);
-  lastEmittedPct = next;
+  lastEmittedPct = Math.round(next);
   setState({
     status: "uploading",
     strategyId,
     progress: next,
     message: phaseLabel,
     hands: hands && hands > 0 ? hands : state.hands,
-    step: pct >= 72 ? 3 : pct >= 55 ? 1 : 0,
+    step: next >= 78 ? 3 : next >= 52 ? 2 : next >= 28 ? 1 : 0,
   });
 }
 
