@@ -73,7 +73,10 @@ export type SpotContext = {
 };
 
 export type DecisionButton = {
+  /** Stable key within a seat's answer set (fold / call / raise / allin). */
+  id: string;
   action: "FOLD" | "CALL" | "RAISE";
+  /** GTO Wizard-style label, e.g. "Fold", "Call", "Raise 2.5", "All-in". */
   label: string;
   sublabel?: string;
   defaultSizing?: number;

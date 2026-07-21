@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 type Props = {
-  /** Fixed job title, e.g. "Анализ сессии" */
+  /** Fixed job title, e.g. "Анализ рук" */
   title: string;
   /** Named steps shown as a checklist (H2N-style) */
   steps?: string[];

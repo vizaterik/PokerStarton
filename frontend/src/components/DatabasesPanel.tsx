@@ -8,9 +8,8 @@ import {
   type HandDatabase,
 } from "../api/client";
 import ConfirmDialog from "./ConfirmDialog";
-import { clearAnalysisCache } from "../lib/analysisCache";
-import { clearHandDbMeta, metaFromDatabase, writeHandDbMeta } from "../lib/handDbCache";
-import { clearResultsCache } from "../lib/resultsCache";
+import { metaFromDatabase, writeHandDbMeta } from "../lib/handDbCache";
+import { purgeLocalHandState } from "../lib/purgeLocalHandState";
 
 export default function DatabasesPanel() {
   const [items, setItems] = useState<HandDatabase[]>([]);
@@ -54,9 +53,7 @@ export default function DatabasesPanel() {
     );
     try {
       await createHandDatabase(name.trim(), true);
-      clearAnalysisCache();
-      clearResultsCache();
-      clearHandDbMeta();
+      await purgeLocalHandState();
       setName("");
       setNote(null);
       await reload();
@@ -74,9 +71,7 @@ export default function DatabasesPanel() {
     setError(null);
     try {
       await switchHandDatabase(db.id);
-      clearAnalysisCache();
-      clearResultsCache();
-      clearHandDbMeta();
+      await purgeLocalHandState();
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось переключить базу");
@@ -108,9 +103,7 @@ export default function DatabasesPanel() {
           setNote(`База «${targetName}» очищена`);
         }
       }
-      clearAnalysisCache();
-      clearResultsCache();
-      clearHandDbMeta();
+      await purgeLocalHandState();
       setConfirm(null);
       await reload();
     } catch (err) {

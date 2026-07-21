@@ -587,7 +587,7 @@ export async function buildLocalRecommendations(
       if (hand) pairs.push({ key: row.key, hand });
     }
     onProgress?.(
-      `Разбор сессии… ${Math.min(i + CHUNK, rows.length).toLocaleString("ru-RU")} / ${rows.length.toLocaleString("ru-RU")}`,
+      `Анализ рук… ${Math.min(i + CHUNK, rows.length).toLocaleString("ru-RU")} / ${rows.length.toLocaleString("ru-RU")}`,
       10 + Math.round((70 * Math.min(i + CHUNK, rows.length)) / Math.max(rows.length, 1)),
     );
     // Yield so UI stays responsive on large sessions.

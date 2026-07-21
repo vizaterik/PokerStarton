@@ -80,15 +80,52 @@ export function decisionButtons(
   stackDepth = 100,
   seat: Seat = "BTN",
 ): DecisionButton[] {
+  return wizardAnswerOptions(ctx, seat, stackDepth);
+}
+
+/**
+ * GTO Wizard Cash (Standard) action-tree answers for one seat.
+ * Labels match Wizard: Fold / Call / Raise {size} / All-in — not 3-BET/4-BET words.
+ *
+ * RFI (UTG–BTN): Fold + Raise only (no limp).
+ * SB unopened: Fold + Call + Raise.
+ * vs limp: Fold + Call + Raise (BB: Check + Raise).
+ * vs open/squeeze: Fold + Call + Raise.
+ * vs 3-bet: Fold + Call + Raise + All-in.
+ * vs 4-bet+: Fold + Call + All-in.
+ */
+export function wizardAnswerOptions(
+  ctx: SpotContext,
+  seat: Seat,
+  stackDepth = 100,
+): DecisionButton[] {
+  const fmt = (n: number) => {
+    const r = Math.round(n * 10) / 10;
+    return Number.isInteger(r) ? String(r) : r.toFixed(1);
+  };
+
   if (ctx.potType === "unopened") {
     const open = standardRaiseSize(ctx, seat, stackDepth);
+    if (seat === "SB") {
+      return [
+        { id: "fold", action: "FOLD", label: "Fold", tone: "fold" },
+        { id: "call", action: "CALL", label: "Call", tone: "call" },
+        {
+          id: "raise",
+          action: "RAISE",
+          label: `Raise ${fmt(open)}`,
+          defaultSizing: open,
+          tone: "raise",
+        },
+      ];
+    }
+    // Wizard open: Fold + Raise {size} (no limp from EP/IP).
     return [
-      { action: "FOLD", label: "FOLD", tone: "fold" },
-      { action: "CALL", label: "CALL / LIMP", tone: "call" },
+      { id: "fold", action: "FOLD", label: "Fold", tone: "fold" },
       {
+        id: "raise",
         action: "RAISE",
-        label: "RAISE",
-        sublabel: `Open ${open}bb`,
+        label: `Raise ${fmt(open)}`,
         defaultSizing: open,
         tone: "raise",
       },
@@ -97,38 +134,101 @@ export function decisionButtons(
 
   if (ctx.potType === "facing_limp") {
     const iso = standardRaiseSize(ctx, seat, stackDepth);
+    if (seat === "BB") {
+      // Wizard: Check / Raise (check = complete limps → CALL in our tree).
+      return [
+        { id: "check", action: "CALL", label: "Check", tone: "call" },
+        {
+          id: "raise",
+          action: "RAISE",
+          label: `Raise ${fmt(iso)}`,
+          defaultSizing: iso,
+          tone: "raise",
+        },
+      ];
+    }
     return [
-      { action: "FOLD", label: "FOLD", tone: "fold" },
-      { action: "CALL", label: "CALL", tone: "call" },
+      { id: "fold", action: "FOLD", label: "Fold", tone: "fold" },
+      { id: "call", action: "CALL", label: "Call", tone: "call" },
       {
+        id: "raise",
         action: "RAISE",
-        label: "RAISE",
-        sublabel: `ISO ${iso}bb`,
+        label: `Raise ${fmt(iso)}`,
         defaultSizing: iso,
         tone: "raise",
       },
     ];
   }
 
-  // facing raise: 3-bet / squeeze → 4-bet → all-in
   const level = ctx.raiseCount;
-  const defaultSizing = standardRaiseSize(ctx, seat, stackDepth);
-  let raiseLabel = "3-BET";
-  if (level === 1 && ctx.callersAfterRaise >= 1) raiseLabel = "SQUEEZE";
-  else if (level === 2) raiseLabel = "4-BET";
-  else if (level >= 3) raiseLabel = "ALL-IN";
+  const raiseSize = standardRaiseSize(ctx, seat, stackDepth);
+  const isSqueeze = level === 1 && ctx.callersAfterRaise >= 1;
 
+  if (level >= 3) {
+    const callTo = ctx.lastRaiseSize;
+    return [
+      { id: "fold", action: "FOLD", label: "Fold", tone: "fold" },
+      {
+        id: "call",
+        action: "CALL",
+        label: callTo != null ? `Call ${fmt(callTo)}` : "Call",
+        tone: "call",
+      },
+      {
+        id: "allin",
+        action: "RAISE",
+        label: "All-in",
+        defaultSizing: stackDepth,
+        tone: "raise",
+      },
+    ];
+  }
+
+  if (level === 2) {
+    const callTo = ctx.lastRaiseSize;
+    return [
+      { id: "fold", action: "FOLD", label: "Fold", tone: "fold" },
+      {
+        id: "call",
+        action: "CALL",
+        label: callTo != null ? `Call ${fmt(callTo)}` : "Call",
+        tone: "call",
+      },
+      {
+        id: "raise",
+        action: "RAISE",
+        label: `Raise ${fmt(raiseSize)}`,
+        defaultSizing: raiseSize,
+        tone: "raise",
+      },
+      {
+        id: "allin",
+        action: "RAISE",
+        label: "All-in",
+        defaultSizing: stackDepth,
+        tone: "raise",
+      },
+    ];
+  }
+
+  // vs open → Raise; after open + call(s) → Squeeze (only for the seat that raises).
+  // The caller themselves never sees Squeeze — their locked answers use prior context.
+  const callTo = ctx.lastRaiseSize;
   return [
-    { action: "FOLD", label: "FOLD", tone: "fold" },
-    { action: "CALL", label: "CALL", tone: "call" },
+    { id: "fold", action: "FOLD", label: "Fold", tone: "fold" },
     {
+      id: "call",
+      action: "CALL",
+      label: callTo != null ? `Call ${fmt(callTo)}` : "Call",
+      tone: "call",
+    },
+    {
+      id: isSqueeze ? "squeeze" : "raise",
       action: "RAISE",
-      label: raiseLabel,
-      sublabel:
-        level >= 3
-          ? `Stack ${stackDepth}bb`
-          : `${defaultSizing}bb`,
-      defaultSizing,
+      label: isSqueeze
+        ? `Squeeze ${fmt(raiseSize)}`
+        : `Raise ${fmt(raiseSize)}`,
+      defaultSizing: raiseSize,
       tone: "raise",
     },
   ];

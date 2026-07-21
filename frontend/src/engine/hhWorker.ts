@@ -2,13 +2,16 @@
 
 import { estimateHandCount, parseHandHistory, splitHandBlocks } from "./parseHh";
 import {
+  assertDailyUploadBatchSize,
   dedupeStrategyHands,
   flushLocalDb,
   insertHandBatch,
-  loadDayHandCounts,
+  loadDailyUploadQuota,
   openLocalDb,
+  remainingDailyUploadSlots,
+  type DailyUploadQuota,
 } from "./localDb";
-import type { LocalImportResult, ProgressPayload } from "./types";
+import type { LocalImportResult, ParsedHand, ProgressPayload } from "./types";
 
 export type HhWorkerIn =
   | { type: "init" }
@@ -41,9 +44,9 @@ async function runImport(
   files: Array<{ name: string; text: string }>,
 ) {
   await openLocalDb();
-  // Stack sessions: new hands append; duplicates skip by external_hand_id.
   const sessionId = `local-${Date.now().toString(36)}`;
-  const dayCounts = await loadDayHandCounts(strategyId);
+  const uploadQuota: DailyUploadQuota = await loadDailyUploadQuota(strategyId);
+  const remaining = remainingDailyUploadSlots(uploadQuota);
   const seenInImport = new Set<string>();
 
   let totalEstimate = 0;
@@ -51,11 +54,6 @@ async function runImport(
   if (totalEstimate < 1) totalEstimate = 1;
 
   let done = 0;
-  let insertedTotal = 0;
-  let dupTotal = 0;
-  let limitTotal = 0;
-  let parsedTotal = 0;
-
   const emit = (phase: string, message: string, pct: number) => {
     post({
       type: "progress",
@@ -72,34 +70,47 @@ async function runImport(
 
   emit("parse", "Читаем файлы…", 2);
 
+  const allHands: ParsedHand[] = [];
   for (let fi = 0; fi < files.length; fi++) {
     const file = files[fi];
     const blocks = splitHandBlocks(file.text);
     const chunkSize = 80;
     for (let i = 0; i < blocks.length; i += chunkSize) {
       const slice = blocks.slice(i, i + chunkSize);
-      const text = slice.join("\n\n");
-      const hands = parseHandHistory(text);
-      parsedTotal += hands.length;
-      const { inserted, duplicates, limitSkipped } = await insertHandBatch(
-        strategyId,
-        sessionId,
-        hands,
-        dayCounts,
-        seenInImport,
-      );
-      insertedTotal += inserted;
-      dupTotal += duplicates;
-      limitTotal += limitSkipped;
+      const hands = parseHandHistory(slice.join("\n\n"));
+      allHands.push(...hands);
+      if (allHands.length > remaining) {
+        assertDailyUploadBatchSize(allHands.length, remaining);
+      }
       done += slice.length;
-      const pct = 5 + (done / totalEstimate) * 70;
       emit(
         "parse",
         `Парсинг ${file.name} · ${Math.min(done, totalEstimate).toLocaleString("ru-RU")} / ${totalEstimate.toLocaleString("ru-RU")}`,
-        pct,
+        5 + (done / totalEstimate) * 45,
       );
       await yieldTick();
     }
+  }
+
+  assertDailyUploadBatchSize(allHands.length, remaining);
+
+  let insertedTotal = 0;
+  let dupTotal = 0;
+  const insertChunk = 80;
+  for (let i = 0; i < allHands.length; i += insertChunk) {
+    const chunk = allHands.slice(i, i + insertChunk);
+    const { inserted, duplicates } = await insertHandBatch(strategyId, sessionId, chunk, {
+      uploadQuota,
+      seenInImport,
+    });
+    insertedTotal += inserted;
+    dupTotal += duplicates;
+    emit(
+      "parse",
+      `Сохраняем · ${Math.min(i + chunk.length, allHands.length).toLocaleString("ru-RU")} / ${allHands.length.toLocaleString("ru-RU")}`,
+      50 + ((i + chunk.length) / Math.max(1, allHands.length)) * 35,
+    );
+    await yieldTick();
   }
 
   const removed = await dedupeStrategyHands(strategyId);
@@ -117,9 +128,9 @@ async function runImport(
       strategyId,
       handsInserted: insertedTotal,
       duplicatesSkipped: dupTotal,
-      limitSkipped: limitTotal,
-      handsParsed: parsedTotal,
-      hands: parsedTotal,
+      limitSkipped: 0,
+      handsParsed: allHands.length,
+      hands: allHands.length,
       sessionId,
     },
   });

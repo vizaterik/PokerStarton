@@ -155,7 +155,12 @@ export async function importHandsLocally(
       w.postMessage(msg);
     });
     return toBatchReport(result, files.length);
-  } catch {
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "";
+    // Business rule errors from the worker must not fall through to a second import.
+    if (/Дневной лимит|не берём часть|Загрузи не больше|Загрузи завтра/i.test(msg)) {
+      throw err instanceof Error ? err : new Error(msg);
+    }
     const result = await importFilesOnMainThread(strategyId, payloads, onProgress);
     return toBatchReport(result, files.length);
   }

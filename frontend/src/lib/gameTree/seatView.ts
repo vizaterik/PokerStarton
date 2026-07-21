@@ -1,14 +1,19 @@
 import { shortSavedBranchLabel, potKindTag, inferPotKind } from "./branches";
 import {
-  formatRaiseLabel,
   nextRaiseLabel,
   raiseLabelAtIndex,
   shortRaiseWord,
   type RaiseLabel,
 } from "./raiseLabels";
 import { seatLabel, seatsFor } from "./seats";
-import { actorsAlongPath, deriveContext } from "./turnEngine";
-import type { GameTreeNode, Seat, TableSize, TreeAction } from "./types";
+import { actorsAlongPath, deriveContext, wizardAnswerOptions } from "./turnEngine";
+import type {
+  DecisionButton,
+  GameTreeNode,
+  Seat,
+  TableSize,
+  TreeAction,
+} from "./types";
 
 export type WindowStatus =
   | "active"
@@ -43,6 +48,8 @@ export type SeatWindow = {
   facingRaiseCount: number;
   /** High-contrast border tone for the window chrome */
   borderTone: "none" | "fold" | "call" | "raise" | "active";
+  /** GTO Wizard-style answer pills for this seat right now */
+  answers: DecisionButton[];
 };
 
 function raisePillText(label: RaiseLabel, sizingBB?: number | null): string {
@@ -59,18 +66,47 @@ function lockedStatusLabel(
   raiseIndex: number,
   sizingBB?: number,
   stackDepth?: number,
-  wasSqueeze = false,
+  _wasSqueeze = false,
 ): string {
   if (action === "RAISE") {
     if (sizingBB != null && stackDepth != null && sizingBB >= stackDepth - 0.5) {
-      return formatRaiseLabel("ALL-IN", sizingBB, stackDepth);
+      return "All-in";
     }
-    const rl = raiseLabelAtIndex(raiseIndex, wasSqueeze);
-    return formatRaiseLabel(rl, sizingBB);
+    if (sizingBB != null) {
+      const r = Math.round(sizingBB * 10) / 10;
+      return `Raise ${Number.isInteger(r) ? r : r.toFixed(1)}`;
+    }
+    return raiseIndex <= 1 ? "Raise" : "Raise";
   }
-  if (action === "CALL") return raiseIndex === 0 ? "Limp" : "Call";
+  if (action === "CALL") return raiseIndex === 0 ? "Call" : "Call";
   if (action === "FOLD") return "Fold";
-  return "Locked";
+  return "";
+}
+
+/** Wizard history chip: "UTG Raise 2.5", "BTN Call", "CO Squeeze 11". */
+function wizardHistoryAction(
+  action: TreeAction,
+  raiseIndex: number,
+  sizingBB?: number,
+  stackDepth = 100,
+  wasSqueeze = false,
+): string {
+  const fmt = (n: number) => {
+    const r = Math.round(n * 10) / 10;
+    return Number.isInteger(r) ? String(r) : r.toFixed(1);
+  };
+  if (action === "FOLD") return "Fold";
+  if (action === "CALL") return "Call";
+  if (action === "RAISE") {
+    if (sizingBB != null && sizingBB >= stackDepth - 0.5) return "All-in";
+    if (wasSqueeze) {
+      return sizingBB != null ? `Squeeze ${fmt(sizingBB)}` : "Squeeze";
+    }
+    if (sizingBB != null) return `Raise ${fmt(sizingBB)}`;
+    const rl = raiseLabelAtIndex(raiseIndex, wasSqueeze);
+    return shortRaiseWord(rl);
+  }
+  return String(action);
 }
 
 /**
@@ -219,6 +255,18 @@ export function buildSeatWindows(
     else if (info?.action === "CALL") borderTone = "call";
     else if (info?.action === "FOLD" || status === "auto-folded") borderTone = "fold";
 
+    // Wizard answers: live seats use current line; locked seats use the
+    // context at the moment they acted (so UTG open still shows Fold/Raise).
+    let answers = wizardAnswerOptions(ctx, seat, stackDepth);
+    if (
+      info &&
+      (status === "locked" || status === "folded" || status === "auto-folded")
+    ) {
+      const decisionIdx = path.findIndex((n) => n.id === info.nodeId);
+      const priorPath = decisionIdx >= 0 ? path.slice(0, decisionIdx + 1) : path;
+      answers = wizardAnswerOptions(deriveContext(priorPath), seat, stackDepth);
+    }
+
     return {
       seat,
       label: seatLabel(seat),
@@ -238,6 +286,7 @@ export function buildSeatWindows(
       callPillText: callText,
       facingRaiseCount: ctx.raiseCount,
       borderTone,
+      answers,
     };
   });
 }
@@ -289,12 +338,17 @@ export function historyChainText(
         raiseCount += 1;
         raiseSizings.push(child.sizingBB ?? 0);
         const wasSqueeze = raiseCount === 2 && callersSinceRaise >= 1;
-        const rl = raiseLabelAtIndex(raiseCount, wasSqueeze);
-        text = `${seat} ${shortRaiseWord(rl)}`;
+        text = `${seat} ${wizardHistoryAction(
+          "RAISE",
+          raiseCount,
+          child.sizingBB,
+          stackDepth,
+          wasSqueeze,
+        )}`;
         callersSinceRaise = 0;
       } else if (child.actionTaken === "CALL") {
         if (raiseCount > 0) callersSinceRaise += 1;
-        text = `${seat} ${raiseCount === 0 ? "Limp" : "Call"}`;
+        text = `${seat} ${wizardHistoryAction("CALL", raiseCount, undefined, stackDepth)}`;
       }
       parts.push({ nodeId: parent.id, text, current: false });
     }
@@ -332,12 +386,17 @@ export function historyChainText(
     if (child.actionTaken === "RAISE") {
       raiseIndex += 1;
       const wasSqueeze = raiseIndex === 2 && callersSinceRaise >= 1;
-      const rl = raiseLabelAtIndex(raiseIndex, wasSqueeze);
-      text = `${seat} ${shortRaiseWord(rl)}`;
+      text = `${seat} ${wizardHistoryAction(
+        "RAISE",
+        raiseIndex,
+        child.sizingBB,
+        stackDepth,
+        wasSqueeze,
+      )}`;
       callersSinceRaise = 0;
     } else if (child.actionTaken === "CALL") {
       if (raiseIndex > 0) callersSinceRaise += 1;
-      text = `${seat} ${raiseIndex === 0 ? "Limp" : "Call"}`;
+      text = `${seat} ${wizardHistoryAction("CALL", raiseIndex, undefined, stackDepth)}`;
     }
     parts.push({ nodeId: parent.id, text, current: false });
   }

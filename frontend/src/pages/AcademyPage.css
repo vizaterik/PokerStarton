@@ -4,7 +4,7 @@
   --acad-gold-soft: rgba(212, 181, 106, 0.16);
   --acad-emerald: rgba(136, 249, 145, 0.14);
   width: 100%;
-  max-width: var(--app-stage, min(1480px, 100%));
+  max-width: var(--app-stage);
   margin: 0 auto;
   padding: 0.35rem 0 2.5rem;
   display: grid;

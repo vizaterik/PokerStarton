@@ -6,11 +6,11 @@ import {
   type BatchUploadReport,
   type Strategy,
 } from "../api/client";
+import AnalysisBootScreen from "../components/AnalysisBootScreen";
 import SessionUploadPanel from "../components/SessionUploadPanel";
 import StrategyAnalysisPanel from "../components/StrategyAnalysisPanel";
 import {
   countHandsForAnalysis,
-  DAILY_HAND_UPLOAD_LIMIT,
   dedupeStrategyHands,
   listSessionDays,
   type SessionDayRow,
@@ -27,10 +27,12 @@ import {
   isAnalysisJobRunning,
   markAnalysisUploadFailed,
   markAnalysisUploadStarted,
+  resetAnalysisJob,
   subscribeAnalysisJob,
   type AnalysisJobState,
 } from "../lib/analysisJob";
 import { readLastStrategyId, writeLastStrategyId } from "../lib/handDbCache";
+import { clearResultsCache } from "../lib/resultsCache";
 
 function formatDayFull(day: string) {
   if (day === "unknown") return "Без даты";
@@ -103,8 +105,12 @@ export default function AnalysisPage() {
         if (isLoggedIn()) {
           const hyd = await hydrateAnalysisHandsFromProfile(strategyId);
           if (cancelled) return;
-          if (hyd.inserted > 0) {
+          if (hyd.inserted > 0 || (hyd.serverTotal < 1 && hyd.localBefore > 0)) {
             clearAnalysisCache(strategyId);
+            if (hyd.serverTotal < 1 && hyd.localBefore > 0) {
+              clearResultsCache();
+              resetAnalysisJob();
+            }
             setDedupeBump((n) => n + 1);
           }
         }
@@ -197,6 +203,9 @@ export default function AnalysisPage() {
         setRevision((n) => n + 1);
       }
       if (next.status === "error" && (!strategyId || next.strategyId === strategyId)) {
+        setBgRunning(Boolean(next.error));
+      }
+      if (next.status === "idle") {
         setBgRunning(false);
       }
     };
@@ -253,7 +262,8 @@ export default function AnalysisPage() {
     }
     setStrategyId(id);
     setPendingHandTotal(null);
-    setBgRunning(false);
+    // Keep bgRunning true while error boot is visible (job.status === error).
+    setBgRunning(getAnalysisJob().status === "error");
     setRevision((n) => n + 1);
   }, []);
 
@@ -325,11 +335,8 @@ export default function AnalysisPage() {
     <section className="page analysis-page">
       <header className="upload-hero">
         <p className="upload-kicker">Session check</p>
-        <h1>Анализ сессии</h1>
-        <p className="lead">
-          Загрузка кладёт раздачи в базу профиля. Сверка с чартами — в разделе Стратегия.
-          Лимит {DAILY_HAND_UPLOAD_LIMIT.toLocaleString("ru-RU")} рук на календарный день.
-        </p>
+        <h1>Анализ рук</h1>
+        <p className="lead">Загрузи HH и сверь с чартами стратегии.</p>
       </header>
 
       <div className="analysis-scope-panel">
@@ -378,18 +385,22 @@ export default function AnalysisPage() {
         ) : (
           <div className="analysis-page-results">
             {!dbReady ? (
-              <p className="muted analysis-db-boot">Загрузка базы…</p>
-            ) : null}
-            <StrategyAnalysisPanel
-              strategyId={strategyId}
-              strategyRevision={revision + dedupeBump}
-              analysisSuspended={false}
-              pendingHandTotal={pendingHandTotal}
-              showUpload={false}
-              backgroundJobMode
-              dayFilter={dayFilter}
-            />
-            {dbReady && sessionDays.length > 0 && !waiting ? (
+              <AnalysisBootScreen
+                message="Загрузка рук…"
+                hands={localHands ?? pendingHandTotal ?? job.hands}
+              />
+            ) : (
+              <>
+                <StrategyAnalysisPanel
+                  strategyId={strategyId}
+                  strategyRevision={revision + dedupeBump}
+                  analysisSuspended={false}
+                  pendingHandTotal={pendingHandTotal}
+                  showUpload={false}
+                  backgroundJobMode
+                  dayFilter={dayFilter}
+                />
+                {sessionDays.length > 0 && !waiting ? (
               <div className="analysis-day-after-report">
                 <div className="analysis-day-icon-wrap" ref={dayMenuRef}>
                   <button
@@ -467,7 +478,9 @@ export default function AnalysisPage() {
                   ) : null}
                 </div>
               </div>
-            ) : null}
+                ) : null}
+              </>
+            )}
           </div>
         )}
       </div>

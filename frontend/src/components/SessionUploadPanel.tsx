@@ -18,7 +18,13 @@ import {
 } from "../lib/analysisJob";
 import { clearResultsCache } from "../lib/resultsCache";
 import { warmHandDbAndResultsCache } from "../lib/warmCaches";
+import {
+  DAILY_HAND_UPLOAD_LIMIT,
+  dailyUploadRemaining,
+} from "../engine/localDb";
 import AnalysisCalcProgress from "./AnalysisCalcProgress";
+
+const DAY_LIMIT_ERROR = `Дневной лимит исчерпан — уже ${DAILY_HAND_UPLOAD_LIMIT.toLocaleString("ru-RU")} рук сегодня. Загрузи завтра.`;
 
 function looksLikeHandHistory(file: File) {
   const name = file.name.toLowerCase();
@@ -76,11 +82,26 @@ export default function SessionUploadPanel({
   const [hint, setHint] = useState<string | null>(null);
   const [batch, setBatch] = useState<BatchUploadReport | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [dayLeft, setDayLeft] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
 
   const strategyId = controlledStrategyId ?? internalStrategyId;
   const showStrategySelect = controlledStrategyId == null;
+
+  const refreshDayLeft = useCallback((sid: string) => {
+    if (!sid) {
+      setDayLeft(null);
+      return;
+    }
+    void dailyUploadRemaining(sid)
+      .then((r) => setDayLeft(r.remaining))
+      .catch(() => setDayLeft(null));
+  }, []);
+
+  useEffect(() => {
+    refreshDayLeft(strategyId);
+  }, [strategyId, busy, refreshDayLeft]);
 
   useEffect(() => {
     if (!showStrategySelect) return;
@@ -122,19 +143,36 @@ export default function SessionUploadPanel({
     [controlledStrategyId, onStrategyIdChange],
   );
 
-  const addFiles = useCallback((list: FileList | File[] | null) => {
-    if (!list || list.length === 0) return;
-    const incoming = Array.from(list);
-    const accepted = incoming.filter(looksLikeHandHistory);
-    const rejected = incoming.length - accepted.length;
-    if (accepted.length === 0) {
-      setHint("Для анализа принимаются файлы .txt");
-      return;
-    }
-    setHint(rejected > 0 ? `Добавлено ${accepted.length}, пропущено ${rejected}` : null);
-    setError(null);
-    setFiles((prev) => mergeFiles(prev, accepted));
-  }, []);
+  const addFiles = useCallback(
+    (list: FileList | File[] | null) => {
+      if (!list || list.length === 0) return;
+      if (dayLeft != null && dayLeft <= 0) {
+        setHint(null);
+        setFiles([]);
+        setError(null);
+        if (strategyId) {
+          onUploadStarted?.(strategyId, 0);
+          markAnalysisUploadStarted(strategyId, 0, { external: useClient });
+          markAnalysisUploadFailed(strategyId, DAY_LIMIT_ERROR);
+          onUploadFinished?.(strategyId, false);
+        } else {
+          setError(DAY_LIMIT_ERROR);
+        }
+        return;
+      }
+      const incoming = Array.from(list);
+      const accepted = incoming.filter(looksLikeHandHistory);
+      const rejected = incoming.length - accepted.length;
+      if (accepted.length === 0) {
+        setHint("Нужен файл .txt");
+        return;
+      }
+      setHint(rejected > 0 ? `Добавлено ${accepted.length}, пропущено ${rejected}` : null);
+      setError(null);
+      setFiles((prev) => mergeFiles(prev, accepted));
+    },
+    [dayLeft, strategyId, onUploadStarted, onUploadFinished, useClient],
+  );
 
   const runUpload = useCallback(
     async (fileList: File[]) => {
@@ -146,6 +184,25 @@ export default function SessionUploadPanel({
         setError("Выбери стратегию");
         return;
       }
+
+      let remaining = dayLeft;
+      try {
+        const quota = await dailyUploadRemaining(strategyId);
+        remaining = quota.remaining;
+        setDayLeft(quota.remaining);
+      } catch {
+        /* keep cached dayLeft */
+      }
+      if (remaining != null && remaining <= 0) {
+        setHint(null);
+        setFiles([]);
+        onUploadStarted?.(strategyId, 0);
+        markAnalysisUploadStarted(strategyId, 0, { external: useClient });
+        markAnalysisUploadFailed(strategyId, DAY_LIMIT_ERROR);
+        onUploadFinished?.(strategyId, false);
+        return;
+      }
+
       setBusy(true);
       const estimatedHands = Math.max(
         1,
@@ -239,12 +296,15 @@ export default function SessionUploadPanel({
               uploadNote = `Раздачи уже на сервере ✓ · ${n}`;
             }
             if (limited > 0) {
-              uploadNote = `${uploadNote} · лимит 5 000/день: пропущено ${limited.toLocaleString("ru-RU")}`;
+              uploadNote = `${uploadNote} · дневной лимит: пропущено ${limited.toLocaleString("ru-RU")}`;
             }
             completeClientImport(strategyId, fin.hands, uploadNote);
           } else {
             // Soft: local report is ready; server will catch up on next open.
-            uploadNote = `Раздачи уже на сервере ✓ · ${fin.hands.toLocaleString("ru-RU")}`;
+            uploadNote = `Локально ✓ · ${fin.hands.toLocaleString("ru-RU")}`;
+            if (limited > 0) {
+              uploadNote = `${uploadNote} · дневной лимит: пропущено ${limited.toLocaleString("ru-RU")}`;
+            }
             setHint(uploadNote);
             completeClientImport(strategyId, fin.hands, uploadNote);
             ok = true;
@@ -259,10 +319,10 @@ export default function SessionUploadPanel({
           );
           ok = false;
         } else if (!useClient && result.total_hands === 0) {
-          setHint("В файлах не найдено раздач. Для анализа принимаются файлы .txt");
+          setHint("В файлах не найдено раздач");
           ok = false;
         } else if (useClient && result.total_hands === 0 && dups === 0) {
-          setHint("В файлах не найдено раздач. Для анализа принимаются файлы .txt");
+          setHint("В файлах не найдено раздач");
           markAnalysisUploadFailed(strategyId, "В файлах не найдено раздач");
           ok = false;
         } else if (useClient && uploadNote) {
@@ -283,7 +343,7 @@ export default function SessionUploadPanel({
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Ошибка загрузки";
-        setError(msg);
+        setError(null);
         markAnalysisUploadFailed(strategyId, msg);
       } finally {
         setBusy(false);
@@ -291,7 +351,7 @@ export default function SessionUploadPanel({
         if (!ok) onUploadFinished?.(strategyId, false);
       }
     },
-    [onUploadStarted, onUploadFinished, onUploaded, strategyId, useClient],
+    [onUploadStarted, onUploadFinished, onUploaded, strategyId, useClient, dayLeft],
   );
 
   async function onSubmit(e: FormEvent) {
@@ -331,6 +391,13 @@ export default function SessionUploadPanel({
   }
 
   const totalSize = useMemo(() => files.reduce((sum, f) => sum + f.size, 0), [files]);
+  const dayLimitHit = dayLeft != null && dayLeft <= 0;
+
+  useEffect(() => {
+    if (!dayLimitHit) return;
+    setError(null);
+    setFiles([]);
+  }, [dayLimitHit]);
 
   function removeFile(key: string) {
     setFiles((prev) => prev.filter((f) => `${f.name}-${f.size}-${f.lastModified}` !== key));
@@ -348,7 +415,12 @@ export default function SessionUploadPanel({
         <div className="upload-drop-overlay" aria-hidden>
           <div className="upload-drop-overlay-card">
             <strong>Отпусти файлы</strong>
-            <span>Для анализа — файлы .txt</span>
+            <span>
+              .txt
+              {dayLeft != null
+                ? ` · осталось ${dayLeft.toLocaleString("ru-RU")} сегодня`
+                : ""}
+            </span>
           </div>
         </div>
       )}
@@ -375,9 +447,15 @@ export default function SessionUploadPanel({
             <button
               type="submit"
               className="upload-submit"
-              disabled={files.length === 0 || !strategyId || busy}
+              disabled={files.length === 0 || !strategyId || busy || dayLimitHit}
             >
-              {busy ? "Разбираем…" : files.length > 0 ? `Загрузить · ${files.length}` : "Загрузить"}
+              {busy
+                ? "Загрузка рук…"
+                : dayLimitHit
+                  ? "Лимит на сегодня"
+                  : files.length > 0
+                    ? `Загрузить · ${files.length}`
+                    : "Загрузить руки"}
             </button>
           </div>
         )}
@@ -389,17 +467,31 @@ export default function SessionUploadPanel({
           accept=".txt,.log,.hh,text/plain"
           multiple
           className="upload-file-input"
-          disabled={busy}
+          disabled={busy || dayLimitHit}
           onChange={(e) => {
             addFiles(e.target.files);
             e.target.value = "";
           }}
         />
 
-        <label htmlFor={inputId} className={`upload-dropzone${busy ? " disabled" : ""}`}>
+        <label
+          htmlFor={inputId}
+          className={`upload-dropzone${busy || dayLimitHit ? " disabled" : ""}`}
+        >
           <span className="upload-dropzone-mark" aria-hidden />
-          <strong>{compact ? "Добавить сессию" : "Перетащи файлы сюда"}</strong>
-          <span>Для анализа принимаются файлы .txt · до 100&nbsp;000 рук за раз</span>
+          <strong>
+            {dayLimitHit
+              ? "Лимит на сегодня исчерпан"
+              : compact
+                ? "Добавить руки"
+                : "Перетащи файлы сюда"}
+          </strong>
+          <span>
+            .txt
+            {dayLeft != null
+              ? ` · осталось ${dayLeft.toLocaleString("ru-RU")} из ${DAILY_HAND_UPLOAD_LIMIT.toLocaleString("ru-RU")} сегодня`
+              : ` · лимит ${DAILY_HAND_UPLOAD_LIMIT.toLocaleString("ru-RU")} рук / день`}
+          </span>
         </label>
 
         {files.length > 0 && (
@@ -433,9 +525,15 @@ export default function SessionUploadPanel({
           <button
             type="submit"
             className="upload-submit"
-            disabled={files.length === 0 || !strategyId || busy}
+            disabled={files.length === 0 || !strategyId || busy || dayLimitHit}
           >
-            {busy ? "Разбираем…" : files.length > 0 ? `Загрузить · ${files.length}` : "Загрузить сессию"}
+            {busy
+              ? "Загрузка рук…"
+              : dayLimitHit
+                ? "Лимит на сегодня"
+                : files.length > 0
+                  ? `Загрузить · ${files.length}`
+                  : "Загрузить руки"}
           </button>
         )}
 
@@ -443,8 +541,8 @@ export default function SessionUploadPanel({
         {busy && !onUploadStarted && (
           <AnalysisCalcProgress
             compact
-            title="Загрузка сессии"
-            steps={["Парсим историю рук", "Сохраняем раздачи", "Готовим анализ"]}
+            title="Загрузка рук"
+            steps={["Разбор истории", "Сохранение", "Отчёт"]}
             stepIndex={1}
             totalHands={uploadEstimate}
             jobKey={`upload-${uploadEstimate ?? 0}-${files.length}`}

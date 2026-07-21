@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { isLoggedIn } from "../api/client";
+import BrandMark from "../components/BrandMark";
 import { BRAND, BRAND_TAGLINE } from "../lib/brand";
 
 const PATTERN = [
@@ -195,10 +196,15 @@ export default function HomePage() {
               </div>
 
               <div className="deck-visual" aria-hidden>
-                {slide.visual === "hero" || slide.visual === "matrix" ? (
+                {slide.visual === "hero" ? (
+                  <div className="deck-hero-mark">
+                    <BrandMark hero />
+                  </div>
+                ) : null}
+                {slide.visual === "matrix" ? (
                   <div className="deck-matrix">
                     {PATTERN.map((kind, i) => (
-                      <i key={i} className={kind} />
+                      <i key={i} className={kind} style={{ "--i": i } as CSSProperties} />
                     ))}
                   </div>
                 ) : null}
@@ -208,7 +214,7 @@ export default function HomePage() {
                       <span>Стратегия</span>
                       <div className="deck-mini-grid">
                         {PATTERN.slice(0, 36).map((k, i) => (
-                          <i key={i} className={k} />
+                          <i key={i} className={k} style={{ "--i": i } as CSSProperties} />
                         ))}
                       </div>
                     </div>
@@ -219,6 +225,7 @@ export default function HomePage() {
                           <i
                             key={i}
                             className={i % 7 === 0 ? "raise" : i % 5 === 0 ? "call" : "fold"}
+                            style={{ "--i": i } as CSSProperties}
                           />
                         ))}
                       </div>

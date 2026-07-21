@@ -196,6 +196,24 @@ export function isAnalysisJobBusy(): boolean {
   return state.status === "running" || state.status === "uploading";
 }
 
+/** Drop in-flight / finished job chrome after hand-DB wipe or switch. */
+export function resetAnalysisJob(): void {
+  controller?.abort();
+  controller = null;
+  stopProgressTicker();
+  externalProgress = false;
+  phaseLabel = "";
+  setState({
+    status: "idle",
+    strategyId: null,
+    hands: null,
+    step: 0,
+    progress: 0,
+    message: null,
+    error: null,
+  });
+}
+
 /** Call as soon as the user starts uploading a session (nav % appears). */
 export function markAnalysisUploadStarted(
   strategyId: string,
@@ -208,7 +226,7 @@ export function markAnalysisUploadStarted(
     if (handsHint && handsHint > 0) {
       setState({
         hands: handsHint,
-        message: phaseLabel || "Разбор истории…",
+        message: phaseLabel || "Загрузка рук…",
       });
     }
     if (!useExternal && !progressRaf) startProgressTicker(false);
@@ -217,7 +235,7 @@ export function markAnalysisUploadStarted(
   if (state.status === "running" && state.strategyId === strategyId) {
     setState({
       hands: handsHint && handsHint > 0 ? handsHint : state.hands,
-      message: "Новая загрузка поверх анализа…",
+      message: "Анализ рук…",
     });
     return;
   }
@@ -225,7 +243,7 @@ export function markAnalysisUploadStarted(
   controller = null;
   stopProgressTicker();
   externalProgress = useExternal;
-  phaseLabel = useExternal ? "Разбор истории…" : "Загрузка и разбор раздач…";
+  phaseLabel = useExternal ? "Анализ рук…" : "Загрузка рук…";
   setState({
     status: "uploading",
     strategyId,
@@ -280,7 +298,7 @@ export function completeClientImport(
     step: 3,
     progress: 100,
     message:
-      message ?? `Сессия разобрана · ${(hands || 0).toLocaleString("ru-RU")} рук`,
+      message ?? `Анализ рук готов · ${(hands || 0).toLocaleString("ru-RU")} рук`,
     error: null,
     doneToken: state.doneToken + 1,
   });
@@ -297,24 +315,29 @@ export function completeClientImport(
   }, 8000);
 }
 
-/** Upload failed or was cancelled — clear busy state if still uploading. */
+/** Upload / import failed — show error in the boot screen. */
 export function markAnalysisUploadFailed(
   strategyId?: string,
   errorMessage?: string,
 ): void {
-  if (state.status !== "uploading" && state.status !== "running") return;
-  if (strategyId && state.strategyId !== strategyId) return;
+  if (strategyId && state.strategyId && state.strategyId !== strategyId) {
+    if (state.status === "uploading" || state.status === "running") return;
+  }
   externalProgress = false;
   stopProgressTicker();
+  controller?.abort();
+  controller = null;
   if (errorMessage) {
     setState({
       status: "error",
+      strategyId: strategyId ?? state.strategyId,
       progress: 0,
       message: null,
       error: errorMessage,
     });
     return;
   }
+  if (state.status !== "uploading" && state.status !== "running") return;
   setState({
     status: "idle",
     progress: 0,

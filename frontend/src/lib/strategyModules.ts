@@ -198,10 +198,13 @@ export function formatBadge(format: string): string {
 
 export function actionLabel(action: string, actionMode: ActionMode | string): string {
   if (actionMode === "push_fold") {
-    if (action === "RAISE" || action === "raise") return "ALL-IN";
-    if (action === "FOLD" || action === "fold") return "FOLD";
-    if (action === "CALL" || action === "call") return "CALL";
+    if (action === "RAISE" || action === "raise") return "All-in";
+    if (action === "FOLD" || action === "fold") return "Fold";
+    if (action === "CALL" || action === "call") return "Call";
   }
+  if (action === "FOLD" || action === "fold") return "Fold";
+  if (action === "CALL" || action === "call") return "Call";
+  if (action === "RAISE" || action === "raise") return "Raise";
   return action;
 }
 

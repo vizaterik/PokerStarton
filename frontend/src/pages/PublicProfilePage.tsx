@@ -92,7 +92,7 @@ export default function PublicProfilePage() {
     return (
       <section className="page">
         <p className="error">{error || "Профиль не найден"}</p>
-        <Link to="/feed">← К хитам</Link>
+        <Link to="/feed">← К топу дня</Link>
       </section>
     );
   }
@@ -100,7 +100,7 @@ export default function PublicProfilePage() {
   return (
     <section className="page public-profile-page">
       <p className="feed-back">
-        <Link to="/feed">← Хиты</Link>
+        <Link to="/feed">← Топ дня</Link>
       </p>
       <header className="public-profile-head">
         <h1>{data.display_name}</h1>

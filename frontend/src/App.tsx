@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import AnalysisNavLink from "./components/AnalysisNavLink";
 import BrandMark from "./components/BrandMark";
 import GuestOnly from "./components/GuestOnly";
 import {
   IconAcademy,
   IconAdmin,
-  IconCareer,
   IconHits,
-  IconStrategies,
-  IconTrainer,
 } from "./components/NavIcons";
+import PracticeNavMenu from "./components/PracticeNavMenu";
 import RequireAuth from "./components/RequireAuth";
 import SiteFooter from "./components/SiteFooter";
 import SupportWidget from "./components/SupportWidget";
@@ -93,6 +90,20 @@ export default function App() {
 
   return (
     <div className="shell">
+      <div className="app-suits-bg" aria-hidden>
+        <span>♠</span>
+        <span>♥</span>
+        <span>♦</span>
+        <span>♣</span>
+        <span>♠</span>
+        <span>♥</span>
+        <span>♦</span>
+        <span>♣</span>
+        <span>♠</span>
+        <span>♥</span>
+        <span>♦</span>
+        <span>♣</span>
+      </div>
       <header className="topbar">
         <div className="topbar-inner">
           <Link to="/" className="brand">
@@ -109,22 +120,10 @@ export default function App() {
                   <IconAcademy />
                   <span>Академия</span>
                 </NavLink>
-                <NavLink to="/strategies" className={navClass}>
-                  <IconStrategies />
-                  <span>Стратегии</span>
-                </NavLink>
-                <NavLink to="/trainer" className={navClass}>
-                  <IconTrainer />
-                  <span>Тренажёр</span>
-                </NavLink>
-                <AnalysisNavLink />
-                <NavLink to="/career" className={navClass}>
-                  <IconCareer />
-                  <span>Карьера</span>
-                </NavLink>
+                <PracticeNavMenu />
                 <NavLink to="/feed" className={navClass}>
                   <IconHits />
-                  <span>Хиты</span>
+                  <span>Топ дня</span>
                 </NavLink>
                 {isAdmin ? (
                   <NavLink to="/admin" className={navClass}>
@@ -138,7 +137,7 @@ export default function App() {
               <>
                 <NavLink to="/feed" className={navClass}>
                   <IconHits />
-                  <span>Хиты</span>
+                  <span>Топ дня</span>
                 </NavLink>
                 <Link className="nav-ghost" to="/login" state={{ mode: "login" }}>
                   Вход

@@ -10,9 +10,9 @@ import {
   type ExportedProfileHand,
 } from "../api/client";
 import {
+  clearAllLocalHands,
   countHandsForAnalysis,
   insertHandBatch,
-  loadDayHandCounts,
 } from "./localDb";
 import type { ParsedHand } from "./types";
 
@@ -91,7 +91,28 @@ export async function hydrateAnalysisHandsFromProfile(
     return { ...empty, localBefore, localAfter: localBefore };
   }
 
-  if (serverTotal < 1 || localBefore >= serverTotal) {
+  // Active profile DB is empty → local Analysis must not keep a stale stack.
+  if (serverTotal < 1) {
+    if (localBefore > 0) {
+      await clearAllLocalHands();
+      return {
+        serverTotal: 0,
+        localBefore,
+        localAfter: 0,
+        inserted: 0,
+        skipped: false,
+      };
+    }
+    return {
+      serverTotal: 0,
+      localBefore,
+      localAfter: localBefore,
+      inserted: 0,
+      skipped: true,
+    };
+  }
+
+  if (localBefore >= serverTotal) {
     return {
       serverTotal,
       localBefore,
@@ -106,7 +127,6 @@ export async function hydrateAnalysisHandsFromProfile(
   );
 
   const sessionId = `hydrate-${Date.now().toString(36)}`;
-  const dayCounts = await loadDayHandCounts(strategyId);
   const seen = new Set<string>();
   let inserted = 0;
   let offset = 0;
@@ -117,13 +137,10 @@ export async function hydrateAnalysisHandsFromProfile(
     if (!page.hands.length) break;
     serverTotal = Math.max(serverTotal, page.total);
     const parsed = page.hands.map(toParsed);
-    const res = await insertHandBatch(
-      strategyId,
-      sessionId,
-      parsed,
-      dayCounts,
-      seen,
-    );
+    const res = await insertHandBatch(strategyId, sessionId, parsed, {
+      seenInImport: seen,
+      ignoreDailyLimit: true,
+    });
     inserted += res.inserted;
     offset += page.hands.length;
     opts?.onProgress?.(

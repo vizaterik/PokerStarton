@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Seat } from "../../lib/gameTree/types";
+import type { DecisionButton, Seat } from "../../lib/gameTree/types";
 import type { SeatWindow } from "../../lib/gameTree/seatView";
 
 type Props = {
@@ -26,15 +26,31 @@ function alreadyActed(win: SeatWindow): boolean {
   );
 }
 
-function pillLabel(win: SeatWindow, action: "FOLD" | "CALL" | "RAISE"): string {
-  if (action === "FOLD") return "FOLD";
-  if (action === "CALL") return win.callPillText;
-  return win.raisePillText;
+function isAllInSizing(
+  sizing: number | null | undefined,
+  stackDepth: number,
+): boolean {
+  return sizing != null && sizing >= stackDepth - 0.5;
+}
+
+function answerChosen(
+  win: SeatWindow,
+  answer: DecisionButton,
+  stackDepth: number,
+): boolean {
+  if (win.status === "active" || win.status === "waiting") return false;
+  if (!win.lockedAction) return false;
+  if (answer.action !== win.lockedAction) return false;
+  if (answer.action !== "RAISE") return true;
+  const lockedAllIn = isAllInSizing(win.lockedSizing, stackDepth);
+  const answerAllIn = isAllInSizing(answer.defaultSizing ?? null, stackDepth);
+  if (lockedAllIn || answerAllIn) return lockedAllIn === answerAllIn;
+  if (win.lockedSizing == null || answer.defaultSizing == null) return true;
+  return Math.abs(win.lockedSizing - answer.defaultSizing) < 0.05;
 }
 
 /**
- * Position windows: click seat → full range.
- * Fold / Call / Raise (3-bet / 4-bet) подстраиваются под линию оппонентов.
+ * GTO Wizard-style action tree: each seat column shows Fold / Call / Raise {n} / All-in.
  */
 export default function PreflopActionSelector({
   windows,
@@ -52,45 +68,25 @@ export default function PreflopActionSelector({
     onEditRange(position);
   }
 
-  function isAllInSizing(sizing: number | null | undefined): boolean {
-    return sizing != null && sizing >= stackDepth - 0.5;
-  }
-
-  function handleWindowAction(position: Seat, action: "FOLD" | "CALL" | "RAISE") {
+  function handleAnswer(position: Seat, answer: DecisionButton) {
     if (disabled) return;
     const win = windows.find((w) => w.seat === position);
     if (!win) return;
 
-    // Same FOLD/CALL already locked → open range
-    if (alreadyActed(win) && win.lockedAction === action && action !== "RAISE") {
+    if (alreadyActed(win) && answerChosen(win, answer, stackDepth)) {
       openRange(position);
       return;
     }
 
-    // Same sized raise (не all-in) → open range; all-in ↔ 4-bet = смена ветки
-    if (alreadyActed(win) && win.lockedAction === "RAISE" && action === "RAISE") {
-      if (!isAllInSizing(win.lockedSizing)) {
-        openRange(position);
-        return;
-      }
-      // был all-in → клик 4-BET переключает на стандартный сайз
-    }
-
-    onWindowAction(position, action);
-  }
-
-  function pillChosen(win: SeatWindow, action: "FOLD" | "CALL" | "RAISE"): boolean {
-    // Active / waiting — ещё не выбрали ответ на текущую ситуацию
-    if (win.status === "active" || win.status === "waiting") return false;
-    if (action === "RAISE") {
-      // ALL-IN — отдельная кнопка; 4-BET/RAISE подсвечиваем только если не пуш
-      return win.lockedAction === "RAISE" && !isAllInSizing(win.lockedSizing);
-    }
-    return win.lockedAction === action;
+    onWindowAction(
+      position,
+      answer.action,
+      answer.action === "RAISE" ? answer.defaultSizing : undefined,
+    );
   }
 
   return (
-    <div className="pas mwb">
+    <div className="pas mwb mwb--wizard">
       <div className="pas-history" aria-label="Branch history">
         {history.map((h, i) => (
           <span key={`${h.nodeId}-${i}`} className="pas-history-item">
@@ -115,8 +111,6 @@ export default function PreflopActionSelector({
           const dimmed =
             win.status === "auto-folded" || win.status === "folded";
           const past = alreadyActed(win);
-          // White «paint target» frame only on seats still open — never override
-          // a locked seat's raise/call/fold color after the action.
           const isPaintTarget = editingSeat === win.seat;
           const isEditing = isPaintTarget && !past;
           const isHovered = hoveredSeat === win.seat;
@@ -126,6 +120,13 @@ export default function PreflopActionSelector({
             (Boolean(win.nodeId) ||
               win.status === "active" ||
               win.status === "waiting");
+          const answers = win.answers?.length
+            ? win.answers
+            : ([
+                { id: "fold", action: "FOLD", label: "Fold", tone: "fold" },
+                { id: "call", action: "CALL", label: "Call", tone: "call" },
+                { id: "raise", action: "RAISE", label: "Raise", tone: "raise" },
+              ] as DecisionButton[]);
 
           return (
             <article
@@ -149,7 +150,7 @@ export default function PreflopActionSelector({
                 type="button"
                 className="mwb-seat-hit"
                 disabled={!canOpenRange}
-                title={`Открыть рендж ${win.label}`}
+                title={`Range ${win.label}`}
                 onClick={() => openRange(win.seat)}
               >
                 <h3 className="mwb-seat">{win.label}</h3>
@@ -158,35 +159,19 @@ export default function PreflopActionSelector({
                     {win.statusLabel}
                   </span>
                 ) : null}
-                {past && win.lockedAction ? (
-                  <span className="mwb-locked-meta">
-                    {win.lockedAction === "RAISE"
-                      ? win.lockedSizing != null
-                        ? `${win.raisePillText} ${win.lockedSizing}bb`
-                        : win.raisePillText
-                      : win.lockedAction === "CALL"
-                        ? win.callPillText
-                        : "FOLD"}
-                  </span>
-                ) : null}
               </button>
 
               <div className="mwb-pills" role="group" aria-label={`${win.label} actions`}>
-                {(["FOLD", "CALL", "RAISE"] as const).map((action) => {
-                  const chosen = pillChosen(win, action);
-                  const showFourBet =
-                    action === "RAISE" &&
-                    (((win.status === "active" || win.status === "waiting") &&
-                      win.facingRaiseCount === 2) ||
-                      (past && isAllInSizing(win.lockedSizing)));
-                  const label = showFourBet ? "4-BET" : pillLabel(win, action);
+                {answers.map((answer) => {
+                  const chosen = answerChosen(win, answer, stackDepth);
                   return (
                     <button
-                      key={action}
+                      key={answer.id}
                       type="button"
                       className={[
                         "pas-pill",
-                        action.toLowerCase(),
+                        answer.tone,
+                        answer.id === "allin" ? "is-allin" : "",
                         chosen ? "is-chosen" : "",
                       ]
                         .filter(Boolean)
@@ -194,73 +179,22 @@ export default function PreflopActionSelector({
                       disabled={disabled}
                       title={
                         chosen
-                          ? `Рендж ${win.label}`
+                          ? `Range ${win.label}`
                           : past
-                            ? `Сменить на ${label}`
-                            : `${label} · ветка ответа (стек ${stackDepth}bb)`
+                            ? `Switch to ${answer.label}`
+                            : answer.label
                       }
-                      onClick={() => handleWindowAction(win.seat, action)}
+                      onClick={() => handleAnswer(win.seat, answer)}
                     >
-                      {label}
+                      {answer.label}
                     </button>
                   );
                 })}
-                {/* vs 3-bet: ALL-IN рядом с 4-BET */}
-                {(win.status === "active" || win.status === "waiting") &&
-                win.facingRaiseCount === 2 ? (
-                  <button
-                    type="button"
-                    className="pas-pill raise is-allin"
-                    disabled={disabled}
-                    title={`All-in ${stackDepth}bb`}
-                    onClick={() => {
-                      if (disabled) return;
-                      onWindowAction(win.seat, "RAISE", stackDepth);
-                    }}
-                  >
-                    ALL-IN
-                  </button>
-                ) : null}
-                {/* Уже сделали 4-bet — можно сменить на ALL-IN */}
-                {past &&
-                win.lockedAction === "RAISE" &&
-                !isAllInSizing(win.lockedSizing) &&
-                win.raiseLabel === "4-BET" ? (
-                  <button
-                    type="button"
-                    className="pas-pill raise is-allin"
-                    disabled={disabled}
-                    title={`Сменить на All-in ${stackDepth}bb`}
-                    onClick={() => {
-                      if (disabled) return;
-                      onWindowAction(win.seat, "RAISE", stackDepth);
-                    }}
-                  >
-                    ALL-IN
-                  </button>
-                ) : null}
-                {/* Уже запушили — подсветка + клик в рендж */}
-                {past &&
-                win.lockedAction === "RAISE" &&
-                isAllInSizing(win.lockedSizing) ? (
-                  <button
-                    type="button"
-                    className="pas-pill raise is-chosen is-allin"
-                    onClick={() => openRange(win.seat)}
-                    title={`Рендж ${win.label}`}
-                  >
-                    ALL-IN
-                  </button>
-                ) : null}
               </div>
             </article>
           );
         })}
       </div>
-
-      <p className="pas-size-hint">
-        Open → 3-BET · Raise+Call → SQUEEZE · vs 3-bet → 4-BET + ALL-IN
-      </p>
     </div>
   );
 }

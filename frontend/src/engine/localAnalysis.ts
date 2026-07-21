@@ -596,7 +596,8 @@ async function buildDeviations(
   });
 
   const findSpot = buildSpotIndex(spots);
-  const MAX_DEV_LIST = 300;
+  /** Cap only the detailed list for UI; `total` / charts count all errors. */
+  const MAX_DEV_LIST = 1000;
   /** Keep UI at ~60fps like Math tab — process until budget, then paint. */
   const FRAME_MS = 12;
   let deviantTotal = 0;
@@ -789,7 +790,7 @@ async function buildDeviations(
       done: i,
       total: Math.max(1, totalHands),
       phase: "deviations",
-      message: `Разбор сессии… ${i.toLocaleString("ru-RU")} / ${totalHands.toLocaleString("ru-RU")}`,
+      message: `Анализ рук… ${i.toLocaleString("ru-RU")} / ${totalHands.toLocaleString("ru-RU")}`,
       pct: 20 + Math.round((70 * i) / Math.max(totalHands, 1)),
     });
     await yieldToUi();
@@ -983,7 +984,7 @@ async function buildDeviations(
 
   return {
     strategy_id: strategyId,
-    total: Math.min(MAX_DEV_LIST, deviantTotal),
+    total: deviantTotal,
     decisions,
     correct,
     correct_pct: decisions ? Math.round((1000 * correct) / decisions) / 10 : 100,
@@ -1024,7 +1025,7 @@ export async function buildLocalChartDeviations(
   const hands = await listHandsForAnalysis(strategyId, handsOpts);
   const total = hands.length;
   if (total > 0) {
-    onProgress?.(`Разбор сессии… 0 / ${total.toLocaleString("ru-RU")}`);
+    onProgress?.(`Анализ рук… 0 / ${total.toLocaleString("ru-RU")}`);
   } else {
     onProgress?.("Нет раздач в сессии");
   }

@@ -227,6 +227,39 @@ export async function clearStrategyHands(strategyId: string): Promise<number> {
   return rows.length;
 }
 
+/**
+ * Wipe every local hand + daily upload counters.
+ * Call when the profile hand-DB is cleared, deleted, or switched — Analysis
+ * reads IndexedDB, so server-only deletes leave a stale report otherwise.
+ */
+export async function clearAllLocalHands(): Promise<number> {
+  const db = await openLocalDb();
+  const before = await new Promise<number>((resolve, reject) => {
+    const tx = db.transaction(STORE_HANDS, "readonly");
+    const req = tx.objectStore(STORE_HANDS).count();
+    req.onsuccess = () => resolve(Number(req.result) || 0);
+    req.onerror = () => reject(req.error ?? new Error("count failed"));
+  });
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction([STORE_HANDS, STORE_META], "readwrite");
+    const hands = tx.objectStore(STORE_HANDS);
+    const meta = tx.objectStore(STORE_META);
+    hands.clear();
+    const keysReq = meta.getAllKeys();
+    keysReq.onsuccess = () => {
+      for (const k of keysReq.result || []) {
+        if (typeof k === "string" && k.startsWith("dailyUpload:")) {
+          meta.delete(k);
+        }
+      }
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("clear all hands failed"));
+  });
+  return before;
+}
+
+/** Hands per play-day (for session day filters / UI) — not the upload quota. */
 export async function loadDayHandCounts(
   strategyId: string,
 ): Promise<Map<string, number>> {
@@ -239,22 +272,117 @@ export async function loadDayHandCounts(
   return dayCounts;
 }
 
+/** UTC calendar day key for upload quota (`YYYY-MM-DD`). */
+export function uploadCalendarDay(d = new Date()): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function dailyUploadMetaKey(strategyId: string, day: string) {
+  return `dailyUpload:${strategyId}:${day}`;
+}
+
+/** Mutable upload-day counter shared across import chunks. */
+export type DailyUploadQuota = { day: string; used: number };
+
+/** How many new hands already accepted for this upload day (meta store). */
+export async function loadDailyUploadQuota(
+  strategyId: string,
+  day?: string,
+): Promise<DailyUploadQuota> {
+  const dayKey = day ?? uploadCalendarDay();
+  const db = await openLocalDb();
+  const used = await new Promise<number>((resolve, reject) => {
+    const tx = db.transaction([STORE_META], "readonly");
+    const req = tx.objectStore(STORE_META).get(dailyUploadMetaKey(strategyId, dayKey));
+    req.onsuccess = () => {
+      const row = req.result as { key: string; count?: number } | undefined;
+      resolve(typeof row?.count === "number" && Number.isFinite(row.count) ? row.count : 0);
+    };
+    req.onerror = () => reject(req.error ?? new Error("meta get failed"));
+  });
+  return { day: dayKey, used };
+}
+
+async function saveDailyUploadQuota(
+  strategyId: string,
+  quota: DailyUploadQuota,
+): Promise<void> {
+  const db = await openLocalDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction([STORE_META], "readwrite");
+    tx.objectStore(STORE_META).put({
+      key: dailyUploadMetaKey(strategyId, quota.day),
+      count: quota.used,
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("meta put failed"));
+  });
+}
+
+/** Remaining new-hand slots for today's upload quota. */
+export function remainingDailyUploadSlots(quota: DailyUploadQuota): number {
+  return Math.max(0, DAILY_HAND_UPLOAD_LIMIT - quota.used);
+}
+
+/**
+ * All-or-nothing: if the batch is larger than remaining slots, reject the whole
+ * upload (do not silently take the first N hands).
+ */
+export function assertDailyUploadBatchSize(handCount: number, remaining: number): void {
+  if (handCount <= 0) return;
+  if (remaining <= 0) {
+    throw new Error(
+      `Дневной лимит исчерпан — уже ${DAILY_HAND_UPLOAD_LIMIT.toLocaleString("ru-RU")} рук сегодня. Загрузи завтра.`,
+    );
+  }
+  if (handCount <= remaining) return;
+  throw new Error(
+    `В файле ${handCount.toLocaleString("ru-RU")} рук — не берём часть пакета. Загрузи не больше ${remaining.toLocaleString("ru-RU")} рук.`,
+  );
+}
+
+/** Remaining daily hand slots for a calendar day (UTC `YYYY-MM-DD`, default today). */
+export async function dailyUploadRemaining(
+  strategyId: string,
+  day?: string,
+): Promise<{ used: number; remaining: number; limit: number; day: string }> {
+  const quota = await loadDailyUploadQuota(strategyId, day);
+  return {
+    used: quota.used,
+    remaining: Math.max(0, DAILY_HAND_UPLOAD_LIMIT - quota.used),
+    limit: DAILY_HAND_UPLOAD_LIMIT,
+    day: quota.day,
+  };
+}
+
+export type InsertHandBatchOpts = {
+  /** Cross-chunk seen keys / content fingerprints for one import run. */
+  seenInImport?: Set<string>;
+  /**
+   * Shared upload-day counter for one import run.
+   * Loaded from meta when omitted; persisted after the batch.
+   */
+  uploadQuota?: DailyUploadQuota;
+  /** Skip daily upload cap (e.g. hydrate from profile DB). */
+  ignoreDailyLimit?: boolean;
+};
+
 export async function insertHandBatch(
   strategyId: string,
   sessionId: string,
   hands: ParsedHand[],
-  dayCounts?: Map<string, number>,
-  /** Cross-chunk seen keys / content fingerprints for one import run. */
-  seenInImport?: Set<string>,
+  opts?: InsertHandBatchOpts,
 ): Promise<{ inserted: number; duplicates: number; limitSkipped: number }> {
   const db = await openLocalDb();
   let inserted = 0;
   let duplicates = 0;
   let limitSkipped = 0;
 
-  // Reuse caller's map across chunks so we don't re-scan the whole DB each batch.
-  const counts = dayCounts ?? (await loadDayHandCounts(strategyId));
-  const seen = seenInImport ?? new Set<string>();
+  const seen = opts?.seenInImport ?? new Set<string>();
+  const ignoreLimit = Boolean(opts?.ignoreDailyLimit);
+  const quota =
+    opts?.uploadQuota ??
+    (ignoreLimit ? null : await loadDailyUploadQuota(strategyId));
 
   for (const h of hands) {
     const row = toRow(strategyId, sessionId, h);
@@ -269,7 +397,6 @@ export async function insertHandBatch(
       duplicates += 1;
       continue;
     }
-    const day = handCalendarDay(h.played_at);
     // eslint-disable-next-line no-await-in-loop
     const outcome = await new Promise<"dup" | "ins" | "limit">((resolve, reject) => {
       const tx = db.transaction([STORE_HANDS], "readwrite");
@@ -280,13 +407,11 @@ export async function insertHandBatch(
           resolve("dup");
           return;
         }
-        const have = counts.get(day) ?? 0;
-        if (have >= DAILY_HAND_UPLOAD_LIMIT) {
+        if (quota && quota.used >= DAILY_HAND_UPLOAD_LIMIT) {
           resolve("limit");
           return;
         }
         store.put(row);
-        counts.set(day, have + 1);
         resolve("ins");
       };
       getReq.onerror = () => reject(getReq.error ?? new Error("get failed"));
@@ -300,9 +425,14 @@ export async function insertHandBatch(
       limitSkipped += 1;
     } else {
       inserted += 1;
+      if (quota) quota.used += 1;
       seen.add(row.key);
       if (fpKey) seen.add(fpKey);
     }
+  }
+
+  if (quota && inserted > 0) {
+    await saveDailyUploadQuota(strategyId, quota);
   }
 
   return { inserted, duplicates, limitSkipped };

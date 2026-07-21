@@ -10,6 +10,7 @@ import {
   clearLocalRecommendationsCache,
 } from "../engine/localRecommendations";
 import { peekAnalysisCache } from "../lib/analysisCache";
+import AnalysisBootScreen from "./AnalysisBootScreen";
 import HandReplayModal from "./HandReplayModal";
 
 type Props = {
@@ -248,10 +249,12 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
         ? "Считаем отчёт по текущей сессии…"
         : "Считаем отчёт по раздачам в базе…");
     return (
-      <p className="muted">
-        {base}
-        {handsHint && handsHint > 0 ? ` · ${handsHint.toLocaleString("ru-RU")} рук` : ""}
-      </p>
+      <div className="analysis-tab-boot">
+        <AnalysisBootScreen
+          message={base}
+          hands={handsHint && handsHint > 0 ? handsHint : null}
+        />
+      </div>
     );
   }
   if (error) {

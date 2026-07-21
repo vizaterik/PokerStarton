@@ -61,6 +61,20 @@ export function markProfileSyncError(strategyId: string, error: string) {
   });
 }
 
+/** Drop all local↔server sync fingerprints (after hand-DB wipe / switch). */
+export function clearAllProfileSyncState() {
+  try {
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (k?.startsWith(SYNC_KEY)) keys.push(k);
+    }
+    for (const k of keys) localStorage.removeItem(k);
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Cheap identity of the local stack — changes when hands are added/removed. */
 export async function localHandsFingerprint(strategyId: string): Promise<{
   fingerprint: string;

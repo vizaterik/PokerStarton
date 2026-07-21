@@ -28,10 +28,10 @@ function stepFromPct(pct: number): number {
 }
 
 function titleFor(job: AnalysisJobState): string {
-  if (job.status === "uploading") return "Загрузка сессии";
-  if (job.status === "done") return "Анализ завершён";
-  if (job.status === "error") return "Ошибка анализа";
-  return "Разбор сессии";
+  if (job.status === "uploading") return "Загрузка рук";
+  if (job.status === "done") return "Готово";
+  if (job.status === "error") return "Ошибка";
+  return "Анализ рук";
 }
 
 /** In-page status while analysis runs — one continuous % bar, ordered steps. */

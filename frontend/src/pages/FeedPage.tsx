@@ -33,8 +33,8 @@ export default function FeedPage() {
     <section className="page feed-page">
       <header className="feed-page-head">
         <div>
-          <h1>Хиты</h1>
-          <p className="lead">Раздачи дня — обновляются каждый день по уникальным просмотрам, лайкам и комментам.</p>
+          <h1>Топ дня</h1>
+          <p className="lead">Лучшие раздачи за день — по просмотрам, лайкам и комментам.</p>
         </div>
       </header>
 

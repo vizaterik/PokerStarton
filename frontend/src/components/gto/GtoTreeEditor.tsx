@@ -39,14 +39,15 @@ import {
 } from "../../lib/gameTree/persist";
 import { seatLabel } from "../../lib/gameTree/seats";
 import { branchRangeSpots } from "../../lib/gameTree/rangeSpots";
-import { buildSeatWindows, historyChainText, resumeNodeAfterSeat } from "../../lib/gameTree/seatView";
+import { buildSeatWindows, historyChainText } from "../../lib/gameTree/seatView";
 import { syncTreeChartsToDb } from "../../lib/gameTree/syncTreeCharts";
 import { standardRaiseSize } from "../../lib/gameTree/standardSizings";
 import { deriveContext } from "../../lib/gameTree/turnEngine";
 import {
-  raiseBrushLabel,
+  MIX_PRESETS,
+  raiseBrushLabelFromTier,
   raiseColorForTier,
-  raiseTierForContext,
+  raiseTierForPaintNode,
   type RaisePaintTier,
 } from "../../lib/gameTree/paintColors";
 import type {
@@ -385,20 +386,18 @@ export default function GtoTreeEditor({ strategy }: Props) {
     [rangeSpots, paintNode.id],
   );
 
-  const paintPath = useMemo(
-    () => pathToNode(doc.root, paintNode.id) ?? path,
-    [doc.root, paintNode.id, path],
-  );
-  const paintCtx = useMemo(() => deriveContext(paintPath), [paintPath]);
   const paintRaiseTier = useMemo(
-    () => raiseTierForContext(paintCtx),
-    [paintCtx],
+    () => raiseTierForPaintNode(linePath, paintNode.id),
+    [linePath, paintNode.id],
   );
   const raiseLabel = useMemo(
     () =>
-      raiseBrushLabel(paintCtx, pushFold ? "push_fold" : "standard"),
-    [paintCtx, pushFold],
+      pushFold
+        ? "All-in"
+        : raiseBrushLabelFromTier(paintRaiseTier),
+    [paintRaiseTier, pushFold],
   );
+  const raiseHex = raiseColorForTier(paintRaiseTier);
   const activeBrush: PaintBrush = useMemo(() => {
     if (brushMode === "mix" && !pushFold) {
       return { mode: "mix", raise: mixRaise / 100, call: mixCall / 100 };
@@ -422,21 +421,24 @@ export default function GtoTreeEditor({ strategy }: Props) {
     setBrushMode("mix");
   }
 
+  function applyMixPreset(raise: number, call: number) {
+    setMixRaise(clampPct(raise));
+    setMixCall(clampPct(call));
+    setBrushMode("mix");
+  }
+
   function selectActionBrush(a: PaintAction) {
     setPaintAction(a);
     setBrushMode("action");
   }
 
   function raiseTierForNodeId(nodeId: string): RaisePaintTier {
-    const p = pathToNode(doc.root, nodeId);
-    if (!p) return "open";
-    return raiseTierForContext(deriveContext(p));
+    return raiseTierForPaintNode(linePath, nodeId);
   }
 
   /**
-   * Два ренджа рядом: агрессор → ответчик в этой ветке.
-   * На закрытой линии пара фиксирована (последний рейз + ответ), чтобы клик
-   * по соседнему ренджу только менял кисть, а не «ходил» по ветке.
+   * Два ренджа: слева — на что отвечаем, справа — наша ветка ответа.
+   * Open → следующий ответ; 3-bet/Call/4-bet → предыдущий рейз | эта ветка.
    */
   const dualRanges = useMemo(() => {
     if (pushFold || rangeSpotViews.length < 2) return null;
@@ -455,39 +457,36 @@ export default function GtoTreeEditor({ strategy }: Props) {
     let left = null as (typeof rangeSpotViews)[number] | null;
     let right = null as (typeof rangeSpotViews)[number] | null;
 
-    // Closed line: lock the raise→response pair that contains the paint target
-    // (or the last such pair), so switching paint never collapses dual view.
-    if (closedTip) {
-      const paintIdx = rangeSpotViews.findIndex((s) => s.nodeId === paintNode.id);
-      if (paintIdx >= 0 && rangeSpotViews[paintIdx].lineAction === "RAISE") {
-        left = rangeSpotViews[paintIdx];
-        right = nextFacing(paintIdx);
-      } else if (paintIdx >= 0) {
-        right = rangeSpotViews[paintIdx];
-        left = prevRaise(paintIdx);
+    const paintIdx = rangeSpotViews.findIndex((s) => s.nodeId === paintNode.id);
+    const focusIdx =
+      paintIdx >= 0
+        ? paintIdx
+        : activeRangeSpot
+          ? rangeSpotViews.findIndex((s) => s.nodeId === activeRangeSpot.nodeId)
+          : -1;
+    const focus = focusIdx >= 0 ? rangeSpotViews[focusIdx] : null;
+
+    if (focus && focusIdx >= 0) {
+      const prev = prevRaise(focusIdx);
+      if (focus.lineAction === "CALL" && prev) {
+        // Call vs raise: show facing range | our call
+        left = prev;
+        right = focus;
+      } else if (focus.lineAction === "RAISE" && prev) {
+        // 3-bet / squeeze / 4-bet: show previous raise | our response raise
+        left = prev;
+        right = focus;
+      } else if (focus.lineAction === "RAISE") {
+        // First open: open | next response on the line
+        left = focus;
+        right = nextFacing(focusIdx);
+      } else if (prev) {
+        left = prev;
+        right = focus;
       }
-      if (!left || !right) {
-        for (let i = rangeSpotViews.length - 1; i >= 0; i -= 1) {
-          if (rangeSpotViews[i].lineAction !== "RAISE") continue;
-          const facing = nextFacing(i);
-          if (facing) {
-            left = rangeSpotViews[i];
-            right = facing;
-            break;
-          }
-        }
-      }
-    } else if (activeRangeSpot?.lineAction === "RAISE") {
-      left =
-        rangeSpotViews.find((s) => s.nodeId === activeRangeSpot.nodeId) ?? null;
-      const idx = rangeSpotViews.findIndex((s) => s.nodeId === left?.nodeId);
-      right = idx >= 0 ? nextFacing(idx) : null;
-    } else if (activeRangeSpot && isDecision(activeRangeSpot)) {
-      right =
-        rangeSpotViews.find((s) => s.nodeId === activeRangeSpot.nodeId) ?? null;
-      const idx = rangeSpotViews.findIndex((s) => s.nodeId === right?.nodeId);
-      left = idx >= 0 ? prevRaise(idx) : null;
-    } else {
+    }
+
+    if (!left || !right) {
       for (let i = rangeSpotViews.length - 1; i >= 0; i -= 1) {
         if (rangeSpotViews[i].lineAction !== "RAISE") continue;
         const facing = nextFacing(i);
@@ -523,7 +522,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
         callPct: right.callPct,
       },
     };
-  }, [pushFold, rangeSpotViews, activeRangeSpot, closedTip, paintNode.id, doc.root]);
+  }, [pushFold, rangeSpotViews, activeRangeSpot, paintNode.id, doc.root]);
 
   function currentBrush(): PaintBrush {
     if (brushModeRef.current === "mix" && !pushFold) {
@@ -685,8 +684,18 @@ export default function GtoTreeEditor({ strategy }: Props) {
     const win = windows.find((w) => w.seat === position);
     if (!win) return;
 
+    const past =
+      win.status === "locked" ||
+      win.status === "folded" ||
+      win.status === "auto-folded";
+
+    /**
+     * Paint-only on a closed branch — but NEVER for waiting/active seats.
+     * Otherwise a finished sibling line (e.g. SB Call → flop) steals the click:
+     * SB looks like it “Calls” and the constructor jumps to that tip.
+     */
     const tip = closedTip ?? closedBranchTip(doc.root, activeId);
-    if (tip) {
+    if (tip && past) {
       const tipPath = pathToNode(doc.root, tip.id) ?? linePath;
       const spots = branchRangeSpots(tipPath, doc.stackDepth).filter(
         (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
@@ -702,18 +711,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
       }
     }
 
-    const past =
-      win.status === "locked" ||
-      win.status === "folded" ||
-      win.status === "auto-folded";
-
     if (win.nodeId && past) {
-      // Incomplete line only: resume construction after this seat
-      const tipPath = pathToNode(doc.root, activeId) ?? path;
-      const resumeId = resumeNodeAfterSeat(tipPath, position, win.nodeId);
-      if (resumeId) {
-        setActiveId(resumeId);
-      }
+      // Seat header = open that seat's range only (do not advance past Call/Raise).
       setPaintNodeId(win.nodeId);
       setSelectedHand(null);
       return;
@@ -732,11 +731,29 @@ export default function GtoTreeEditor({ strategy }: Props) {
     setSelectedHand(null);
   }
 
-  /** History chip: on a formed branch → paint only; otherwise navigate. */
+  /**
+   * History chip in constructor: rewind seat windows to that decision
+   * (later moves drop from the action strip).
+   */
   function onRewind(nodeId: string) {
-    const tip = closedTip ?? closedBranchTip(doc.root, activeId);
-    if (tip) {
-      setActiveId(tip.id);
+    setActiveId(nodeId);
+    setPaintNodeId(nodeId);
+    setSelectedHand(null);
+  }
+
+  /**
+   * Range spots while building: same rewind as history.
+   * On flop («На флопе»): only switch paint — stay on closed tip.
+   */
+  function onSelectRangeSpot(nodeId: string, opts?: { paintOnly?: boolean }) {
+    const onFlop =
+      opts?.paintOnly ||
+      Boolean(closedTip) ||
+      Boolean(active.awaitingFlop) ||
+      Boolean(closedBranchTip(doc.root, activeId));
+    if (onFlop) {
+      const tip = closedTip ?? closedBranchTip(doc.root, activeId);
+      if (tip) setActiveId(tip.id);
       setPaintNodeId(nodeId);
       setSelectedHand(null);
       return;
@@ -779,14 +796,6 @@ export default function GtoTreeEditor({ strategy }: Props) {
     if (applied.paintAction) setPaintAction(applied.paintAction);
     setSelectedHand(null);
     setTab("editor");
-  }
-
-  /** Range list / bar: only switch paint target — pin closed tip so UI stays painting. */
-  function onSelectRangeSpot(nodeId: string) {
-    const tip = closedTip ?? closedBranchTip(doc.root, activeId);
-    if (tip) setActiveId(tip.id);
-    setPaintNodeId(nodeId);
-    setSelectedHand(null);
   }
 
   function onDeleteBranch(branch: SavedBranch) {
@@ -969,7 +978,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
                         className={`pas-history-chip${
                           paintNode.id === h.nodeId ? " is-current" : ""
                         }`}
-                        onClick={() => onSelectRangeSpot(h.nodeId)}
+                        onClick={() => onSelectRangeSpot(h.nodeId, { paintOnly: true })}
                       >
                         {h.text}
                       </button>
@@ -979,7 +988,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
                 <RangeSpotsBar
                   spots={rangeSpotViews}
                   activeNodeId={paintNode.id}
-                  onSelect={onSelectRangeSpot}
+                  onSelect={(id) => onSelectRangeSpot(id, { paintOnly: true })}
                   title="На флопе"
                   subtitle="только позиции в банке · полный рендж"
                 />
@@ -1002,15 +1011,15 @@ export default function GtoTreeEditor({ strategy }: Props) {
                   title="Ренджи"
                   subtitle={
                     pushFold
-                      ? "Push-Fold · кисть All-in / Fold"
-                      : "позиция → полный рендж · кисть ниже"
+                      ? "Push-Fold · All-in / Fold"
+                      : "GTO Wizard · Fold / Call / Raise"
                   }
                 />
               </>
             )}
           </div>
 
-          <div className="gto-paint-bar">
+          <div className="gto-paint-bar" data-tier={paintRaiseTier}>
             <span className="gto-paint-label">Кисть</span>
             {paintActions.map((a) => {
               const isRaise = a === "RAISE";
@@ -1030,13 +1039,15 @@ export default function GtoTreeEditor({ strategy }: Props) {
                   style={
                     isRaise && brushMode === "action" && paintAction === a
                       ? {
-                          background: raiseColorForTier(paintRaiseTier),
-                          borderColor: raiseColorForTier(paintRaiseTier),
+                          background: raiseHex,
+                          borderColor: raiseHex,
                           color: paintRaiseTier === "4bet" ? "#1a1400" : "#fff",
                         }
                       : isRaise
-                        ? { color: raiseColorForTier(paintRaiseTier) }
-                        : undefined
+                        ? { color: raiseHex }
+                        : a === "CALL"
+                          ? undefined
+                          : undefined
                   }
                   onClick={() => selectActionBrush(a)}
                 >
@@ -1048,27 +1059,67 @@ export default function GtoTreeEditor({ strategy }: Props) {
               <button
                 type="button"
                 className={`gto-paint mix${brushMode === "mix" ? " active" : ""}`}
+                style={
+                  brushMode === "mix"
+                    ? {
+                        background: `linear-gradient(90deg, ${raiseHex} 0%, ${raiseHex} 50%, #22c55e 50%, #22c55e 100%)`,
+                        borderColor: "rgba(255,255,255,0.25)",
+                        color: "#fff",
+                      }
+                    : undefined
+                }
                 onClick={() => setBrushMode("mix")}
+                title={`${raiseLabel} / Call микс`}
               >
-                Микс R/C
+                {raiseLabel}/Call
               </button>
             ) : null}
 
             {brushMode === "mix" && !pushFold ? (
               <>
-                <span className="gto-paint-label">Raise</span>
+                <div className="gto-mix-presets" role="group" aria-label="Пресеты микса">
+                  {MIX_PRESETS.map((p) => {
+                    const on =
+                      mixRaise === p.raise && mixCall === p.call;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        className={`gto-mix-preset${on ? " active" : ""}`}
+                        style={
+                          on
+                            ? {
+                                borderColor: raiseHex,
+                                boxShadow: `inset 3px 0 0 ${raiseHex}`,
+                              }
+                            : undefined
+                        }
+                        title={`${raiseLabel} ${p.raise}% · Call ${p.call}%`}
+                        onClick={() => applyMixPreset(p.raise, p.call)}
+                      >
+                        {p.short === "Call" ? "Call" : p.short}
+                      </button>
+                    );
+                  })}
+                </div>
+                <span className="gto-paint-label" style={{ color: raiseHex }}>
+                  {raiseLabel}
+                </span>
                 <input
                   type="range"
                   className="gto-mix-range raise"
+                  style={{ accentColor: raiseHex }}
                   min={0}
                   max={100}
                   step={1}
                   value={mixRaise}
                   onChange={(e) => setMixRaisePct(Number(e.target.value))}
-                  aria-label="Raise %"
+                  aria-label={`${raiseLabel} %`}
                 />
-                <strong className="gto-mix-val raise">{mixRaise}%</strong>
-                <span className="gto-paint-label">Call</span>
+                <strong className="gto-mix-val raise" style={{ color: raiseHex }}>
+                  {mixRaise}%
+                </strong>
+                <span className="gto-paint-label call-tone">Call</span>
                 <input
                   type="range"
                   className="gto-mix-range call"
@@ -1134,8 +1185,9 @@ export default function GtoTreeEditor({ strategy }: Props) {
                       <div className="gto-matrix-panel-head">
                         <h3>{dualRanges.raise.label}</h3>
                         <span>
-                          R {dualRanges.raise.raisePct.toFixed(0)}% · C{" "}
-                          {dualRanges.raise.callPct.toFixed(0)}% · клик = рисовать
+                          На что отвечаем · R{" "}
+                          {dualRanges.raise.raisePct.toFixed(0)}% · C{" "}
+                          {dualRanges.raise.callPct.toFixed(0)}%
                         </span>
                       </div>
                       <GtoMatrix
@@ -1169,7 +1221,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
                       <div className="gto-matrix-panel-head">
                         <h3>{dualRanges.call.label}</h3>
                         <span>
-                          R {dualRanges.call.raisePct.toFixed(0)}% · C{" "}
+                          Наш ответ · R {dualRanges.call.raisePct.toFixed(0)}% · C{" "}
                           {dualRanges.call.callPct.toFixed(0)}% · клик = рисовать
                         </span>
                       </div>
@@ -1259,7 +1311,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
               </ul>
               {dualRanges ? (
                 <div className="gto-facing-call">
-                  <h3>Рейз → ответ</h3>
+                  <h3>Facing → ответ</h3>
                   <p>
                     <strong>
                       {dualRanges.raise.label} → {dualRanges.call.label}

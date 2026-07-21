@@ -80,8 +80,7 @@ import {
 } from "../lib/analysisJob";
 import { clearResultsCache } from "../lib/resultsCache";
 import { warmHandDbAndResultsCache } from "../lib/warmCaches";
-import AnalysisBgWait from "./AnalysisBgWait";
-import AnalysisCalcProgress from "./AnalysisCalcProgress";
+import AnalysisBootScreen, { AnalysisJobBoot } from "./AnalysisBootScreen";
 import { raiseTierFromSpotKey } from "../lib/gameTree/paintColors";
 import DeviationErrorMatrix from "./DeviationErrorMatrix";
 import HandReplayModal from "./HandReplayModal";
@@ -480,11 +479,14 @@ export default function StrategyAnalysisPanel({
   const [handTotal, setHandTotal] = useState<number | null>(
     () => cachedBoot?.handTotal ?? cachedBoot?.analysis?.hands ?? null,
   );
-  const [calcStep, setCalcStep] = useState(0);
   /** Local suspend when upload is embedded in this panel. */
   const [uploadSuspended, setUploadSuspended] = useState(false);
   /** Bumps only on job status/done — not on every progress tick. */
   const [jobBusy, setJobBusy] = useState(() => isAnalysisJobRunning(strategyId));
+  /** Keep boot screen open while import/analysis error is shown. */
+  const [jobErrorOpen, setJobErrorOpen] = useState(
+    () => getAnalysisJob().status === "error" && getAnalysisJob().strategyId === strategyId,
+  );
   const analysisSuspended = analysisSuspendedProp || uploadSuspended;
   /** Bumps on every start/stop so a stale async pipeline cannot continue. */
   const runGenRef = useRef(0);
@@ -498,7 +500,6 @@ export default function StrategyAnalysisPanel({
     abortRef.current = null;
   }, []);
 
-  const calcSteps = ["HUD", "Ветки стратегии", "Отклонения от чарта"];
   const [localPendingHands, setLocalPendingHands] = useState<number | null>(null);
 
   const onUploadStarted = useCallback((estimatedHands?: number) => {
@@ -612,14 +613,22 @@ export default function StrategyAnalysisPanel({
         setLocalPendingHands(null);
         setUploadSuspended(false);
         setJobBusy(false);
+        setJobErrorOpen(false);
         setUploadTick((n) => n + 1);
       } else if (job.status === "error") {
         setLocalPendingHands(null);
         setUploadSuspended(false);
         setJobBusy(false);
-        setError(job.error || "Ошибка анализа");
+        setJobErrorOpen(true);
         setLoading(false);
         setDevsLoading(false);
+      } else if (job.status === "idle") {
+        setJobErrorOpen(false);
+        setJobBusy(false);
+        setUploadSuspended(false);
+        setLocalPendingHands(null);
+      } else if (job.status === "uploading" || job.status === "running") {
+        setJobErrorOpen(false);
       }
     });
   }, [strategyId]);
@@ -762,7 +771,6 @@ export default function StrategyAnalysisPanel({
     setError(null);
     setDevError(null);
     setSpotsHint(null);
-    setCalcStep(0);
     setStrategyChart({});
     setReplay(null);
 
@@ -954,20 +962,15 @@ export default function StrategyAnalysisPanel({
             setData(null);
             setDevs(null);
           }
-          setCalcStep(0);
         }
         const analysis = await fetchStrategyAnalysis(strategyId, signal);
         if (isStale()) return;
         if (analysis.hands > 0) setHandTotal(analysis.hands);
-
-        if (!isStale()) setCalcStep(1);
         const [spots, missingLocal] = await Promise.all([
           listSpots(strategyId, signal),
           listMissingSpotsLocal(strategyId).catch(() => [] as EnsuredSpotInfo[]),
         ]);
         if (isStale()) return;
-
-        if (!isStale()) setCalcStep(2);
         const res = await fetchStrategyDeviations(strategyId, 300, signal);
         if (isStale()) return;
 
@@ -1734,32 +1737,27 @@ export default function StrategyAnalysisPanel({
     </div>
   ) : null;
 
-  const waitingOnBgJob = analysisSuspended || jobBusy || uploadSuspended;
+  const waitingOnBgJob = analysisSuspended || jobBusy || uploadSuspended || jobErrorOpen;
   const hasReport = Boolean(data && data.hands > 0);
   const progressHands = pendingHandTotal ?? localPendingHands ?? handTotal ?? data?.hands ?? null;
 
-  // First-time import only: real job progress. Never a fake idle splash.
+  // First-time import / full calc: poker boot screen (Wizard-style).
   if (waitingOnBgJob && !hasReport) {
     return (
-      <AnalysisBgWait
-        uploadBlock={uploadBlock}
-        pendingHands={progressHands}
-      />
+      <div className="analysis-panel">
+        {uploadBlock}
+        <AnalysisJobBoot pendingHands={progressHands} />
+      </div>
     );
   }
 
   if (loading && !backgroundJobMode && !hasReport) {
-    const progressHands =
-      pendingHandTotal ?? localPendingHands ?? handTotal ?? data?.hands ?? null;
     return (
       <div className="analysis-panel">
         {uploadBlock}
-        <AnalysisCalcProgress
-          title="Анализ сессии"
-          steps={calcSteps}
-          stepIndex={calcStep}
-          totalHands={progressHands}
-          jobKey={`${strategyId}-${refreshKey}`}
+        <AnalysisBootScreen
+          message="Считаем отчёт…"
+          hands={progressHands}
         />
       </div>
     );
@@ -1823,27 +1821,45 @@ export default function StrategyAnalysisPanel({
     setErrorFilter({ ...filter, handCode: code });
   }
 
-  /** Resolve hand ids for a selected combo (errors first, else played cell ids). */
+  /**
+   * Hand ids for a combo in the active matrix context.
+   * - errors: only deviation hands for that combo/branch
+   * - vpip: only played (VPIP) hand_ids from the cell
+   */
   function resolveComboHandIds(
     code: string,
     filter: ErrorFilter,
-    playCells?: { hand_code: string; hand_ids?: string[] }[] | null,
-  ): { ids: string[]; label: string } {
+    playCells?: { hand_code: string; hand_ids?: string[]; errors?: number }[] | null,
+    mode: "errors" | "vpip" = "errors",
+  ): { ids: string[]; label: string; count: number } {
     const nextFilter = { ...filter, handCode: code };
+    const cell = (playCells ?? []).find((c) => c.hand_code === code);
+    const cellIds = cell?.hand_ids?.length ? [...cell.hand_ids] : [];
+
+    if (mode === "vpip") {
+      return {
+        ids: cellIds,
+        label: `${code} · VPIP · ${cellIds.length}`,
+        count: cellIds.length,
+      };
+    }
+
+    // errors: cell hand_ids first (exact matrix context), else filtered deviations
+    if (cellIds.length > 0) {
+      return {
+        ids: cellIds,
+        label: `${code} · ошибки · ${cellIds.length}`,
+        count: cellIds.length,
+      };
+    }
     const errList = (liveDevs?.deviations ?? []).filter((d) =>
       matchesFilter(d, nextFilter, paintedTreeBranches),
     );
-    if (errList.length > 0) {
-      return {
-        ids: errList.map((d) => d.hand_id),
-        label: `${code} · ошибки · ${errList.length}`,
-      };
-    }
-    const fromCell =
-      (playCells ?? []).find((c) => c.hand_code === code)?.hand_ids ?? [];
+    const ids = errList.map((d) => d.hand_id);
     return {
-      ids: fromCell,
-      label: `${code} · раздачи · ${fromCell.length}`,
+      ids,
+      label: `${code} · ошибки · ${ids.length}`,
+      count: ids.length,
     };
   }
 
@@ -1885,19 +1901,20 @@ export default function StrategyAnalysisPanel({
   }
 
   function openSelectedComboReplay(
-    playCells?: { hand_code: string; hand_ids?: string[] }[] | null,
+    playCells?: { hand_code: string; hand_ids?: string[]; errors?: number }[] | null,
+    mode: "errors" | "vpip" = "errors",
   ) {
     const code = selectedHand || errorFilter.handCode;
     if (!code) {
-      openErrorReplay();
+      if (mode === "errors") openErrorReplay();
       return;
     }
-    const { ids, label } = resolveComboHandIds(code, errorFilter, playCells);
+    const { ids, label } = resolveComboHandIds(code, errorFilter, playCells, mode);
     if (ids.length) {
       openHandsReplay(ids, label);
       return;
     }
-    openErrorReplay();
+    if (mode === "errors") openErrorReplay();
   }
 
   function goErrors(filter: ErrorFilter, chart?: ChartErrorSpot | null) {
@@ -2151,13 +2168,26 @@ export default function StrategyAnalysisPanel({
                 </button>
               ) : null}
               {focusRow && (selectedHand || errorFilter.handCode) ? (
-                <button
-                  type="button"
-                  className="preflop-filter-clear"
-                  onClick={() => openSelectedComboReplay(vpipCells)}
-                >
-                  Реплей · {selectedHand || errorFilter.handCode}
-                </button>
+                (() => {
+                  const code = selectedHand || errorFilter.handCode || "";
+                  const { count } = resolveComboHandIds(
+                    code,
+                    errorFilter,
+                    vpipCells,
+                    "vpip",
+                  );
+                  if (count <= 0) return null;
+                  return (
+                    <button
+                      type="button"
+                      className="preflop-filter-clear"
+                      onClick={() => openSelectedComboReplay(vpipCells, "vpip")}
+                    >
+                      Реплей · {code} ·{" "}
+                      <span className="err-count">{count}</span>
+                    </button>
+                  );
+                })()
               ) : null}
             </div>
           </div>
@@ -2385,20 +2415,20 @@ export default function StrategyAnalysisPanel({
           <div className="preflop-errors-actions">
             {(() => {
               const code = selectedHand || errorFilter.handCode || null;
-              const playCells =
-                liveDevs.chart_plays?.flatMap((c) => c.cells) ??
-                liveDevs.chart_errors?.flatMap((c) => c.cells) ??
-                [];
+              const playCells = activeChart?.cells ?? [];
               const combo = code
-                ? resolveComboHandIds(code, errorFilter, playCells)
+                ? resolveComboHandIds(code, errorFilter, playCells, "errors")
                 : null;
-              const count = combo?.ids.length || filteredDevs.length;
+              const count = combo?.count || filteredDevs.length;
               if (count <= 0) return null;
               return (
                 <button
                   type="button"
                   className="preflop-filter-clear"
-                  onClick={() => openSelectedComboReplay(playCells)}
+                  onClick={() => {
+                    if (code) openSelectedComboReplay(playCells, "errors");
+                    else openErrorReplay();
+                  }}
                 >
                   Реплей
                   {code ? ` · ${code}` : ""} ·{" "}
@@ -2670,11 +2700,9 @@ export default function StrategyAnalysisPanel({
     <div className="analysis-panel">
       {uploadBlock}
       {waitingOnBgJob ? (
-        <AnalysisBgWait
-          compact
-          pendingHands={progressHands}
-        />
-      ) : null}
+        <AnalysisJobBoot pendingHands={progressHands} />
+      ) : (
+        <>
       {error ? <p className="error">{error}</p> : null}
       <div className="analysis-tabs" role="tablist" aria-label="Разделы анализа">
         <button
@@ -2923,13 +2951,12 @@ export default function StrategyAnalysisPanel({
             ) : null}
 
             {devsLoading ? (
-              <p className="muted">
-                {chartProgress || "Проверяем стратегию…"}
-                {!chartProgress?.includes("/") &&
-                (handTotal ?? pendingHandTotal ?? data?.hands ?? 0) > 0
-                  ? ` · ${(handTotal ?? pendingHandTotal ?? data?.hands ?? 0).toLocaleString("ru-RU")} рук`
-                  : ""}
-              </p>
+              <div className="analysis-tab-boot">
+                <AnalysisBootScreen
+                  message={chartProgress || "Проверяем стратегию…"}
+                  hands={handTotal ?? pendingHandTotal ?? data?.hands}
+                />
+              </div>
             ) : devError ? (
               <p className="error">{devError}</p>
             ) : !devs ? (
@@ -2945,6 +2972,8 @@ export default function StrategyAnalysisPanel({
         <div className="analysis-tab-pane" role="tabpanel">
           <RecommendationsPanel strategyId={strategyId} revision={refreshKey} />
         </div>
+      )}
+        </>
       )}
 
       <HandReplayModal
