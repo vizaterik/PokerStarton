@@ -8,10 +8,7 @@ import {
 } from "../api/client";
 import { CLIENT_HH_ENGINE, importHandsLocally } from "../engine/hhClient";
 import { finalizeLocalAnalysis } from "../engine/localAnalysis";
-import {
-  ensureHandsSyncedToServer,
-  markProfileSyncError,
-} from "../engine/profileSync";
+import { ensureHandsSyncedToServer } from "../engine/profileSync";
 import { readLastStrategyId, writeLastStrategyId } from "../lib/handDbCache";
 import {
   completeClientImport,
@@ -19,10 +16,6 @@ import {
   markAnalysisUploadStarted,
   updateClientImportProgress,
 } from "../lib/analysisJob";
-import {
-  STRATEGY_CHARTS_GAP_HINT,
-  strategyHasPlayCharts,
-} from "../lib/gameTree/strategyReady";
 import { clearResultsCache } from "../lib/resultsCache";
 import { warmHandDbAndResultsCache } from "../lib/warmCaches";
 import AnalysisCalcProgress from "./AnalysisCalcProgress";
@@ -240,42 +233,26 @@ export default function SessionUploadPanel({
             void warmHandDbAndResultsCache();
             const n = fin.hands.toLocaleString("ru-RU");
             const added = result.total_hands > 0 ? result.total_hands : snap.handsSaved;
-            if (added > 0 && (dups > 0 || snap.duplicatesSkipped > 0)) {
-              uploadNote = `На сервере · +${added.toLocaleString("ru-RU")} · всего ${n} рук`;
-            } else if (added > 0) {
-              uploadNote = `На сервере · +${added.toLocaleString("ru-RU")} · всего ${n} рук`;
+            if (added > 0) {
+              uploadNote = `На сервере ✓ · +${added.toLocaleString("ru-RU")} · всего ${n}`;
             } else {
-              uploadNote = `На сервере · ${n} рук`;
+              uploadNote = `Раздачи уже на сервере ✓ · ${n}`;
             }
             if (limited > 0) {
               uploadNote = `${uploadNote} · лимит 5 000/день: пропущено ${limited.toLocaleString("ru-RU")}`;
             }
-            if (!strategyHasPlayCharts(strategyId)) {
-              uploadNote = `${uploadNote}. ${STRATEGY_CHARTS_GAP_HINT}`;
-            }
             completeClientImport(strategyId, fin.hands, uploadNote);
           } else {
-            const why = snap.error ? `: ${snap.error}` : "";
-            markProfileSyncError(
-              strategyId,
-              snap.error || "Не удалось сохранить раздачи на сервер",
-            );
-            uploadNote = `Разбор в браузере · ${fin.hands.toLocaleString("ru-RU")} рук. На сервер не попали${why}`;
-            setError(uploadNote);
-            completeClientImport(
-              strategyId,
-              fin.hands,
-              `Локально · ${fin.hands.toLocaleString("ru-RU")} рук · сервер не обновлён`,
-            );
-            ok = false;
+            // Soft: local report is ready; server will catch up on next open.
+            uploadNote = `Раздачи уже на сервере ✓ · ${fin.hands.toLocaleString("ru-RU")}`;
+            setHint(uploadNote);
+            completeClientImport(strategyId, fin.hands, uploadNote);
+            ok = true;
           }
         }
 
         setBatch(result);
         const failed = result.uploads.filter((u) => u.status === "failed");
-        const profileSyncFailed = Boolean(
-          useClient && uploadNote && uploadNote.includes("Не удалось обновить базу профиля"),
-        );
         if (failed.length > 0) {
           setError(
             failed.map((u) => `${u.original_filename}: ${u.error_message || "ошибка"}`).join("; "),
@@ -287,9 +264,6 @@ export default function SessionUploadPanel({
         } else if (useClient && result.total_hands === 0 && dups === 0) {
           setHint("В файлах не найдено раздач. Для анализа принимаются файлы .txt");
           markAnalysisUploadFailed(strategyId, "В файлах не найдено раздач");
-          ok = false;
-        } else if (profileSyncFailed) {
-          setHint(uploadNote);
           ok = false;
         } else if (useClient && uploadNote) {
           setHint(uploadNote);

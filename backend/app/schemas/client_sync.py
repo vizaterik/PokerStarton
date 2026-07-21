@@ -43,7 +43,7 @@ class SyncedHand(BaseModel):
 
 
 class ClientHandsSyncRequest(BaseModel):
-    strategy_id: UUID
+    strategy_id: UUID | None = None
     label: str | None = None
     source_filename: str = "local-import.txt"
     room: str = "pokerstars"

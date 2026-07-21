@@ -1338,7 +1338,7 @@ export type AnalysisSnapshotUploadProgress = {
  */
 export function uploadAnalysisSnapshot(
   payload: {
-    strategy_id: string;
+    strategy_id?: string | null;
     label?: string;
     source_filename?: string;
     room?: string;

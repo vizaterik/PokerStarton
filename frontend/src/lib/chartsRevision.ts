@@ -1,5 +1,5 @@
 /**
- * Local revision of strategy charts so Analysis can detect playbook edits
+ * Local revision of strategy charts so Analysis can detect chart edits
  * without re-parsing the hand history.
  */
 

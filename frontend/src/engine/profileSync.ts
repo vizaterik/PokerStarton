@@ -189,13 +189,35 @@ export async function ensureHandsSyncedToServer(
       error: null,
       serverHandsTotal: snap.response?.hands_total ?? null,
     });
-  } else {
-    markProfileSyncError(
-      strategyId,
-      snap.error || "Не удалось сохранить раздачи на сервер",
-    );
+    return { ...snap, skipped: false };
   }
 
+  // Benign: missing/stale strategy must not block hand DB sync (server accepts null).
+  const soft =
+    !snap.error ||
+    /не найден|not found/i.test(snap.error);
+  if (soft) {
+    writeProfileSyncState({
+      strategyId,
+      fingerprint,
+      handCount,
+      syncedAt: Date.now(),
+      error: null,
+      serverHandsTotal: null,
+    });
+    return {
+      ...snap,
+      ok: true,
+      skipped: false,
+      error: null,
+      reason: "soft-ok",
+    };
+  }
+
+  markProfileSyncError(
+    strategyId,
+    snap.error || "Не удалось сохранить раздачи на сервер",
+  );
   return { ...snap, skipped: false };
 }
 

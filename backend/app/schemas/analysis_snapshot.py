@@ -46,7 +46,8 @@ class CompactHand(BaseModel):
 
 
 class AnalysisSnapshotUpload(BaseModel):
-    strategy_id: UUID
+    # Optional — hands go into the active profile DB regardless of strategy charts.
+    strategy_id: UUID | None = None
     label: str | None = None
     source_filename: str = "local-import.txt"
     room: str = "pokerstars"

@@ -135,9 +135,11 @@ def sync_client_hands(
     n = len(payload.hands)
     assert_analysis_batch_size(n)
 
-    strategy = db.get(Strategy, payload.strategy_id)
-    if strategy is None or strategy.user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Плейбук не найден")
+    strategy_id = None
+    if payload.strategy_id is not None:
+        strategy = db.get(Strategy, payload.strategy_id)
+        if strategy is not None and strategy.user_id == user.id:
+            strategy_id = strategy.id
 
     active_db = db_svc.get_active_database(db, user)
 
@@ -161,14 +163,19 @@ def sync_client_hands(
                 detail="Сессия для продолжения синхронизации не найдена",
             )
         upload = next(
-            (u for u in session.uploads if u.strategy_id == payload.strategy_id),
+            (
+                u
+                for u in session.uploads
+                if (u.strategy_id == strategy_id)
+                or (u.strategy_id is None and strategy_id is None)
+            ),
             None,
         )
         if upload is None:
             upload = HandUpload(
                 user_id=user.id,
                 database_id=active_db.id,
-                strategy_id=payload.strategy_id,
+                strategy_id=strategy_id,
                 session_id=session.id,
                 room=room,
                 original_filename=source,
@@ -185,7 +192,7 @@ def sync_client_hands(
         session = PlaySession(
             user_id=user.id,
             database_id=active_db.id,
-            strategy_id=payload.strategy_id,
+            strategy_id=strategy_id,
             room=room,
             label=label,
             source_filename=source,
@@ -204,7 +211,7 @@ def sync_client_hands(
         upload = HandUpload(
             user_id=user.id,
             database_id=active_db.id,
-            strategy_id=payload.strategy_id,
+            strategy_id=strategy_id,
             session_id=session.id,
             room=room,
             original_filename=source,
@@ -223,7 +230,7 @@ def sync_client_hands(
         db,
         user.id,
         candidate_ids,
-        strategy_id=payload.strategy_id,
+        strategy_id=strategy_id,
         database_id=active_db.id,
     )
 
