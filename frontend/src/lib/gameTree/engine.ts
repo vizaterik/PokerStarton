@@ -499,6 +499,74 @@ export function addActionBranch(
   return { doc: r.doc, childId: r.childId };
 }
 
+export type PaintBrush =
+  | { mode: "action"; action: PaintAction; weight: number }
+  | { mode: "mix"; raise: number; call: number };
+
+function clamp01(n: number): number {
+  return Math.min(1, Math.max(0, n));
+}
+
+/** Dual-slider mix: Raise% + Call%, Fold fills the rest. */
+export function mixFromDual(raise: number, call: number): HandMix {
+  let r = clamp01(raise);
+  let c = clamp01(call);
+  if (r + c > 1) {
+    const s = r + c;
+    r /= s;
+    c /= s;
+  }
+  return { RAISE: r, CALL: c, FOLD: clamp01(1 - r - c) };
+}
+
+/**
+ * Layered single-action brush: set one action to weight, keep the other if
+ * Raise+Call ≤ 1 (otherwise shrink the other), Fold fills remainder.
+ */
+export function layeredActionMix(
+  prev: HandMix | undefined,
+  action: PaintAction,
+  weight: number,
+): HandMix {
+  if (action === "FOLD") return { FOLD: 1, CALL: 0, RAISE: 0 };
+  const w = clamp01(weight);
+  const base = prev ?? { FOLD: 1, CALL: 0, RAISE: 0 };
+  let raise = base.RAISE;
+  let call = base.CALL;
+  if (action === "RAISE") {
+    raise = w;
+    if (raise + call > 1) call = clamp01(1 - raise);
+  } else {
+    call = w;
+    if (raise + call > 1) raise = clamp01(1 - call);
+  }
+  return { RAISE: raise, CALL: call, FOLD: clamp01(1 - raise - call) };
+}
+
+export function applyBrushToMix(
+  prev: HandMix | undefined,
+  brush: PaintBrush,
+): HandMix {
+  if (brush.mode === "mix") return mixFromDual(brush.raise, brush.call);
+  return layeredActionMix(prev, brush.action, brush.weight);
+}
+
+function writeHandMix(
+  node: GameTreeNode,
+  hand: HandCode,
+  mix: HandMix,
+): boolean {
+  if (isPureFold(mix)) {
+    if (hand in node.ranges) {
+      delete node.ranges[hand];
+      return true;
+    }
+    return false;
+  }
+  node.ranges[hand] = mix;
+  return true;
+}
+
 export function paintHand(
   doc: GameTreeDocument,
   nodeId: string,
@@ -507,37 +575,66 @@ export function paintHand(
   weight = 1,
   erase = false,
 ): GameTreeDocument {
+  return paintHandWithBrush(
+    doc,
+    nodeId,
+    hand,
+    { mode: "action", action, weight },
+    erase,
+  );
+}
+
+export function paintHandWithBrush(
+  doc: GameTreeDocument,
+  nodeId: string,
+  hand: HandCode,
+  brush: PaintBrush,
+  erase = false,
+): GameTreeDocument {
   return produce(doc, (draft) => {
     const node = findNode(draft.root, nodeId);
     if (!node || node.awaitingFlop) return;
-    if (erase || action === "FOLD") {
-      delete node.ranges[hand];
-      draft.updatedAt = new Date().toISOString();
+    if (erase || (brush.mode === "action" && brush.action === "FOLD")) {
+      if (hand in node.ranges) {
+        delete node.ranges[hand];
+        draft.updatedAt = new Date().toISOString();
+      }
       return;
     }
     if (!handPaintableOnNode(draft.root, node, hand)) return;
-    const w = Math.min(1, Math.max(0, weight));
-    const mix: HandMix = { FOLD: 0, CALL: 0, RAISE: 0 };
-    mix[action] = w;
-    if (w < 1) mix.FOLD = 1 - w;
-    if (isPureFold(mix)) delete node.ranges[hand];
-    else node.ranges[hand] = mix;
-    draft.updatedAt = new Date().toISOString();
+    const mix = applyBrushToMix(node.ranges[hand], brush);
+    if (writeHandMix(node, hand, mix)) {
+      draft.updatedAt = new Date().toISOString();
+    }
   });
 }
 
-/** True when this hand already carries the brush action (re-click → erase to fold). */
+/** True when this hand already matches the brush (re-click → erase to fold). */
 export function handMatchesBrush(
   mix: HandMix | undefined,
   action: PaintAction,
   weight = 1,
 ): boolean {
+  return handMatchesPaintBrush(mix, { mode: "action", action, weight });
+}
+
+export function handMatchesPaintBrush(
+  mix: HandMix | undefined,
+  brush: PaintBrush,
+): boolean {
   const m = mix ?? { FOLD: 1, CALL: 0, RAISE: 0 };
-  if (action === "FOLD") {
+  if (brush.mode === "mix") {
+    const target = mixFromDual(brush.raise, brush.call);
+    return (
+      Math.abs(m.RAISE - target.RAISE) <= 0.02 &&
+      Math.abs(m.CALL - target.CALL) <= 0.02
+    );
+  }
+  if (brush.action === "FOLD") {
     return m.FOLD >= 0.98 && m.CALL < 0.02 && m.RAISE < 0.02;
   }
-  const w = Math.min(1, Math.max(0, weight));
-  return m[action] >= Math.max(0.05, w - 0.02);
+  const w = clamp01(brush.weight);
+  return Math.abs(m[brush.action] - w) <= 0.02 && m[brush.action] >= 0.05;
 }
 
 export function paintHands(
@@ -547,23 +644,36 @@ export function paintHands(
   action: PaintAction,
   weight = 1,
 ): GameTreeDocument {
+  return paintHandsWithBrush(doc, nodeId, hands, {
+    mode: "action",
+    action,
+    weight,
+  });
+}
+
+export function paintHandsWithBrush(
+  doc: GameTreeDocument,
+  nodeId: string,
+  hands: HandCode[],
+  brush: PaintBrush,
+): GameTreeDocument {
   return produce(doc, (draft) => {
     const node = findNode(draft.root, nodeId);
     if (!node || node.awaitingFlop) return;
-    const w = Math.min(1, Math.max(0, weight));
+    let changed = false;
     for (const hand of hands) {
-      if (!handPaintableOnNode(draft.root, node, hand)) continue;
-      if (action === "FOLD") {
-        delete node.ranges[hand];
+      if (brush.mode === "action" && brush.action === "FOLD") {
+        if (hand in node.ranges) {
+          delete node.ranges[hand];
+          changed = true;
+        }
         continue;
       }
-      const mix: HandMix = { FOLD: 0, CALL: 0, RAISE: 0 };
-      mix[action] = w;
-      if (w < 1) mix.FOLD = 1 - w;
-      if (isPureFold(mix)) delete node.ranges[hand];
-      else node.ranges[hand] = mix;
+      if (!handPaintableOnNode(draft.root, node, hand)) continue;
+      const mix = applyBrushToMix(node.ranges[hand], brush);
+      if (writeHandMix(node, hand, mix)) changed = true;
     }
-    draft.updatedAt = new Date().toISOString();
+    if (changed) draft.updatedAt = new Date().toISOString();
   });
 }
 
@@ -575,14 +685,26 @@ export function paintHandBatch(
   action: PaintAction,
   weight = 1,
 ): GameTreeDocument {
+  return paintHandBatchWithBrush(doc, nodeId, strokes, {
+    mode: "action",
+    action,
+    weight,
+  });
+}
+
+export function paintHandBatchWithBrush(
+  doc: GameTreeDocument,
+  nodeId: string,
+  strokes: Array<{ hand: HandCode; erase?: boolean }>,
+  brush: PaintBrush,
+): GameTreeDocument {
   if (!strokes.length) return doc;
   return produce(doc, (draft) => {
     const node = findNode(draft.root, nodeId);
     if (!node || node.awaitingFlop) return;
-    const w = Math.min(1, Math.max(0, weight));
     let changed = false;
     for (const { hand, erase } of strokes) {
-      if (erase || action === "FOLD") {
+      if (erase || (brush.mode === "action" && brush.action === "FOLD")) {
         if (hand in node.ranges) {
           delete node.ranges[hand];
           changed = true;
@@ -590,18 +712,8 @@ export function paintHandBatch(
         continue;
       }
       if (!handPaintableOnNode(draft.root, node, hand)) continue;
-      const mix: HandMix = { FOLD: 0, CALL: 0, RAISE: 0 };
-      mix[action] = w;
-      if (w < 1) mix.FOLD = 1 - w;
-      if (isPureFold(mix)) {
-        if (hand in node.ranges) {
-          delete node.ranges[hand];
-          changed = true;
-        }
-      } else {
-        node.ranges[hand] = mix;
-        changed = true;
-      }
+      const mix = applyBrushToMix(node.ranges[hand], brush);
+      if (writeHandMix(node, hand, mix)) changed = true;
     }
     if (changed) draft.updatedAt = new Date().toISOString();
   });

@@ -1,12 +1,25 @@
 import { CSSProperties, useEffect, useRef } from "react";
 import { handCodeAt, RANKS } from "../../lib/handMatrix";
-import { handMatchesBrush } from "../../lib/gameTree/engine";
+import {
+  handMatchesPaintBrush,
+  type PaintBrush,
+} from "../../lib/gameTree/engine";
+import {
+  PAINT_CALL,
+  PAINT_FOLD,
+  type RaisePaintTier,
+  raiseColorForTier,
+} from "../../lib/gameTree/paintColors";
 import type { HandMix, PaintAction } from "../../lib/gameTree/types";
 
 type Props = {
   ranges: Record<string, HandMix>;
   paintAction: PaintAction;
   weight: number;
+  /** Dual-mix brush (default paint path when mix mode on). */
+  brush?: PaintBrush;
+  /** RAISE band color tier for this node (open / 3bet / 4bet). */
+  raiseTier?: RaisePaintTier;
   selected?: string | null;
   onPaint?: (handCode: string, erase?: boolean) => void;
   onSelect?: (handCode: string) => void;
@@ -18,20 +31,19 @@ type Props = {
   onBrushEnd?: () => void;
 };
 
-/** Raise=red, Call=green, Fold=blue — fixed palette */
-function cellStyle(mix: HandMix): CSSProperties {
+function cellStyle(mix: HandMix, raiseHex: string): CSSProperties {
   const r = mix.RAISE;
   const c = mix.CALL;
   const raiseEnd = r * 100;
   const callEnd = (r + c) * 100;
   return {
     background: `linear-gradient(90deg,
-      #ef4444 0%,
-      #ef4444 ${raiseEnd}%,
-      #10b981 ${raiseEnd}%,
-      #10b981 ${callEnd}%,
-      #2563eb ${callEnd}%,
-      #2563eb 100%)`,
+      ${raiseHex} 0%,
+      ${raiseHex} ${raiseEnd}%,
+      ${PAINT_CALL} ${raiseEnd}%,
+      ${PAINT_CALL} ${callEnd}%,
+      ${PAINT_FOLD} ${callEnd}%,
+      ${PAINT_FOLD} 100%)`,
   };
 }
 
@@ -59,6 +71,8 @@ export default function GtoMatrix({
   ranges,
   paintAction,
   weight,
+  brush,
+  raiseTier = "open",
   selected,
   onPaint,
   onSelect,
@@ -80,6 +94,11 @@ export default function GtoMatrix({
   onSelectRef.current = onSelect;
   onBrushStartRef.current = onBrushStart;
   onBrushEndRef.current = onBrushEnd;
+
+  const raiseHex = raiseColorForTier(raiseTier);
+  const activeBrush: PaintBrush =
+    brush ??
+    ({ mode: "action", action: paintAction, weight: weight / 100 } as PaintBrush);
 
   function endStroke() {
     if (!painting.current) return;
@@ -105,11 +124,21 @@ export default function GtoMatrix({
     };
   }, []);
 
+  const brushClass =
+    activeBrush.mode === "mix"
+      ? "brush-mix"
+      : `brush-${activeBrush.action.toLowerCase()}`;
+
   return (
     <div
       ref={rootRef}
-      className={`gto-matrix brush-${paintAction.toLowerCase()}${readOnly ? " is-readonly" : ""}${actionMode === "push_fold" ? " is-push-fold" : ""}`}
-      style={{ touchAction: readOnly ? undefined : "none" }}
+      className={`gto-matrix ${brushClass}${readOnly ? " is-readonly" : ""}${actionMode === "push_fold" ? " is-push-fold" : ""} tier-${raiseTier}`}
+      style={
+        {
+          touchAction: readOnly ? undefined : "none",
+          ["--gto-raise" as string]: raiseHex,
+        } as CSSProperties
+      }
     >
       <div className="gto-matrix-corner" />
       {RANKS.map((rank) => (
@@ -130,7 +159,7 @@ export default function GtoMatrix({
                 type="button"
                 data-hand={code}
                 className={`gto-matrix-cell${isSelected ? " selected" : ""}`}
-                style={cellStyle(mix)}
+                style={cellStyle(mix, raiseHex)}
                 title={`${code} — R ${Math.round(mix.RAISE * 100)}% · C ${Math.round(mix.CALL * 100)}% · F ${Math.round(mix.FOLD * 100)}% · повторный клик = fold`}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
@@ -146,10 +175,10 @@ export default function GtoMatrix({
                   }
                   painting.current = true;
                   lastHand.current = null;
-                  // Second click on the same brush paint → erase back to fold
+                  const isFoldBrush =
+                    activeBrush.mode === "action" && activeBrush.action === "FOLD";
                   strokeErase.current =
-                    paintAction !== "FOLD" &&
-                    handMatchesBrush(mix, paintAction, weight / 100);
+                    !isFoldBrush && handMatchesPaintBrush(mix, activeBrush);
                   onBrushStartRef.current?.();
                   strokeHand(code, true);
                 }}

@@ -1679,6 +1679,59 @@ export async function listHandDatabases() {
   return request<HandDatabase[]>("/api/databases");
 }
 
+export type ExportedProfileHand = {
+  external_hand_id: string;
+  played_at: string | null;
+  table_name: string | null;
+  small_blind: number | null;
+  big_blind: number | null;
+  hero_name: string | null;
+  hero_position: string | null;
+  hero_hand: string | null;
+  hero_hand_code: string | null;
+  detected_spot: string | null;
+  villain_position: string | null;
+  stack_bb: number | null;
+  hero_preflop_action: string | null;
+  hero_net: number | null;
+  hero_net_bb: number | null;
+  went_to_showdown: boolean;
+  hero_net_wsd: number | null;
+  hero_net_wsd_bb: number | null;
+  hero_net_wwsd: number | null;
+  hero_net_wwsd_bb: number | null;
+  raw_text: string;
+  actions: Array<{
+    street: string;
+    action_order: number;
+    player_name: string;
+    is_hero: boolean;
+    action: string;
+    amount: number | null;
+  }>;
+};
+
+export type ActiveDatabaseHandsPage = {
+  database_id: string;
+  total: number;
+  offset: number;
+  limit: number;
+  hands: ExportedProfileHand[];
+};
+
+/** Pull hands from the active profile DB (paginated). */
+export async function fetchActiveDatabaseHands(offset = 0, limit = 500) {
+  const awake = await wakeApi();
+  if (!awake) {
+    throw new Error(networkErrorMessage(new Error("wake failed")));
+  }
+  const q = new URLSearchParams({
+    offset: String(Math.max(0, offset)),
+    limit: String(Math.max(1, Math.min(limit, 1000))),
+  });
+  return request<ActiveDatabaseHandsPage>(`/api/databases/active/hands?${q}`);
+}
+
 export async function createHandDatabase(name: string, switchTo = true) {
   const awake = await wakeApi();
   if (!awake) {

@@ -50,7 +50,7 @@ import {
 import { resolveHeroStrategyDecision } from "./handSpot";
 import type { HudFlags } from "./hudFlags";
 import {
-  listHandsForStrategy,
+  listHandsForAnalysis,
   type HandRow,
   type ListHandsOpts,
 } from "./localDb";
@@ -1021,7 +1021,7 @@ export async function buildLocalChartDeviations(
   await yieldToUi();
 
   // Hands first — show N/N counter immediately (same feel as Math tab).
-  const hands = await listHandsForStrategy(strategyId, handsOpts);
+  const hands = await listHandsForAnalysis(strategyId, handsOpts);
   const total = hands.length;
   if (total > 0) {
     onProgress?.(`Разбор сессии… 0 / ${total.toLocaleString("ru-RU")}`);
@@ -1124,7 +1124,7 @@ export async function restoreLocalSessionReport(
   strategyId: string,
   handsOpts?: ListHandsOpts,
 ): Promise<{ hands: number } | null> {
-  const hands = await listHandsForStrategy(strategyId, handsOpts);
+  const hands = await listHandsForAnalysis(strategyId, handsOpts);
   if (!hands.length) return null;
   const analysis = buildAnalysis(strategyId, hands);
   const prev = peekAnalysisCache(strategyId);
@@ -1195,7 +1195,7 @@ export async function finalizeLocalAnalysis(
   });
 
   // Stacked DB is the single source — import only appends (dupes / day-cap skip).
-  const hands = await listHandsForStrategy(strategyId, handsOpts);
+  const hands = await listHandsForAnalysis(strategyId, handsOpts);
   const analysis = buildAnalysis(strategyId, hands);
 
   onProgress?.({

@@ -10,12 +10,13 @@ import AnalysisBgWait from "../components/AnalysisBgWait";
 import SessionUploadPanel from "../components/SessionUploadPanel";
 import StrategyAnalysisPanel from "../components/StrategyAnalysisPanel";
 import {
-  countHandsForStrategy,
+  countHandsForAnalysis,
   DAILY_HAND_UPLOAD_LIMIT,
   dedupeStrategyHands,
   listSessionDays,
   type SessionDayRow,
 } from "../engine/localDb";
+import { hydrateAnalysisHandsFromProfile } from "../engine/hydrateProfileHands";
 import {
   isProfileSyncCurrent,
   localHandsFingerprint,
@@ -45,6 +46,7 @@ export default function AnalysisPage() {
   const [revision, setRevision] = useState(0);
   /** Extra bump when local DB dedupe removes rows so the report rebuilds. */
   const [dedupeBump, setDedupeBump] = useState(0);
+  const [dbReady, setDbReady] = useState(false);
   const [pendingHandTotal, setPendingHandTotal] = useState<number | null>(null);
   const [localHands, setLocalHands] = useState<number | null>(null);
   const [sessionDays, setSessionDays] = useState<SessionDayRow[]>([]);
@@ -90,12 +92,22 @@ export default function AnalysisPage() {
     if (!strategyId) {
       setLocalHands(null);
       setSessionDays([]);
+      setDbReady(false);
       return;
     }
     let cancelled = false;
+    setDbReady(false);
     void (async () => {
       try {
-        // Clean up historical ×2 imports before counting / reporting.
+        // Pull profile DB into IndexedDB when local Analysis is behind.
+        if (isLoggedIn()) {
+          const hyd = await hydrateAnalysisHandsFromProfile(strategyId);
+          if (cancelled) return;
+          if (hyd.inserted > 0) {
+            clearAnalysisCache(strategyId);
+            setDedupeBump((n) => n + 1);
+          }
+        }
         const removed = await dedupeStrategyHands(strategyId);
         if (cancelled) return;
         if (removed > 0) {
@@ -103,7 +115,7 @@ export default function AnalysisPage() {
           setDedupeBump((n) => n + 1);
         }
         const [n, days] = await Promise.all([
-          countHandsForStrategy(strategyId),
+          countHandsForAnalysis(strategyId),
           listSessionDays(strategyId),
         ]);
         if (cancelled) return;
@@ -114,10 +126,12 @@ export default function AnalysisPage() {
           const keep = prev.filter((d) => days.some((x) => x.day === d));
           return keep.length ? keep : null;
         });
+        setDbReady(true);
       } catch {
         if (!cancelled) {
           setLocalHands(null);
           setSessionDays([]);
+          setDbReady(true);
         }
       }
     })();
@@ -364,6 +378,10 @@ export default function AnalysisPage() {
               Ещё нет стратегии? <Link to="/strategies">Соберите чарты</Link> — затем вернитесь за
               разбором.
             </p>
+          </div>
+        ) : !dbReady ? (
+          <div className="analysis-page-results">
+            <AnalysisBgWait pendingHands={localHands ?? pendingHandTotal ?? job.hands} />
           </div>
         ) : (
           <div className="analysis-page-results">

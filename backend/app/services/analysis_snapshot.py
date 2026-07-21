@@ -24,8 +24,39 @@ from app.schemas.analysis_snapshot import (
 from app.services import bankroll as bankroll_svc
 from app.services import databases as db_svc
 from app.services import subscription as sub_svc
-from app.services.hand_limits import assert_analysis_batch_size, assert_database_capacity
+from app.services.hand_limits import (
+    assert_analysis_batch_size,
+    assert_database_capacity,
+    count_database_hands,
+)
 from app.services.hand_pipeline import archive_user_active_sessions
+
+
+def _active_or_latest_session(
+    db: Session,
+    *,
+    user_id: UUID,
+    database_id: UUID,
+) -> PlaySession | None:
+    active = db.scalars(
+        select(PlaySession)
+        .where(
+            PlaySession.user_id == user_id,
+            PlaySession.database_id == database_id,
+            PlaySession.status == "active",
+        )
+        .order_by(PlaySession.created_at.desc())
+    ).first()
+    if active is not None:
+        return active
+    return db.scalars(
+        select(PlaySession)
+        .where(
+            PlaySession.user_id == user_id,
+            PlaySession.database_id == database_id,
+        )
+        .order_by(PlaySession.created_at.desc())
+    ).first()
 
 
 def _new_external_count(
@@ -260,49 +291,87 @@ def upload_analysis_snapshot(
             db.add(upload)
             db.flush()
     else:
-        # New sitting — archive previous active batch (hands stay in DB).
-        archive_user_active_sessions(db, user_id=user.id, database_id=active_db.id)
-        db.commit()
+        # All hands already in DB — keep current sitting (never archive into an empty
+        # active session; that made Analysis look like 0 hands while DB still had data).
+        if additional == 0:
+            session = _active_or_latest_session(
+                db, user_id=user.id, database_id=active_db.id
+            )
+            if session is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Нет раздач для синхронизации",
+                )
+            if session.status != "active":
+                session.status = "active"
+                db.flush()
+            upload = next(
+                (
+                    u
+                    for u in session.uploads
+                    if (u.strategy_id == strategy_id)
+                    or (u.strategy_id is None and strategy_id is None)
+                ),
+                None,
+            )
+            if upload is None:
+                upload = HandUpload(
+                    user_id=user.id,
+                    database_id=active_db.id,
+                    strategy_id=strategy_id,
+                    session_id=session.id,
+                    room=room,
+                    original_filename=source,
+                    storage_path=None,
+                    status="parsing",
+                    hands_count=0,
+                )
+                db.add(upload)
+                db.flush()
+        else:
+            # New sitting — archive previous active batch (hands stay in DB).
+            archive_user_active_sessions(db, user_id=user.id, database_id=active_db.id)
+            db.commit()
 
-        times = [_aware(h.played_at) for h in new_rows if h.played_at is not None]
-        started = _aware(payload.started_at) or (min(times) if times else None)
-        ended = _aware(payload.ended_at) or (max(times) if times else None)
-        sb = next((h.small_blind for h in new_rows if h.small_blind is not None), None)
-        bb = next((h.big_blind for h in new_rows if h.big_blind is not None), None)
-        table = next((h.table_name for h in new_rows if h.table_name), None)
+            times = [_aware(h.played_at) for h in new_rows if h.played_at is not None]
+            started = _aware(payload.started_at) or (min(times) if times else None)
+            ended = _aware(payload.ended_at) or (max(times) if times else None)
+            sb = next((h.small_blind for h in new_rows if h.small_blind is not None), None)
+            bb = next((h.big_blind for h in new_rows if h.big_blind is not None), None)
+            table = next((h.table_name for h in new_rows if h.table_name), None)
 
-        session = PlaySession(
-            user_id=user.id,
-            database_id=active_db.id,
-            strategy_id=strategy_id,
-            room=room,
-            label=label,
-            source_filename=source,
-            table_name=table,
-            small_blind=_dec(sb),
-            big_blind=_dec(bb),
-            max_seats=None,
-            started_at=started,
-            ended_at=ended,
-            hands_count=0,
-            status="active",
-        )
-        db.add(session)
-        db.flush()
+            session = PlaySession(
+                user_id=user.id,
+                database_id=active_db.id,
+                strategy_id=strategy_id,
+                room=room,
+                label=label,
+                source_filename=source,
+                table_name=table,
+                small_blind=_dec(sb),
+                big_blind=_dec(bb),
+                max_seats=None,
+                started_at=started,
+                ended_at=ended,
+                hands_count=0,
+                status="active",
+            )
+            db.add(session)
+            db.flush()
 
-        upload = HandUpload(
-            user_id=user.id,
-            database_id=active_db.id,
-            strategy_id=strategy_id,
-            session_id=session.id,
-            room=room,
-            original_filename=source,
-            storage_path=None,
-            status="parsing",
-            hands_count=0,
-        )
-        db.add(upload)
-        db.flush()
+            upload = HandUpload(
+                user_id=user.id,
+                database_id=active_db.id,
+                strategy_id=strategy_id,
+                session_id=session.id,
+                room=room,
+                original_filename=source,
+                storage_path=None,
+                status="parsing",
+                hands_count=0,
+            )
+            db.add(upload)
+            db.flush()
 
     assert session is not None and upload is not None
 
@@ -386,7 +455,7 @@ def upload_analysis_snapshot(
         snapshot_id=snap.id if snap else None,
         database_id=active_db.id,
         hands_saved=len(new_rows),
-        hands_total=int(session.hands_count or 0),
+        hands_total=count_database_hands(db, active_db.id),
         finalize=bool(payload.finalize),
         label=session.label,
         career_report=career,
@@ -402,11 +471,9 @@ def get_latest_snapshot(
     active_db = db_svc.get_active_database(db, user)
     q = (
         select(AnalysisSnapshot)
-        .join(PlaySession, AnalysisSnapshot.session_id == PlaySession.id)
         .where(
             AnalysisSnapshot.user_id == user.id,
             AnalysisSnapshot.database_id == active_db.id,
-            PlaySession.status == "active",
         )
         .order_by(AnalysisSnapshot.created_at.desc())
     )

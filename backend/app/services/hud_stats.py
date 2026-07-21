@@ -16,7 +16,7 @@ from app.parsers.pokerstars import detect_went_to_showdown, extract_showdown_net
 from app.schemas.analysis import AnalysisCurvePoint, HudStat, PositionHudRow, StrategyAnalysis
 from app.services.all_in_ev import hand_ev_money
 from app.services.strategy_match import hand_is_deviation, load_spot_maps
-from app.services.hand_dedupe import dedupe_hands_by_external_id
+from app.services.hand_dedupe import prefer_active_then_dedupe
 from app.services.results import resolve_hand_result, resolve_showdown_split
 
 FLOP_DEALT_RE = re.compile(r"\*\*\*\s+FLOP\s+\*\*\*", re.IGNORECASE)
@@ -524,10 +524,10 @@ def backfill_showdown_fields(db: Session, hands: list[Hand], *, force: bool = Tr
 
 
 def load_strategy_hands(db: Session, user_id: UUID, strategy_id: UUID) -> list[Hand]:
-    """Hands from the user's active session batch in the active database.
+    """All unique hands in the user's active profile hand database.
 
-    Sessions are user-owned (not strategy-owned). ``strategy_id`` is only used
-    later for chart comparison — switching strategies recalculates the same hands.
+    Sessions may be archived on re-upload; Analysis/Career still use the full DB.
+    ``strategy_id`` is only for chart comparison in callers.
     """
     del strategy_id  # chart selection happens in callers
     from app.models.user import User
@@ -535,21 +535,31 @@ def load_strategy_hands(db: Session, user_id: UUID, strategy_id: UUID) -> list[H
 
     user = db.get(User, user_id)
     active_db_id = db_svc.get_active_database_id(db, user) if user else None
-    session_q = select(PlaySession.id).where(
-        PlaySession.user_id == user_id,
-        PlaySession.status == "active",
+    if active_db_id is None:
+        return []
+
+    session_rows = list(
+        db.execute(
+            select(PlaySession.id, PlaySession.status).where(
+                PlaySession.user_id == user_id,
+                PlaySession.database_id == active_db_id,
+            )
+        ).all()
     )
-    if active_db_id is not None:
-        session_q = session_q.where(PlaySession.database_id == active_db_id)
+    session_ids = [row[0] for row in session_rows]
+    status_by_id = {row[0]: row[1] for row in session_rows}
+    if not session_ids:
+        return []
+
     hands = list(
         db.scalars(
             select(Hand)
             .options(selectinload(Hand.actions))
-            .where(Hand.session_id.in_(session_q))
+            .where(Hand.session_id.in_(session_ids))
             .order_by(Hand.played_at.asc().nulls_last(), Hand.external_hand_id.asc())
         )
     )
-    return dedupe_hands_by_external_id(hands)
+    return prefer_active_then_dedupe(hands, status_by_id)
 
 
 def build_strategy_analysis(db: Session, user_id: UUID, strategy_id: UUID) -> StrategyAnalysis:

@@ -12614,10 +12614,12 @@ body.confirm-open #root {
   --gto-line-strong: rgba(255, 255, 255, 0.1);
   --gto-text: #f5f7fa;
   --gto-muted: rgba(245, 247, 250, 0.45);
-  /* Always: Fold=blue, Call=green, Raise=red */
+  /* Strength tiers: Fold(weak) → Call → Raise → 3bet → 4bet(strong) */
   --gto-fold: #2563eb;
-  --gto-call: #10b981;
+  --gto-call: #22c55e;
   --gto-raise: #ef4444;
+  --gto-3bet: #a855f7;
+  --gto-4bet: #eab308;
   /* Dense chrome, larger range grid */
   --gto-cell: clamp(24px, 3.55vh, 40px);
   /* Центрированная сцена под широкий экран */
@@ -13999,31 +14001,78 @@ body.confirm-open #root {
 .gto-paint.fold:not(.active):hover,
 .gto-paint.call:not(.active):hover,
 .gto-paint.raise:not(.active):hover,
+.gto-paint.mix:not(.active):hover,
 .gto-freq:not(.active):hover {
   color: #fff;
   background: transparent;
   border-color: rgba(255, 255, 255, 0.35);
 }
 
+.gto-paint.fold:not(.active) {
+  color: var(--gto-fold);
+}
+
+.gto-paint.call:not(.active) {
+  color: var(--gto-call);
+}
+
+.gto-paint.raise:not(.active).tier-open {
+  color: var(--gto-raise);
+}
+
+.gto-paint.raise:not(.active).tier-3bet {
+  color: var(--gto-3bet);
+}
+
+.gto-paint.raise:not(.active).tier-4bet {
+  color: var(--gto-4bet);
+}
+
+.gto-paint.mix:not(.active) {
+  color: rgba(245, 247, 250, 0.7);
+}
+
 /* Selected brush — action color + matching border */
 .gto-paint.fold.active {
   color: #fff;
-  background: #2563eb;
+  background: var(--gto-fold);
   border-color: #3b82f6;
   box-shadow: none;
 }
 
 .gto-paint.call.active {
   color: #04140f;
-  background: #10b981;
-  border-color: #34d399;
+  background: var(--gto-call);
+  border-color: #4ade80;
   box-shadow: none;
 }
 
-.gto-paint.raise.active {
+.gto-paint.raise.active.tier-open,
+.gto-paint.raise.active:not(.tier-3bet):not(.tier-4bet) {
   color: #fff;
-  background: #ef4444;
+  background: var(--gto-raise);
   border-color: #f87171;
+  box-shadow: none;
+}
+
+.gto-paint.raise.active.tier-3bet {
+  color: #fff;
+  background: var(--gto-3bet);
+  border-color: #c084fc;
+  box-shadow: none;
+}
+
+.gto-paint.raise.active.tier-4bet {
+  color: #1a1400;
+  background: var(--gto-4bet);
+  border-color: #facc15;
+  box-shadow: none;
+}
+
+.gto-paint.mix.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.35);
   box-shadow: none;
 }
 
@@ -14032,6 +14081,43 @@ body.confirm-open #root {
   border-color: rgba(255, 255, 255, 0.4);
   background: rgba(255, 255, 255, 0.1);
   box-shadow: none;
+}
+
+.gto-mix-range {
+  width: 5.5rem;
+  accent-color: var(--gto-raise);
+  vertical-align: middle;
+}
+
+.gto-mix-range.call {
+  accent-color: var(--gto-call);
+}
+
+.gto-mix-range.freq {
+  accent-color: rgba(255, 255, 255, 0.55);
+  width: 4.5rem;
+}
+
+.gto-mix-val {
+  font-size: 0.72rem;
+  font-weight: 800;
+  min-width: 2.4rem;
+  color: rgba(245, 247, 250, 0.85);
+}
+
+.gto-mix-val.raise {
+  color: var(--gto-raise);
+}
+
+.gto-mix-val.call {
+  color: var(--gto-call);
+}
+
+.gto-mix-fold {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--gto-fold);
+  margin-left: 0.15rem;
 }
 
 .gto-paint-hint {
@@ -14969,6 +15055,14 @@ body.confirm-open #root {
   border-left: 3px solid var(--gto-raise);
 }
 
+.gto-range-row.raise.tier-3bet {
+  border-left-color: var(--gto-3bet);
+}
+
+.gto-range-row.raise.tier-4bet {
+  border-left-color: var(--gto-4bet);
+}
+
 .gto-hand-detail {
   margin-top: 1rem;
   padding-top: 0.85rem;
@@ -14989,15 +15083,15 @@ body.confirm-open #root {
 }
 
 .gto-hand-line .fold {
-  color: #93c5fd;
+  color: var(--gto-fold);
 }
 
 .gto-hand-line .call {
-  color: #6ee7b7;
+  color: var(--gto-call);
 }
 
 .gto-hand-line .raise {
-  color: #fca5a5;
+  color: var(--gto-raise);
 }
 
 .gto-sidebar-hint {

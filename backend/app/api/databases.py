@@ -14,6 +14,10 @@ from app.schemas.databases import (
 )
 from app.services import compute_cache
 from app.services import databases as db_svc
+from app.services.database_hands_export import (
+    ActiveDatabaseHandsPage,
+    export_active_database_hands,
+)
 
 router = APIRouter(prefix="/databases", tags=["databases"])
 
@@ -26,6 +30,22 @@ def list_databases(
     rows = db_svc.list_databases(db, current_user)
     db.commit()
     return [HandDatabaseRead(**row) for row in rows]
+
+
+@router.get("/active/hands", response_model=ActiveDatabaseHandsPage)
+def export_active_hands(
+    offset: int = 0,
+    limit: int = 500,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ActiveDatabaseHandsPage:
+    """Paginated hands from the active profile DB — source of truth for Analysis."""
+    return export_active_database_hands(
+        db,
+        current_user,
+        offset=max(0, offset),
+        limit=max(1, min(limit, 1000)),
+    )
 
 
 @router.post("", response_model=HandDatabaseRead, status_code=status.HTTP_201_CREATED)

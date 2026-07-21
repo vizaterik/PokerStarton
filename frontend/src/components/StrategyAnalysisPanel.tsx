@@ -21,7 +21,7 @@ import {
   buildLocalChartDeviations,
   restoreLocalSessionReport,
 } from "../engine/localAnalysis";
-import { listHandsForStrategy, type HandRow } from "../engine/localDb";
+import { listHandsForAnalysis, type HandRow } from "../engine/localDb";
 import type { CellFreq } from "../lib/handMatrix";
 import {
   analysisFingerprint,
@@ -631,7 +631,7 @@ export default function StrategyAnalysisPanel({
       setTreeTick((n) => n + 1);
       const editorBranches = collectEditorBranches(treeDoc.root);
       // Local IndexedDB session is source of truth for all parsed branch variants.
-      const localHands = await listHandsForStrategy(strategyId);
+      const localHands = await listHandsForAnalysis(strategyId);
       if (localHands.length > 0) {
         const session = await listSessionBranches(strategyId);
         setSessionBranches(session);
@@ -682,7 +682,7 @@ export default function StrategyAnalysisPanel({
       setAddingSpotKey(key);
       setSpotsHint(null);
       try {
-        const hands = await listHandsForStrategy(strategyId);
+        const hands = await listHandsForAnalysis(strategyId);
         const heroN = normalizeChartPos(spot.hero_position || "");
         const villN = spot.villain_position
           ? normalizeChartPos(spot.villain_position)
@@ -861,7 +861,7 @@ export default function StrategyAnalysisPanel({
 
           // Rebuild HUD from IndexedDB (optional day filter).
           try {
-            const rows = await listHandsForStrategy(strategyId, handsOpts);
+            const rows = await listHandsForAnalysis(strategyId, handsOpts);
             if (isStale()) return;
             if (rows.length > 0) {
               // Drop stale 0-hand cache so restore can rewrite it.
@@ -1497,7 +1497,7 @@ export default function StrategyAnalysisPanel({
       return;
     }
     let cancelled = false;
-    void listHandsForStrategy(strategyId).then((hands) => {
+    void listHandsForAnalysis(strategyId).then((hands) => {
       if (cancelled) return;
       setMissingVpipCells(
         buildVpipCellsForSpot(hands, {
@@ -1863,7 +1863,7 @@ export default function StrategyAnalysisPanel({
     pot_tag?: string;
   }) {
     void (async () => {
-      const hands = await listHandsForStrategy(strategyId);
+      const hands = await listHandsForAnalysis(strategyId);
       const ids = collectBranchHandIds(hands, {
         spot_key: row.spot_key,
         hero_position: row.hero_position,
@@ -2842,7 +2842,7 @@ export default function StrategyAnalysisPanel({
                         title="Открыть реплей"
                         onClick={() => {
                           void (async () => {
-                            const hands = await listHandsForStrategy(strategyId);
+                            const hands = await listHandsForAnalysis(strategyId);
                             const pos = normalizeChartPos(row.position);
                             const ids = hands
                               .filter((h) => {

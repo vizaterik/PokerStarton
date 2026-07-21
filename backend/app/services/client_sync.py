@@ -147,8 +147,57 @@ def sync_client_hands(
     source = (payload.source_filename or "local-import.txt").strip()[:512]
     room = (payload.room or "pokerstars")[:64]
 
+    # Dedupe before session setup — all-dupes must not archive the active sitting.
+    parsed_all = [_to_parsed(h) for h in payload.hands]
+    candidate_ids = [p.external_hand_id for p in parsed_all]
+    already = _known_external_ids(
+        db,
+        user.id,
+        candidate_ids,
+        strategy_id=strategy_id,
+        database_id=active_db.id,
+    )
+
+    seen: set[str] = set()
+    new_hands: list[ParsedHand] = []
+    duplicates = 0
+    for parsed in parsed_all:
+        eid = parsed.external_hand_id
+        if not eid or eid in already or eid in seen:
+            duplicates += 1
+            continue
+        seen.add(eid)
+        new_hands.append(parsed)
+
     session: PlaySession | None = None
     upload: HandUpload | None = None
+
+    def _upload_for_session(sess: PlaySession) -> HandUpload:
+        existing = next(
+            (
+                u
+                for u in sess.uploads
+                if (u.strategy_id == strategy_id)
+                or (u.strategy_id is None and strategy_id is None)
+            ),
+            None,
+        )
+        if existing is not None:
+            return existing
+        created = HandUpload(
+            user_id=user.id,
+            database_id=active_db.id,
+            strategy_id=strategy_id,
+            session_id=sess.id,
+            room=room,
+            original_filename=source,
+            storage_path=None,
+            status="pending",
+            hands_count=0,
+        )
+        db.add(created)
+        db.flush()
+        return created
 
     if payload.session_id is not None:
         session = db.get(PlaySession, payload.session_id)
@@ -162,29 +211,37 @@ def sync_client_hands(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Сессия для продолжения синхронизации не найдена",
             )
-        upload = next(
-            (
-                u
-                for u in session.uploads
-                if (u.strategy_id == strategy_id)
-                or (u.strategy_id is None and strategy_id is None)
-            ),
-            None,
-        )
-        if upload is None:
-            upload = HandUpload(
-                user_id=user.id,
-                database_id=active_db.id,
-                strategy_id=strategy_id,
-                session_id=session.id,
-                room=room,
-                original_filename=source,
-                storage_path=None,
-                status="pending",
-                hands_count=0,
+        upload = _upload_for_session(session)
+    elif len(new_hands) == 0:
+        from sqlalchemy import select as sa_select
+
+        session = db.scalars(
+            sa_select(PlaySession)
+            .where(
+                PlaySession.user_id == user.id,
+                PlaySession.database_id == active_db.id,
+                PlaySession.status == "active",
             )
-            db.add(upload)
+            .order_by(PlaySession.created_at.desc())
+        ).first()
+        if session is None:
+            session = db.scalars(
+                sa_select(PlaySession)
+                .where(
+                    PlaySession.user_id == user.id,
+                    PlaySession.database_id == active_db.id,
+                )
+                .order_by(PlaySession.created_at.desc())
+            ).first()
+        if session is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Нет раздач для синхронизации",
+            )
+        if session.status != "active":
+            session.status = "active"
             db.flush()
+        upload = _upload_for_session(session)
     else:
         archive_user_active_sessions(db, user_id=user.id, database_id=active_db.id)
         db.commit()
@@ -207,43 +264,9 @@ def sync_client_hands(
         )
         db.add(session)
         db.flush()
-
-        upload = HandUpload(
-            user_id=user.id,
-            database_id=active_db.id,
-            strategy_id=strategy_id,
-            session_id=session.id,
-            room=room,
-            original_filename=source,
-            storage_path=None,
-            status="pending",
-            hands_count=0,
-        )
-        db.add(upload)
-        db.flush()
+        upload = _upload_for_session(session)
 
     assert session is not None and upload is not None
-
-    parsed_all = [_to_parsed(h) for h in payload.hands]
-    candidate_ids = [p.external_hand_id for p in parsed_all]
-    already = _known_external_ids(
-        db,
-        user.id,
-        candidate_ids,
-        strategy_id=strategy_id,
-        database_id=active_db.id,
-    )
-
-    seen: set[str] = set()
-    new_hands: list[ParsedHand] = []
-    duplicates = 0
-    for parsed in parsed_all:
-        eid = parsed.external_hand_id
-        if not eid or eid in already or eid in seen:
-            duplicates += 1
-            continue
-        seen.add(eid)
-        new_hands.append(parsed)
 
     # Quota / capacity only for new hands — re-sync of duplicates must not block.
     if new_hands:

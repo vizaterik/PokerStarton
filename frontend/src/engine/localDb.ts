@@ -196,7 +196,7 @@ export type SessionDayRow = { day: string; hands: number };
 
 /** Distinct session days in the stacked DB (newest first). */
 export async function listSessionDays(strategyId: string): Promise<SessionDayRow[]> {
-  const rows = await listHandsForStrategy(strategyId);
+  const rows = await listHandsForAnalysis(strategyId);
   const map = new Map<string, number>();
   for (const r of rows) {
     const day = handCalendarDay(r.played_at);
@@ -441,6 +441,39 @@ export async function listHandsForStrategy(
   if (opts.days.length === 0) return [];
   const want = new Set(opts.days);
   return rows.filter((r) => want.has(handCalendarDay(r.played_at)));
+}
+
+/** All IndexedDB hands (any strategy), unique by external id — Analysis source of truth. */
+export async function listHandsForAnalysis(
+  strategyId: string,
+  opts?: ListHandsOpts,
+): Promise<HandRow[]> {
+  const db = await openLocalDb();
+  const all = await new Promise<HandRow[]>((resolve, reject) => {
+    const tx = db.transaction([STORE_HANDS], "readonly");
+    const req = tx.objectStore(STORE_HANDS).getAll();
+    req.onsuccess = () => resolve((req.result as HandRow[]) || []);
+    req.onerror = () => reject(req.error ?? new Error("list all hands failed"));
+  });
+  const byExt = new Map<string, HandRow>();
+  for (const r of all) {
+    const id = normalizeExternalHandId(r.external_hand_id);
+    if (!id) continue;
+    const prev = byExt.get(id);
+    if (!prev || r.strategy_id === strategyId) {
+      byExt.set(id, { ...r, external_hand_id: id });
+    }
+  }
+  let rows = [...byExt.values()];
+  if (!opts?.days) return rows;
+  if (opts.days.length === 0) return [];
+  const want = new Set(opts.days);
+  rows = rows.filter((r) => want.has(handCalendarDay(r.played_at)));
+  return rows;
+}
+
+export async function countHandsForAnalysis(strategyId: string): Promise<number> {
+  return (await listHandsForAnalysis(strategyId)).length;
 }
 
 export async function flushLocalDb(): Promise<void> {

@@ -9,9 +9,10 @@ import {
   deleteBranch,
   findNode,
   focusSeatWithAutoFolds,
-  paintHandBatch,
+  paintHandBatchWithBrush,
   pathToNode,
   resetBranches,
+  type PaintBrush,
 } from "../../lib/gameTree/engine";
 import {
   applyStylePreset,
@@ -41,6 +42,12 @@ import { buildSeatWindows, historyChainText, resumeNodeAfterSeat } from "../../l
 import { syncTreeChartsToDb } from "../../lib/gameTree/syncTreeCharts";
 import { standardRaiseSize } from "../../lib/gameTree/standardSizings";
 import { deriveContext } from "../../lib/gameTree/turnEngine";
+import {
+  raiseBrushLabel,
+  raiseColorForTier,
+  raiseTierForContext,
+  type RaisePaintTier,
+} from "../../lib/gameTree/paintColors";
 import type {
   GameTreeDocument,
   GameTreeNode,
@@ -63,7 +70,12 @@ type Props = {
   strategy: StrategyDetail;
 };
 
-const FREQ_WEIGHTS = [100, 75, 50, 25] as const;
+const FREQ_WEIGHTS = [100, 75, 50, 25, 10] as const;
+type BrushMode = "action" | "mix";
+
+function clampPct(n: number): number {
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
 
 /**
  * Solo open (one RAISE spot): sit on the raise edge so PreflopActionSelector
@@ -119,6 +131,10 @@ export default function GtoTreeEditor({ strategy }: Props) {
   );
   const [paintAction, setPaintAction] = useState<PaintAction>("RAISE");
   const [weight, setWeight] = useState(100);
+  /** mix = dual Raise%/Call% in one stroke; action = layered single brush. */
+  const [brushMode, setBrushMode] = useState<BrushMode>("mix");
+  const [mixRaise, setMixRaise] = useState(60);
+  const [mixCall, setMixCall] = useState(40);
   const [selectedHand, setSelectedHand] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
   const [tab, setTab] = useState<"editor" | "branches">("editor");
@@ -136,6 +152,12 @@ export default function GtoTreeEditor({ strategy }: Props) {
   paintActionRef.current = paintAction;
   const weightRef = useRef(weight);
   weightRef.current = weight;
+  const brushModeRef = useRef(brushMode);
+  brushModeRef.current = brushMode;
+  const mixRaiseRef = useRef(mixRaise);
+  mixRaiseRef.current = mixRaise;
+  const mixCallRef = useRef(mixCall);
+  mixCallRef.current = mixCall;
   /** Pending cells for the current rAF flush, keyed by nodeId. */
   const pendingStrokesRef = useRef(
     new Map<string, Map<string, boolean>>(),
@@ -346,6 +368,54 @@ export default function GtoTreeEditor({ strategy }: Props) {
     [rangeSpots, paintNode.id],
   );
 
+  const paintPath = useMemo(
+    () => pathToNode(doc.root, paintNode.id) ?? path,
+    [doc.root, paintNode.id, path],
+  );
+  const paintCtx = useMemo(() => deriveContext(paintPath), [paintPath]);
+  const paintRaiseTier = useMemo(
+    () => raiseTierForContext(paintCtx),
+    [paintCtx],
+  );
+  const raiseLabel = useMemo(
+    () =>
+      raiseBrushLabel(paintCtx, pushFold ? "push_fold" : "standard"),
+    [paintCtx, pushFold],
+  );
+  const activeBrush: PaintBrush = useMemo(() => {
+    if (brushMode === "mix" && !pushFold) {
+      return { mode: "mix", raise: mixRaise / 100, call: mixCall / 100 };
+    }
+    return { mode: "action", action: paintAction, weight: weight / 100 };
+  }, [brushMode, pushFold, mixRaise, mixCall, paintAction, weight]);
+
+  const mixFoldPct = Math.max(0, 100 - mixRaise - mixCall);
+
+  function setMixRaisePct(next: number) {
+    const r = clampPct(next);
+    setMixRaise(r);
+    setMixCall((c) => (r + c > 100 ? 100 - r : c));
+    setBrushMode("mix");
+  }
+
+  function setMixCallPct(next: number) {
+    const c = clampPct(next);
+    setMixCall(c);
+    setMixRaise((r) => (r + c > 100 ? 100 - c : r));
+    setBrushMode("mix");
+  }
+
+  function selectActionBrush(a: PaintAction) {
+    setPaintAction(a);
+    setBrushMode("action");
+  }
+
+  function raiseTierForNodeId(nodeId: string): RaisePaintTier {
+    const p = pathToNode(doc.root, nodeId);
+    if (!p) return "open";
+    return raiseTierForContext(deriveContext(p));
+  }
+
   /**
    * Два ренджа рядом: агрессор → ответчик в этой ветке.
    * UTG Raise | BTN Call/3-bet · BTN 3-bet | BB Call/4-bet и т.д.
@@ -418,13 +488,27 @@ export default function GtoTreeEditor({ strategy }: Props) {
     };
   }, [pushFold, rangeSpotViews, activeRangeSpot, doc.root]);
 
+  function currentBrush(): PaintBrush {
+    if (brushModeRef.current === "mix" && !pushFold) {
+      return {
+        mode: "mix",
+        raise: mixRaiseRef.current / 100,
+        call: mixCallRef.current / 100,
+      };
+    }
+    return {
+      mode: "action",
+      action: paintActionRef.current,
+      weight: weightRef.current / 100,
+    };
+  }
+
   function flushPendingPaints() {
     paintRafRef.current = 0;
     const pending = pendingStrokesRef.current;
     if (!pending.size) return;
     pendingStrokesRef.current = new Map();
-    const action = paintActionRef.current;
-    const w = weightRef.current / 100;
+    const brush = currentBrush();
     setDoc((prev) => {
       let next = prev;
       for (const [nodeId, hands] of pending) {
@@ -432,7 +516,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
           hand,
           erase,
         }));
-        next = paintHandBatch(next, nodeId, strokes, action, w);
+        next = paintHandBatchWithBrush(next, nodeId, strokes, brush);
       }
       return next;
     });
@@ -626,21 +710,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
     setTab("editor");
   }
 
+  /** Range list / bar: only switch paint target — never jump into «Ветка». */
   function onSelectRangeSpot(nodeId: string) {
-    // На флопе клик по позиции только переключает рендж — выход кнопкой «К построению».
-    if (awaitingFlop) {
-      setPaintNodeId(nodeId);
-      setSelectedHand(null);
-      return;
-    }
-    const node = findNode(doc.root, nodeId);
-    if (node && !node.awaitingFlop) {
-      // Спот = decision node позиции: вернуть построение после её действия
-      const tipPath = pathToNode(doc.root, activeId) ?? path;
-      const seat = node.activePlayer;
-      const resumeId = resumeNodeAfterSeat(tipPath, seat, nodeId);
-      if (resumeId) setActiveId(resumeId);
-    }
     setPaintNodeId(nodeId);
     setSelectedHand(null);
   }
@@ -868,27 +939,103 @@ export default function GtoTreeEditor({ strategy }: Props) {
 
           <div className="gto-paint-bar">
             <span className="gto-paint-label">Кисть</span>
-            {paintActions.map((a) => (
+            {paintActions.map((a) => {
+              const isRaise = a === "RAISE";
+              const label = isRaise
+                ? raiseLabel
+                : actionLabel(a, pushFold ? "push_fold" : "standard");
+              const tierClass = isRaise ? ` tier-${paintRaiseTier}` : "";
+              const active =
+                brushMode === "action" && paintAction === a
+                  ? " active"
+                  : "";
+              return (
+                <button
+                  key={a}
+                  type="button"
+                  className={`gto-paint ${a.toLowerCase()}${tierClass}${active}`}
+                  style={
+                    isRaise && brushMode === "action" && paintAction === a
+                      ? {
+                          background: raiseColorForTier(paintRaiseTier),
+                          borderColor: raiseColorForTier(paintRaiseTier),
+                          color: paintRaiseTier === "4bet" ? "#1a1400" : "#fff",
+                        }
+                      : isRaise
+                        ? { color: raiseColorForTier(paintRaiseTier) }
+                        : undefined
+                  }
+                  onClick={() => selectActionBrush(a)}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            {!pushFold ? (
               <button
-                key={a}
                 type="button"
-                className={`gto-paint ${a.toLowerCase()}${paintAction === a ? " active" : ""}`}
-                onClick={() => setPaintAction(a)}
+                className={`gto-paint mix${brushMode === "mix" ? " active" : ""}`}
+                onClick={() => setBrushMode("mix")}
               >
-                {actionLabel(a, pushFold ? "push_fold" : "standard")}
+                Микс R/C
               </button>
-            ))}
-            <span className="gto-paint-label">Частота</span>
-            {FREQ_WEIGHTS.map((w) => (
-              <button
-                key={w}
-                type="button"
-                className={`gto-freq${weight === w ? " active" : ""}`}
-                onClick={() => setWeight(w)}
-              >
-                {w}%
-              </button>
-            ))}
+            ) : null}
+
+            {brushMode === "mix" && !pushFold ? (
+              <>
+                <span className="gto-paint-label">Raise</span>
+                <input
+                  type="range"
+                  className="gto-mix-range raise"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={mixRaise}
+                  onChange={(e) => setMixRaisePct(Number(e.target.value))}
+                  aria-label="Raise %"
+                />
+                <strong className="gto-mix-val raise">{mixRaise}%</strong>
+                <span className="gto-paint-label">Call</span>
+                <input
+                  type="range"
+                  className="gto-mix-range call"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={mixCall}
+                  onChange={(e) => setMixCallPct(Number(e.target.value))}
+                  aria-label="Call %"
+                />
+                <strong className="gto-mix-val call">{mixCall}%</strong>
+                <span className="gto-mix-fold">Fold {mixFoldPct}%</span>
+              </>
+            ) : (
+              <>
+                <span className="gto-paint-label">Частота</span>
+                {FREQ_WEIGHTS.map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    className={`gto-freq${weight === w ? " active" : ""}`}
+                    onClick={() => setWeight(w)}
+                  >
+                    {w}%
+                  </button>
+                ))}
+                <input
+                  type="range"
+                  className="gto-mix-range freq"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={weight}
+                  onChange={(e) => setWeight(clampPct(Number(e.target.value)))}
+                  aria-label="Частота %"
+                />
+                <strong className="gto-mix-val">{weight}%</strong>
+              </>
+            )}
+
             <span className="gto-paint-hint">
               {activeRangeSpot
                 ? activeRangeSpot.label
@@ -922,6 +1069,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
                         ranges={dualRanges.raise.ranges}
                         paintAction={paintAction}
                         weight={weight}
+                        brush={activeBrush}
+                        raiseTier={raiseTierForNodeId(dualRanges.raise.nodeId)}
                         selected={
                           paintNode.id === dualRanges.raise.nodeId
                             ? selectedHand
@@ -955,6 +1104,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
                         ranges={dualRanges.call.ranges}
                         paintAction={paintAction}
                         weight={weight}
+                        brush={activeBrush}
+                        raiseTier={raiseTierForNodeId(dualRanges.call.nodeId)}
                         selected={
                           paintNode.id === dualRanges.call.nodeId
                             ? selectedHand
@@ -990,6 +1141,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
                       ranges={paintNode.ranges}
                       paintAction={paintAction}
                       weight={weight}
+                      brush={activeBrush}
+                      raiseTier={paintRaiseTier}
                       selected={selectedHand}
                       onPaint={onPaint}
                       onSelect={setSelectedHand}
@@ -1008,9 +1161,23 @@ export default function GtoTreeEditor({ strategy }: Props) {
               </p>
               <ul className="gto-range-list">
                 {stats.map((s) => (
-                  <li key={s.action} className={`gto-range-row ${s.action.toLowerCase()}`}>
+                  <li
+                    key={s.action}
+                    className={`gto-range-row ${s.action.toLowerCase()}${
+                      s.action === "RAISE" ? ` tier-${paintRaiseTier}` : ""
+                    }`}
+                    style={
+                      s.action === "RAISE"
+                        ? {
+                            borderLeftColor: raiseColorForTier(paintRaiseTier),
+                          }
+                        : undefined
+                    }
+                  >
                     <div>
-                      <strong>{s.label}</strong>
+                      <strong>
+                        {s.action === "RAISE" ? raiseLabel : s.label}
+                      </strong>
                       <span>{s.combos.toFixed(1)} combos</span>
                     </div>
                     <em>{s.pct.toFixed(1)}%</em>
@@ -1055,15 +1222,35 @@ export default function GtoTreeEditor({ strategy }: Props) {
                   <h3>{selectedHand}</h3>
                   {paintActions.map((a) => {
                     const v = paintNode.ranges[selectedHand]?.[a] ?? 0;
+                    const label =
+                      a === "RAISE"
+                        ? raiseLabel
+                        : actionLabel(a, pushFold ? "push_fold" : "standard");
                     return (
                       <div key={a} className="gto-hand-line">
-                        <span className={a.toLowerCase()}>
-                          {actionLabel(a, pushFold ? "push_fold" : "standard")}
+                        <span
+                          className={a.toLowerCase()}
+                          style={
+                            a === "RAISE"
+                              ? { color: raiseColorForTier(paintRaiseTier) }
+                              : undefined
+                          }
+                        >
+                          {label}
                         </span>
                         <strong>{Math.round(v * 100)}%</strong>
                       </div>
                     );
                   })}
+                  {!pushFold ? (
+                    <p className="gto-sidebar-hint">
+                      Микс: Raise {Math.round((paintNode.ranges[selectedHand]?.RAISE ?? 0) * 100)}%
+                      {" · "}
+                      Call {Math.round((paintNode.ranges[selectedHand]?.CALL ?? 0) * 100)}%
+                      {" · "}
+                      Fold {Math.round((paintNode.ranges[selectedHand]?.FOLD ?? 1) * 100)}%
+                    </p>
+                  ) : null}
                 </div>
               ) : (
                 <p className="gto-sidebar-hint">
