@@ -17,14 +17,15 @@ type Props = {
   revision?: number;
 };
 
-type RecSub = "discipline" | "damage" | "pot" | "plan" | "grade";
+type RecSub = "top" | "discipline" | "damage" | "pot" | "plan" | "grade";
 
 const SUBS: { id: RecSub; label: string }[] = [
-  { id: "discipline", label: "Префлоп-математика" },
+  { id: "top", label: "Топ-5 ошибок" },
+  { id: "discipline", label: "Дисциплина" },
   { id: "damage", label: "Дорогие лики" },
-  { id: "pot", label: "Математика банка" },
-  { id: "plan", label: "План на игру" },
-  { id: "grade", label: "Оценка игры" },
+  { id: "pot", label: "Банк" },
+  { id: "plan", label: "План" },
+  { id: "grade", label: "Оценка" },
 ];
 
 function fmtHudValue(item: HudEvalItem) {
@@ -174,7 +175,7 @@ function HandCard({
 }
 
 export default function RecommendationsPanel({ strategyId, revision = 0 }: Props) {
-  const [sub, setSub] = useState<RecSub>("discipline");
+  const [sub, setSub] = useState<RecSub>("top");
   const [data, setData] = useState<RecommendationsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState<string | null>(null);
@@ -246,8 +247,8 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
     const base =
       progress ||
       (source === "local"
-        ? "Считаем математику по текущей сессии…"
-        : "Считаем математику по раздачам в базе…");
+        ? "Считаем отчёт по текущей сессии…"
+        : "Считаем отчёт по раздачам в базе…");
     return (
       <p className="muted">
         {base}
@@ -267,7 +268,7 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
     return (
       <div className="rec-panel">
         <header className="rec-head">
-          <h2>Математика</h2>
+          <h2>Отчёт</h2>
           <p className="muted">
             {source === "local"
               ? "В текущей сессии нет раздач. Загрузите историю на странице Анализ."
@@ -283,14 +284,14 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
       <header className="rec-head">
         <div className="rec-head-row">
           <div>
-            <h2>Математика</h2>
+            <h2>Отчёт</h2>
             <p className="muted">
               Разбор{" "}
               <strong>
                 {source === "local" ? "текущей сессии" : "активной сессии в базе"}
               </strong>
-              : pot odds, эквити, базовые пороги — без привязки к вашим чартам. Сверка со
-              стратегией — во вкладке «Стратегии».{" "}
+              : топ ошибок и ключевые цифры из уже посчитанного отчёта. Сверка с
+              чартами — во вкладке «Стратегии».{" "}
               {typeof handsInDb === "number" ? (
                 <>
                   Раздач: <strong>{handsInDb.toLocaleString("ru-RU")}</strong>
@@ -322,7 +323,7 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
         </div>
       </header>
 
-      <div className="preflop-subtabs" role="tablist" aria-label="Математика">
+      <div className="preflop-subtabs" role="tablist" aria-label="Отчёт">
         {SUBS.map((s) => (
           <button
             key={s.id}
@@ -337,11 +338,36 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
         ))}
       </div>
 
+      {sub === "top" ? (
+        <section className="rec-section">
+          <h3>Топ-5 ошибок</h3>
+          <p className="muted rec-lead">
+            Самые дорогие −EV решения из уже посчитанного отчёта по базе / сессии.
+          </p>
+          {data.critical_damage.length === 0 ? (
+            <p className="rec-empty">Критических ошибок не найдено.</p>
+          ) : (
+            <ul className="rec-list rec-list-damage">
+              {[...data.critical_damage]
+                .sort((a, b) => b.lost_money - a.lost_money)
+                .slice(0, 5)
+                .map((item) => (
+                  <HandCard
+                    key={`${item.hand_id}-top`}
+                    item={item}
+                    onOpen={(id) => openHand(data.critical_damage, id)}
+                  />
+                ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+
       {sub === "discipline" ? (
         <section className="rec-section">
-          <h3>Префлоп-математика</h3>
+          <h3>Дисциплина</h3>
           <p className="muted rec-lead">
-            Дорогие −EV коллы и слишком широкие открытие по позиционным порогам и pot odds.
+            Дорогие −EV коллы и слишком широкие открытия по позиционным порогам и pot odds.
           </p>
           {data.discipline.length === 0 ? (
             <p className="rec-empty">Префлоп −EV спотов не найдено.</p>
@@ -369,7 +395,10 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
             <p className="rec-empty">Крупных −EV ликов в загруженных раздачах не найдено.</p>
           ) : (
             <ul className="rec-list rec-list-damage">
-              {data.critical_damage.map((item) => (
+              {[...data.critical_damage]
+                .sort((a, b) => b.lost_money - a.lost_money)
+                .slice(0, 5)
+                .map((item) => (
                 <HandCard
                   key={`${item.hand_id}-dmg`}
                   item={item}
@@ -383,7 +412,7 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
 
       {sub === "pot" ? (
         <section className="rec-section">
-          <h3>Математика банка</h3>
+          <h3>Банк</h3>
           <p className="muted rec-lead">
             Коллы с дро на постфлопе, где pot odds выше equity (правило аутов ×2).
           </p>
@@ -435,7 +464,7 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
                   <p>{data.evaluation.summary}</p>
                   <div className="rec-grade-split">
                     <span>
-                      Математика <b>{data.evaluation.math_score.toFixed(1)}</b>
+                      Отчёт <b>{data.evaluation.math_score.toFixed(1)}</b>
                     </span>
                     <span>
                       HUD <b>{data.evaluation.hud_score.toFixed(1)}</b>

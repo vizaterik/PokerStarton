@@ -4,6 +4,7 @@ import type { StrategyDetail } from "../../api/client";
 import { getStrategyTree, putStrategyTree } from "../../api/client";
 import {
   alignDocMeta,
+  closedBranchTip,
   commitAction,
   commitWithAutoFolds,
   deleteBranch,
@@ -303,17 +304,33 @@ export default function GtoTreeEditor({ strategy }: Props) {
     const p = pathToNode(doc.root, rawPaint.id);
     return p && p.length >= 2 ? p[p.length - 2] : rawPaint;
   }, [rawPaint, doc.root]);
+  /** Finished line tip — range clicks paint only (no seat-by-seat rewind). */
+  const closedTip = useMemo(
+    () => closedBranchTip(doc.root, activeId),
+    [doc.root, activeId],
+  );
+  /** Path used for construction windows (follows activeId). */
   const path = useMemo(
     () => pathToNode(doc.root, active.id) ?? [doc.root],
     [doc.root, active.id],
   );
+  /** Full closed-line path for dual ranges / spot chips when the branch exists. */
+  const linePath = useMemo(() => {
+    if (closedTip) return pathToNode(doc.root, closedTip.id) ?? path;
+    return path;
+  }, [doc.root, closedTip, path]);
   const windows = useMemo(
     () => buildSeatWindows(path, active, doc.stackDepth, doc.tableSize),
     [path, active, doc.stackDepth, doc.tableSize],
   );
   const history = useMemo(
-    () => historyChainText(path, active, doc.stackDepth),
-    [path, active, doc.stackDepth],
+    () =>
+      historyChainText(
+        linePath,
+        closedTip && active.awaitingFlop ? closedTip : active,
+        doc.stackDepth,
+      ),
+    [linePath, closedTip, active, doc.stackDepth],
   );
 
   const stats = useMemo(() => {
@@ -339,13 +356,13 @@ export default function GtoTreeEditor({ strategy }: Props) {
   );
   /** Decision seats on the current line — full F/C/R mix per seat */
   const rangeSpots = useMemo(() => {
-    const all = branchRangeSpots(path, doc.stackDepth);
+    const all = branchRangeSpots(linePath, doc.stackDepth);
     // Closed branch: only seats that saw the flop (no fold noise)
-    if (active.awaitingFlop) {
+    if (closedTip || active.awaitingFlop) {
       return all.filter((s) => s.lineAction === "RAISE" || s.lineAction === "CALL");
     }
     return all;
-  }, [path, doc.stackDepth, active.awaitingFlop]);
+  }, [linePath, doc.stackDepth, closedTip, active.awaitingFlop]);
   const rangeSpotViews = useMemo(
     () =>
       rangeSpots.map((spot) => {
@@ -418,8 +435,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
 
   /**
    * Два ренджа рядом: агрессор → ответчик в этой ветке.
-   * UTG Raise | BTN Call/3-bet · BTN 3-bet | BB Call/4-bet и т.д.
-   * Правый спот — следующий Call или Raise после левого Raise (фолды пропускаем).
+   * На закрытой линии пара фиксирована (последний рейз + ответ), чтобы клик
+   * по соседнему ренджу только менял кисть, а не «ходил» по ветке.
    */
   const dualRanges = useMemo(() => {
     if (pushFold || rangeSpotViews.length < 2) return null;
@@ -438,19 +455,39 @@ export default function GtoTreeEditor({ strategy }: Props) {
     let left = null as (typeof rangeSpotViews)[number] | null;
     let right = null as (typeof rangeSpotViews)[number] | null;
 
-    if (activeRangeSpot?.lineAction === "RAISE") {
+    // Closed line: lock the raise→response pair that contains the paint target
+    // (or the last such pair), so switching paint never collapses dual view.
+    if (closedTip) {
+      const paintIdx = rangeSpotViews.findIndex((s) => s.nodeId === paintNode.id);
+      if (paintIdx >= 0 && rangeSpotViews[paintIdx].lineAction === "RAISE") {
+        left = rangeSpotViews[paintIdx];
+        right = nextFacing(paintIdx);
+      } else if (paintIdx >= 0) {
+        right = rangeSpotViews[paintIdx];
+        left = prevRaise(paintIdx);
+      }
+      if (!left || !right) {
+        for (let i = rangeSpotViews.length - 1; i >= 0; i -= 1) {
+          if (rangeSpotViews[i].lineAction !== "RAISE") continue;
+          const facing = nextFacing(i);
+          if (facing) {
+            left = rangeSpotViews[i];
+            right = facing;
+            break;
+          }
+        }
+      }
+    } else if (activeRangeSpot?.lineAction === "RAISE") {
       left =
         rangeSpotViews.find((s) => s.nodeId === activeRangeSpot.nodeId) ?? null;
       const idx = rangeSpotViews.findIndex((s) => s.nodeId === left?.nodeId);
       right = idx >= 0 ? nextFacing(idx) : null;
     } else if (activeRangeSpot && isDecision(activeRangeSpot)) {
-      // Call / ответчик: слева рейз, на который он отвечает
       right =
         rangeSpotViews.find((s) => s.nodeId === activeRangeSpot.nodeId) ?? null;
       const idx = rangeSpotViews.findIndex((s) => s.nodeId === right?.nodeId);
       left = idx >= 0 ? prevRaise(idx) : null;
     } else {
-      // По умолчанию — последний рейз на линии, у которого есть ответчик
       for (let i = rangeSpotViews.length - 1; i >= 0; i -= 1) {
         if (rangeSpotViews[i].lineAction !== "RAISE") continue;
         const facing = nextFacing(i);
@@ -486,7 +523,7 @@ export default function GtoTreeEditor({ strategy }: Props) {
         callPct: right.callPct,
       },
     };
-  }, [pushFold, rangeSpotViews, activeRangeSpot, doc.root]);
+  }, [pushFold, rangeSpotViews, activeRangeSpot, closedTip, paintNode.id, doc.root]);
 
   function currentBrush(): PaintBrush {
     if (brushModeRef.current === "mix" && !pushFold) {
@@ -659,10 +696,27 @@ export default function GtoTreeEditor({ strategy }: Props) {
     setSelectedHand(null);
   }
 
-  /** Open full seat range — и вернуть построение после этой позиции. */
+  /** Open full seat range — on a formed branch only switch paint (no line walk). */
   function onEditRange(position: Seat) {
     const win = windows.find((w) => w.seat === position);
     if (!win) return;
+
+    const tip = closedTip ?? closedBranchTip(doc.root, activeId);
+    if (tip) {
+      const tipPath = pathToNode(doc.root, tip.id) ?? linePath;
+      const spots = branchRangeSpots(tipPath, doc.stackDepth).filter(
+        (s) => s.lineAction === "RAISE" || s.lineAction === "CALL",
+      );
+      const spot =
+        spots.find((s) => s.seat === position && s.nodeId === win.nodeId) ||
+        spots.find((s) => s.seat === position);
+      if (spot) {
+        setActiveId(tip.id);
+        setPaintNodeId(spot.nodeId);
+        setSelectedHand(null);
+        return;
+      }
+    }
 
     const past =
       win.status === "locked" ||
@@ -670,10 +724,8 @@ export default function GtoTreeEditor({ strategy }: Props) {
       win.status === "auto-folded";
 
     if (win.nodeId && past) {
-      // Полный path до tip (даже если active — mid-line): ищем действие позиции
-      const tipPath =
-        pathToNode(doc.root, activeId) ??
-        path;
+      // Incomplete line only: resume construction after this seat
+      const tipPath = pathToNode(doc.root, activeId) ?? path;
       const resumeId = resumeNodeAfterSeat(tipPath, position, win.nodeId);
       if (resumeId) {
         setActiveId(resumeId);
@@ -696,8 +748,15 @@ export default function GtoTreeEditor({ strategy }: Props) {
     setSelectedHand(null);
   }
 
-  /** History chip: navigate into that spot without deleting sibling branches. */
+  /** History chip: on a formed branch → paint only; otherwise navigate. */
   function onRewind(nodeId: string) {
+    const tip = closedTip ?? closedBranchTip(doc.root, activeId);
+    if (tip) {
+      setActiveId(tip.id);
+      setPaintNodeId(nodeId);
+      setSelectedHand(null);
+      return;
+    }
     setActiveId(nodeId);
     setPaintNodeId(nodeId);
     setSelectedHand(null);
@@ -738,8 +797,10 @@ export default function GtoTreeEditor({ strategy }: Props) {
     setTab("editor");
   }
 
-  /** Range list / bar: only switch paint target — never jump into «Ветка». */
+  /** Range list / bar: only switch paint target — pin closed tip so UI stays painting. */
   function onSelectRangeSpot(nodeId: string) {
+    const tip = closedTip ?? closedBranchTip(doc.root, activeId);
+    if (tip) setActiveId(tip.id);
     setPaintNodeId(nodeId);
     setSelectedHand(null);
   }

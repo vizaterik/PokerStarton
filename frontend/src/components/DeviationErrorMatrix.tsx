@@ -1,5 +1,11 @@
+import type { CSSProperties } from "react";
 import { handCodeAt, RANKS } from "../lib/handMatrix";
 import type { ChartErrorCell } from "../api/client";
+import {
+  raiseColorForTier,
+  raiseLegendLabel,
+  type RaisePaintTier,
+} from "../lib/gameTree/paintColors";
 
 type Props = {
   cells: ChartErrorCell[];
@@ -8,6 +14,8 @@ type Props = {
   /** Tooltip noun — «ошибка» or «разд.» for played range. */
   countNoun?: string;
   ariaLabel?: string;
+  /** Raise band color: open / 3-bet / 4-bet */
+  raiseTier?: RaisePaintTier;
 };
 
 function actionCounts(cell: ChartErrorCell) {
@@ -17,7 +25,7 @@ function actionCounts(cell: ChartErrorCell) {
   const total = raise + call + fold;
   // Fallback for older payloads without breakdown
   if (total === 0 && (cell.errors ?? 0) > 0) {
-    const act = cell.actual_action;
+    const act = (cell.actual_action || "").toLowerCase();
     if (act === "raise") raise = cell.errors;
     else if (act === "call") call = cell.errors;
     else if (act === "fold") fold = cell.errors;
@@ -25,18 +33,24 @@ function actionCounts(cell: ChartErrorCell) {
   return { raise, call, fold, total: raise + call + fold };
 }
 
-/** Error matrix: raise=red, call=green, fold=blue; mix by error action share + count. */
+/** Error matrix: raise tier (open/3bet/4bet), call=green, fold=blue. */
 export default function DeviationErrorMatrix({
   cells,
   selectedHand = null,
   onSelectHand,
   countNoun = "ошибка",
   ariaLabel = "Матрица ошибок",
+  raiseTier = "open",
 }: Props) {
   const byCode = new Map(cells.map((c) => [c.hand_code, c]));
+  const raiseHex = raiseColorForTier(raiseTier);
 
   return (
-    <div className="dev-error-matrix" aria-label={ariaLabel}>
+    <div
+      className={`dev-error-matrix tier-${raiseTier}`}
+      style={{ ["--raise" as string]: raiseHex } as CSSProperties}
+      aria-label={ariaLabel}
+    >
       <div className="dev-error-matrix-corner" />
       {RANKS.map((rank) => (
         <div key={`c-${rank}`} className="dev-error-matrix-label">
@@ -75,7 +89,7 @@ export default function DeviationErrorMatrix({
                 {total > 0 ? (
                   <span className="dev-error-matrix-bars" aria-hidden="true">
                     {raise > 0 ? (
-                      <i className="bar raise" style={{ flex: raise }} />
+                      <i className="bar raise" style={{ flex: raise, background: raiseHex }} />
                     ) : null}
                     {call > 0 ? (
                       <i className="bar call" style={{ flex: call }} />
@@ -96,7 +110,7 @@ export default function DeviationErrorMatrix({
       ))}
       <div className="dev-error-matrix-legend">
         <span>
-          <i className="lg raise" /> Raise
+          <i className="lg raise" style={{ background: raiseHex }} /> {raiseLegendLabel(raiseTier)}
         </span>
         <span>
           <i className="lg call" /> Call

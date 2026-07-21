@@ -44,3 +44,26 @@ export function raiseBrushLabel(
 export function raiseTierForContext(ctx: SpotContext): RaisePaintTier {
   return raiseTierFromLabel(nextRaiseLabel(ctx.raiseCount, ctx.callersAfterRaise));
 }
+
+/** Analysis / strategy chart spot_key → raise color tier. */
+export function raiseTierFromSpotKey(spotKey: string | null | undefined): RaisePaintTier {
+  const k = (spotKey || "").toLowerCase();
+  if (k.includes("4bet") || k.includes("4_bet") || k.includes("allin") || k.includes("all_in")) {
+    return "4bet";
+  }
+  if (
+    k.includes("3bet") ||
+    k.includes("3_bet") ||
+    k.includes("squeeze") ||
+    k === "vs_3bet"
+  ) {
+    return "3bet";
+  }
+  return "open";
+}
+
+export function raiseLegendLabel(tier: RaisePaintTier): string {
+  if (tier === "3bet") return "3-bet";
+  if (tier === "4bet") return "4-bet";
+  return "Raise";
+}

@@ -1,5 +1,10 @@
-import { useRef } from "react";
+import { useRef, type CSSProperties } from "react";
 import { CellFreq, handCodeAt, RANKS } from "../lib/handMatrix";
+import {
+  raiseColorForTier,
+  raiseLegendLabel,
+  type RaisePaintTier,
+} from "../lib/gameTree/paintColors";
 
 type Props = {
   cells: Record<string, CellFreq>;
@@ -7,6 +12,8 @@ type Props = {
   onPaint: (handCode: string, phase: "start" | "drag") => void;
   onSelect?: (handCode: string) => void;
   disabled?: boolean;
+  /** Raise band color: open / 3-bet / 4-bet */
+  raiseTier?: RaisePaintTier;
 };
 
 function cellTitle(code: string, cell: CellFreq) {
@@ -27,8 +34,16 @@ function cellBadge(cell: CellFreq): string | null {
   return String(Math.round(c * 100));
 }
 
-export default function RangeMatrix({ cells, selected, onPaint, onSelect, disabled }: Props) {
+export default function RangeMatrix({
+  cells,
+  selected,
+  onPaint,
+  onSelect,
+  disabled,
+  raiseTier = "open",
+}: Props) {
   const painting = useRef(false);
+  const raiseHex = raiseColorForTier(raiseTier);
 
   function paint(row: number, col: number, phase: "start" | "drag") {
     const code = handCodeAt(row, col);
@@ -39,7 +54,8 @@ export default function RangeMatrix({ cells, selected, onPaint, onSelect, disabl
 
   return (
     <div
-      className={`range-matrix${disabled ? " is-readonly" : ""}`}
+      className={`range-matrix${disabled ? " is-readonly" : ""} tier-${raiseTier}`}
+      style={{ ["--raise" as string]: raiseHex } as CSSProperties}
       onMouseLeave={() => {
         painting.current = false;
       }}
@@ -96,7 +112,7 @@ export default function RangeMatrix({ cells, selected, onPaint, onSelect, disabl
       ))}
       <div className="range-matrix-legend">
         <span>
-          <i className="lg raise" /> Raise
+          <i className="lg raise" style={{ background: raiseHex }} /> {raiseLegendLabel(raiseTier)}
         </span>
         <span>
           <i className="lg call" /> Call

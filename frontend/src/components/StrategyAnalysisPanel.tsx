@@ -82,6 +82,7 @@ import { clearResultsCache } from "../lib/resultsCache";
 import { warmHandDbAndResultsCache } from "../lib/warmCaches";
 import AnalysisBgWait from "./AnalysisBgWait";
 import AnalysisCalcProgress from "./AnalysisCalcProgress";
+import { raiseTierFromSpotKey } from "../lib/gameTree/paintColors";
 import DeviationErrorMatrix from "./DeviationErrorMatrix";
 import HandReplayModal from "./HandReplayModal";
 import H2nPerformanceChart, { analysisCurveToH2n } from "./H2nPerformanceChart";
@@ -1233,6 +1234,17 @@ export default function StrategyAnalysisPanel({
     );
   }, [liveDevs, errorFilter, paintedTreeBranches]);
 
+  /** Top-5 by severity (then EV loss) — fully scored chart deviations only. */
+  const topErrors = useMemo(() => {
+    return [...filteredDevs]
+      .sort((a, b) => {
+        const sev = (b.severity ?? 0) - (a.severity ?? 0);
+        if (Math.abs(sev) > 1e-9) return sev;
+        return (b.missed_ev_money ?? 0) - (a.missed_ev_money ?? 0);
+      })
+      .slice(0, 5);
+  }, [filteredDevs]);
+
   /** Painted strategy branches that actually appeared in the session (VPIP). */
   const branchScoreRows = useMemo(() => {
     if (!strategyTabLive) return [];
@@ -2288,6 +2300,7 @@ export default function StrategyAnalysisPanel({
                           <StrategyChartPreview
                             cells={strategyCells}
                             selected={selectedHand}
+                            raiseTier={raiseTierFromSpotKey(focusRow.spot_key)}
                             emptyHint={
                               focusMissing
                                 ? "Нет чарта — нажми + чтобы добавить ветку"
@@ -2319,6 +2332,7 @@ export default function StrategyAnalysisPanel({
                           selectedHand={selectedHand}
                           countNoun="разд."
                           ariaLabel="VPIP диапазон"
+                          raiseTier={raiseTierFromSpotKey(focusRow.spot_key)}
                           onSelectHand={(code) => {
                             selectCombo(code, {
                               spotKey: focusRow.spot_key,
@@ -2539,6 +2553,7 @@ export default function StrategyAnalysisPanel({
                       <StrategyChartPreview
                         cells={strategyChart}
                         selected={selectedHand}
+                        raiseTier={raiseTierFromSpotKey(activeChart.spot_key)}
                         onSelectHand={(code) => {
                           const mu =
                             errorFilter.matchup ||
@@ -2572,6 +2587,7 @@ export default function StrategyAnalysisPanel({
                     <DeviationErrorMatrix
                       cells={activeChart.cells}
                       selectedHand={selectedHand}
+                      raiseTier={raiseTierFromSpotKey(activeChart.spot_key)}
                       onSelectHand={(code) => {
                         const mu =
                           errorFilter.matchup ||
@@ -2605,12 +2621,14 @@ export default function StrategyAnalysisPanel({
         </div>
 
         <h3 className="analysis-subhead">
-          Список ошибок
+          Топ-5 ошибок
           <span className="err-count">
-            {filterActive ? ` · ${filteredDevs.length}` : ` · ${liveDevs.deviations.length}`}
+            {filterActive
+              ? ` · ${Math.min(5, filteredDevs.length)} / ${filteredDevs.length}`
+              : ` · ${Math.min(5, liveDevs.deviations.length)} / ${liveDevs.deviations.length}`}
           </span>
         </h3>
-        {filteredDevs.length === 0 ? (
+        {topErrors.length === 0 ? (
           <p className="muted">
             {liveDevs.deviations.length === 0
               ? "Ошибок нет — все префлоп-решения совпали с чартами."
@@ -2631,7 +2649,7 @@ export default function StrategyAnalysisPanel({
                 </tr>
               </thead>
               <tbody>
-                {filteredDevs.map((d) => (
+                {topErrors.map((d) => (
                   <tr
                     key={d.id}
                     className="clickable-row"
@@ -2652,8 +2670,12 @@ export default function StrategyAnalysisPanel({
                         </em>
                       </span>
                     </td>
-                    <td className={`act ${d.actual_action}`}>{d.actual_action}</td>
-                    <td className={`act ${d.expected_action}`}>{d.expected_action}</td>
+                    <td className={`act ${(d.actual_action || "").toLowerCase()}`}>
+                      {d.actual_action}
+                    </td>
+                    <td className={`act ${(d.expected_action || "").toLowerCase()}`}>
+                      {d.expected_action}
+                    </td>
                     <td>{freqPct(d.expected_freq)}</td>
                     <td>{d.severity == null ? "—" : d.severity.toFixed(2)}</td>
                     <td className={d.hero_net_bb >= 0 ? "pos" : "neg"}>
@@ -2711,9 +2733,9 @@ export default function StrategyAnalysisPanel({
           aria-selected={tab === "recommendations"}
           className={tab === "recommendations" ? "active" : ""}
           onClick={() => setTab("recommendations")}
-          title="Математический разбор сессии: pot odds, эквити, базовые пороги"
+          title="Отчёт по сессии из базы: топ ошибок, pot odds, оценка"
         >
-          Математика
+          Отчёт
         </button>
       </div>
 

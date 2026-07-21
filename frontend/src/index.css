@@ -10,9 +10,11 @@
   --line: #262626;
   --line-soft: #1c1c1c;
   --danger: #ff6b6b;
-  --raise: #ff5a5a;
-  --call: #3dd68c;
-  --fold: #5b8def;
+  --raise: #ef4444;
+  --raise-3bet: #a855f7;
+  --raise-4bet: #eab308;
+  --call: #22c55e;
+  --fold: #2563eb;
   --glow: rgba(136, 249, 145, 0.22);
   /* Плавный easing для hover/active кнопок */
   --ease-out-smooth: cubic-bezier(0.22, 1, 0.36, 1);

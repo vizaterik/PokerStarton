@@ -149,6 +149,45 @@ export function pathToNode(root: GameTreeNode, nodeId: string): GameTreeNode[] |
 }
 
 /**
+ * Flop tip of a finished line that contains `activeId`.
+ * Used so range clicks only switch the paint target and never rewind
+ * construction through seats on an already-formed branch.
+ */
+export function closedBranchTip(
+  root: GameTreeNode,
+  activeId: string,
+): GameTreeNode | null {
+  const path = pathToNode(root, activeId);
+  if (!path?.length) return null;
+  const last = path[path.length - 1];
+  if (last.awaitingFlop) return last;
+
+  // After «К построению» active sits on the last decision; tip is its child.
+  const direct = last.children.find((c) => c.awaitingFlop);
+  if (direct) return direct;
+
+  // Mid-line after history/seat resume: walk toward an awaitingFlop tip.
+  let node: GameTreeNode = last;
+  for (let g = 0; g < 16; g += 1) {
+    const tip = node.children.find((c) => c.awaitingFlop);
+    if (tip) return tip;
+    if (node.children.length === 1) {
+      node = node.children[0];
+      continue;
+    }
+    const towardFlop = node.children.find(
+      (c) =>
+        c.awaitingFlop ||
+        c.children.some((x) => x.awaitingFlop || x.children.some((y) => y.awaitingFlop)),
+    );
+    if (!towardFlop) break;
+    if (towardFlop.awaitingFlop) return towardFlop;
+    node = towardFlop;
+  }
+  return null;
+}
+
+/**
  * Ribbon badges: completed actions + current turn.
  * Sizing text is always derived from the live path (parent edits update labels).
  */
