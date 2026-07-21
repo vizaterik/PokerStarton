@@ -17,14 +17,12 @@ type Props = {
   revision?: number;
 };
 
-type RecSub = "top" | "discipline" | "damage" | "pot" | "plan" | "grade";
+type RecSub = "top" | "damage" | "pot" | "grade";
 
 const SUBS: { id: RecSub; label: string }[] = [
   { id: "top", label: "Топ-5 ошибок" },
-  { id: "discipline", label: "Дисциплина" },
-  { id: "damage", label: "Дорогие лики" },
-  { id: "pot", label: "Банк" },
-  { id: "plan", label: "План" },
+  { id: "damage", label: "−EV $" },
+  { id: "pot", label: "Pot odds" },
   { id: "grade", label: "Оценка" },
 ];
 
@@ -286,23 +284,22 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
           <div>
             <h2>Отчёт</h2>
             <p className="muted">
-              Разбор{" "}
+              Сухая математика по{" "}
               <strong>
-                {source === "local" ? "текущей сессии" : "активной сессии в базе"}
+                {source === "local" ? "текущей сессии" : "активной базе"}
               </strong>
-              : топ ошибок и ключевые цифры из уже посчитанного отчёта. Сверка с
-              чартами — во вкладке «Стратегии».{" "}
+              : −EV, pot odds, оценка. Сверка с чартами — «Стратегии».{" "}
               {typeof handsInDb === "number" ? (
                 <>
                   Раздач: <strong>{handsInDb.toLocaleString("ru-RU")}</strong>
                   {" · "}
                 </>
               ) : null}
-              замечаний: <strong>{data.math_errors}</strong>
+              −EV спотов: <strong>{data.math_errors}</strong>
               {data.total_damage_money > 0 ? (
                 <>
                   {" "}
-                  · дорогие лики ≈{" "}
+                  · сумма ≈{" "}
                   <strong className="rec-loss">${data.total_damage_money.toFixed(2)}</strong>
                 </>
               ) : null}
@@ -342,7 +339,7 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
         <section className="rec-section">
           <h3>Топ-5 ошибок</h3>
           <p className="muted rec-lead">
-            Самые дорогие −EV решения из уже посчитанного отчёта по базе / сессии.
+            Максимальный −EV / потеря $ по уже посчитанному отчёту сессии.
           </p>
           {data.critical_damage.length === 0 ? (
             <p className="rec-empty">Критических ошибок не найдено.</p>
@@ -363,36 +360,14 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
         </section>
       ) : null}
 
-      {sub === "discipline" ? (
-        <section className="rec-section">
-          <h3>Дисциплина</h3>
-          <p className="muted rec-lead">
-            Дорогие −EV коллы и слишком широкие открытия по позиционным порогам и pot odds.
-          </p>
-          {data.discipline.length === 0 ? (
-            <p className="rec-empty">Префлоп −EV спотов не найдено.</p>
-          ) : (
-            <ul className="rec-list">
-              {data.discipline.map((item) => (
-                <HandCard
-                  key={`${item.hand_id}-pf`}
-                  item={item}
-                  onOpen={(id) => openHand(data.discipline, id)}
-                />
-              ))}
-            </ul>
-          )}
-        </section>
-      ) : null}
-
       {sub === "damage" ? (
         <section className="rec-section">
-          <h3>Дорогие лики</h3>
+          <h3>−EV $</h3>
           <p className="muted rec-lead">
-            Топ спотов, где −EV решение сильнее всего ударило по стеку.
+            Споты с наибольшей потерей в деньгах (lost $ / −EV).
           </p>
           {data.critical_damage.length === 0 ? (
-            <p className="rec-empty">Крупных −EV ликов в загруженных раздачах не найдено.</p>
+            <p className="rec-empty">−EV спотов не найдено.</p>
           ) : (
             <ul className="rec-list rec-list-damage">
               {[...data.critical_damage]
@@ -412,9 +387,9 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
 
       {sub === "pot" ? (
         <section className="rec-section">
-          <h3>Банк</h3>
+          <h3>Pot odds</h3>
           <p className="muted rec-lead">
-            Коллы с дро на постфлопе, где pot odds выше equity (правило аутов ×2).
+            Коллы с дро: pot odds % vs equity % (outs × 2).
           </p>
           {data.pot_odds.length === 0 ? (
             <p className="rec-empty">−EV коллов с дро не найдено.</p>
@@ -432,24 +407,9 @@ export default function RecommendationsPanel({ strategyId, revision = 0 }: Props
         </section>
       ) : null}
 
-      {sub === "plan" ? (
-        <section className="rec-section">
-          <h3>План на игру</h3>
-          <p className="muted rec-lead">Чек-лист на следующую сессию по вашим самым дорогим математическим ошибкам.</p>
-          <ol className="rec-plan">
-            {data.plan.map((item) => (
-              <li key={item.priority}>
-                <span className="rec-plan-num">{item.priority}</span>
-                <p>{item.text}</p>
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : null}
-
       {sub === "grade" ? (
         <section className="rec-section">
-          <h3>Оценка игры</h3>
+          <h3>Оценка</h3>
           {!data.evaluation ? (
             <p className="rec-empty">Недостаточно данных для оценки.</p>
           ) : (
