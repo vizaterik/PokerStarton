@@ -788,16 +788,8 @@ export default function StrategyAnalysisPanel({
     };
 
     if (analysisSuspended || isAnalysisJobRunning(strategyId)) {
+      // Keep last report on screen — never wipe into a fake full-screen splash.
       stopAnalysisRun();
-      setLoading(true);
-      setDevsLoading(true);
-      setData(null);
-      setDevs(null);
-      setStrategySpots([]);
-      setMissingSpots([]);
-      setSelectedChartKey(null);
-      setSelectedHand(null);
-      setErrorFilter({});
       return;
     }
 
@@ -1746,8 +1738,7 @@ export default function StrategyAnalysisPanel({
   const hasReport = Boolean(data && data.hands > 0);
   const progressHands = pendingHandTotal ?? localPendingHands ?? handTotal ?? data?.hands ?? null;
 
-  // Full-screen wait only when there is nothing to show yet.
-  // If a report already exists, keep it visible and put progress above.
+  // First-time import only: real job progress. Never a fake idle splash.
   if (waitingOnBgJob && !hasReport) {
     return (
       <AnalysisBgWait

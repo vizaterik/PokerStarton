@@ -115,7 +115,10 @@ export default function PreflopActionSelector({
           const dimmed =
             win.status === "auto-folded" || win.status === "folded";
           const past = alreadyActed(win);
-          const isEditing = editingSeat === win.seat;
+          // White «paint target» frame only on seats still open — never override
+          // a locked seat's raise/call/fold color after the action.
+          const isPaintTarget = editingSeat === win.seat;
+          const isEditing = isPaintTarget && !past;
           const isHovered = hoveredSeat === win.seat;
           const tone = win.status === "active" ? "none" : win.borderTone;
           const canOpenRange =
@@ -133,6 +136,7 @@ export default function PreflopActionSelector({
                 `mwb-status-${win.status}`,
                 dimmed ? "is-dimmed" : "",
                 isEditing ? "is-editing" : "",
+                isPaintTarget && past ? "is-paint-target" : "",
                 isHovered ? "is-hovered" : "",
                 canOpenRange ? "is-clickable" : "",
               ]

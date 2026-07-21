@@ -6,7 +6,6 @@ import {
   type BatchUploadReport,
   type Strategy,
 } from "../api/client";
-import AnalysisBgWait from "../components/AnalysisBgWait";
 import SessionUploadPanel from "../components/SessionUploadPanel";
 import StrategyAnalysisPanel from "../components/StrategyAnalysisPanel";
 import {
@@ -96,7 +95,8 @@ export default function AnalysisPage() {
       return;
     }
     let cancelled = false;
-    setDbReady(false);
+    // Do NOT flip dbReady off on every revision — that unmounted the panel
+    // and flashed a fake AnalysisBgWait splash.
     void (async () => {
       try {
         // Pull profile DB into IndexedDB when local Analysis is behind.
@@ -375,13 +375,11 @@ export default function AnalysisPage() {
               разбором.
             </p>
           </div>
-        ) : !dbReady ? (
-          <div className="analysis-page-results">
-            <AnalysisBgWait pendingHands={localHands ?? pendingHandTotal ?? job.hands} />
-          </div>
         ) : (
           <div className="analysis-page-results">
-            {/* Keep panel mounted during job — progress lives inside, report does not vanish. */}
+            {!dbReady ? (
+              <p className="muted analysis-db-boot">Загрузка базы…</p>
+            ) : null}
             <StrategyAnalysisPanel
               strategyId={strategyId}
               strategyRevision={revision + dedupeBump}
@@ -391,7 +389,7 @@ export default function AnalysisPage() {
               backgroundJobMode
               dayFilter={dayFilter}
             />
-            {sessionDays.length > 0 && !waiting ? (
+            {dbReady && sessionDays.length > 0 && !waiting ? (
               <div className="analysis-day-after-report">
                 <div className="analysis-day-icon-wrap" ref={dayMenuRef}>
                   <button

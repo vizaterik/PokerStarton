@@ -13654,9 +13654,14 @@ body.confirm-open #root {
 
 .mwb-window.is-editing {
   border-width: 2px;
-  border-color: rgba(255, 255, 255, 0.45) !important;
-  box-shadow: none !important;
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: none;
   background: linear-gradient(180deg, #1a1f28 0%, #12161c 100%);
+}
+
+/* Locked seat whose range is open for paint — keep action color, soft ring only */
+.mwb-window.is-paint-target:not(.mwb-status-active) {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
 .mwb-window.is-editing .mwb-seat {
@@ -13696,17 +13701,17 @@ body.confirm-open #root {
   font-weight: 650 !important;
 }
 
-/* Active actor: larger neutral frame — no action color */
+/* Active actor: larger neutral frame — opponent to act («Ход») */
 .mwb-window.mwb-status-active {
   opacity: 1;
-  z-index: 2;
+  z-index: 3;
   min-height: 0;
   padding: 0.5rem 0.5rem 0.45rem;
   transform: none;
   border-width: 2px;
-  border-color: rgba(255, 255, 255, 0.42);
-  background: linear-gradient(180deg, #1a1f28 0%, #12161c 100%);
-  box-shadow: none;
+  border-color: rgba(255, 255, 255, 0.78);
+  background: linear-gradient(180deg, #222833 0%, #151a22 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
 .mwb-window.mwb-status-active .mwb-seat {

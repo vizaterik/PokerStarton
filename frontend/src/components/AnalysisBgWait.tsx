@@ -108,10 +108,15 @@ export default function AnalysisBgWait({
   }, [job.progress, job.status]);
 
   const progressHands = pendingHands ?? job.hands;
+  const busy = job.status === "uploading" || job.status === "running";
+  // Never paint a fake idle «analysis» chrome.
+  if (!busy && job.status !== "error" && job.status !== "done") {
+    return uploadBlock ? <>{uploadBlock}</> : null;
+  }
+
   const pct = Math.min(100, Math.round(displayPct));
   const barPct = Math.min(100, displayPct);
   const title = titleFor(job);
-  const busy = job.status === "uploading" || job.status === "running";
   const activeLabel =
     job.error ||
     (job.status === "done"
