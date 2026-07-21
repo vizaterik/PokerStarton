@@ -808,27 +808,34 @@ export default function StrategyAnalysisPanel({
     const { signal } = controller;
     const isStale = () => signal.aborted || runId !== runGenRef.current;
 
-    // Paint last HUD immediately — strategy deviations hydrate on Strategies tab.
+    // Paint last HUD immediately — ignore empty/stale 0-hand cache (IDB may still have rows).
     const peekHud = peekAnalysisHud(strategyId);
-    if (peekHud) {
+    const peekHands = peekHud
+      ? Math.max(peekHud.handTotal || 0, peekHud.analysis?.hands || 0)
+      : 0;
+    if (peekHud && peekHands > 0) {
       setData(peekHud.analysis);
-      setHandTotal(peekHud.handTotal || peekHud.analysis.hands);
+      setHandTotal(peekHands);
       setLoading(false);
       setDevsLoading(false);
       if (!backgroundJobMode) {
         const full = peekAnalysisCache(strategyId);
         if (full) applyCached(full, { withStrategy: true });
       }
-    } else if (!backgroundJobMode) {
+    } else {
       setLoading(true);
       setDevsLoading(true);
-      setData(null);
-      setDevs(null);
-      setStrategySpots([]);
-      setMissingSpots([]);
-      setSelectedChartKey(null);
-      setSelectedHand(null);
-      setErrorFilter({});
+      if (!peekHud || peekHands < 1) {
+        setData(null);
+      }
+      if (!backgroundJobMode) {
+        setDevs(null);
+        setStrategySpots([]);
+        setMissingSpots([]);
+        setSelectedChartKey(null);
+        setSelectedHand(null);
+        setErrorFilter({});
+      }
     }
 
     void (async () => {
@@ -837,11 +844,14 @@ export default function StrategyAnalysisPanel({
         if (backgroundJobMode) {
           // Day filter → always rebuild from stacked DB (cache is all-days).
           const filtered = dayFilter != null;
-          if (!filtered) {
+          if (!filtered && peekHands > 0) {
             const hud = peekAnalysisHud(strategyId);
-            if (hud && !isStale()) {
+            const n = hud
+              ? Math.max(hud.handTotal || 0, hud.analysis?.hands || 0)
+              : 0;
+            if (hud && n > 0 && !isStale()) {
               setData(hud.analysis);
-              setHandTotal(hud.handTotal || hud.analysis.hands);
+              setHandTotal(n);
               setLoading(false);
               setDevsLoading(false);
               return;
@@ -854,13 +864,28 @@ export default function StrategyAnalysisPanel({
             const rows = await listHandsForStrategy(strategyId, handsOpts);
             if (isStale()) return;
             if (rows.length > 0) {
+              // Drop stale 0-hand cache so restore can rewrite it.
+              if (peekHands < 1) clearAnalysisCache(strategyId);
               setHandTotal(rows.length);
               await restoreLocalSessionReport(strategyId, handsOpts);
               if (isStale()) return;
               const restoredHud = peekAnalysisHud(strategyId);
-              if (restoredHud) {
+              if (restoredHud && (restoredHud.handTotal || restoredHud.analysis.hands) > 0) {
                 setData(restoredHud.analysis);
-                setHandTotal(restoredHud.handTotal || restoredHud.analysis.hands);
+                setHandTotal(
+                  restoredHud.handTotal || restoredHud.analysis.hands || rows.length,
+                );
+                setLoading(false);
+                setDevsLoading(false);
+                return;
+              }
+              // Fallback: restore wrote nothing usable — still show row count path.
+              const again = await restoreLocalSessionReport(strategyId, handsOpts);
+              if (isStale()) return;
+              const hud2 = peekAnalysisHud(strategyId);
+              if (hud2) {
+                setData(hud2.analysis);
+                setHandTotal(hud2.handTotal || hud2.analysis.hands || again?.hands || rows.length);
                 setLoading(false);
                 setDevsLoading(false);
                 return;
@@ -878,7 +903,7 @@ export default function StrategyAnalysisPanel({
           if (!isStale()) {
             setLoading(false);
             setDevsLoading(false);
-            if (!peekHud) {
+            if (peekHands < 1) {
               setData(null);
               setDevs(null);
             }

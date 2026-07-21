@@ -250,7 +250,7 @@ export default function AnalysisPage() {
         if (prev == null) return all.filter((d) => d !== day);
         if (prev.includes(day)) {
           const next = prev.filter((d) => d !== day);
-          if (next.length === 0) return [];
+          if (next.length === 0) return null;
           if (next.length === all.length) return null;
           return next;
         }
@@ -264,7 +264,11 @@ export default function AnalysisPage() {
 
   const selectAllDays = useCallback(() => setSelectedDays(null), []);
 
-  const dayFilter = useMemo(() => selectedDays, [selectedDays]);
+  /** null = all days; never pass [] (that forced an empty 0-hand report). */
+  const dayFilter = useMemo(() => {
+    if (selectedDays == null) return null;
+    return selectedDays.length > 0 ? selectedDays : null;
+  }, [selectedDays]);
   const filteredHands = useMemo(() => {
     if (selectedDays == null) return localHands;
     return sessionDays
